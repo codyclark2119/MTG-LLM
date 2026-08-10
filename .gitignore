@@ -1,0 +1,9 @@
+mlx_env/
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+
+# large downloaded/converted model weights and checkpoints
+models/*
+!models/.gitkeep
