@@ -7,3 +7,6 @@ __pycache__/
 # large downloaded/converted model weights and checkpoints
 models/*
 !models/.gitkeep
+
+# regenerable vector index (rebuild with: python scripts/rag.py index)
+data/processed/chunk_embeddings.npz

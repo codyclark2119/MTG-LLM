@@ -6,6 +6,22 @@ This walkthrough covers everything from base model selection through ingesting t
 
 ---
 
+## Status (as of 2026-08-10)
+
+**Phase 1 (Rules Foundation):**
+
+- [x] Repository and MLX toolchain initialized (Section 2)
+- [x] Comprehensive Rules corpus acquired, pinned to the 2026-08-07 release (Section 3)
+- [x] Rules parsed into structured section/rule/subrule records; chunked for retrieval and training with reference-aware bundling and glossary injection (Sections 4–5)
+- [x] RAG baseline stood up over the chunks — `mlx-community/all-MiniLM-L6-v2-4bit` embeddings, brute-force cosine retrieval (Section 6)
+- [x] SFT dataset generated via RAG-grounded, category-balanced question/answer synthesis over `mlx-community/Qwen2.5-7B-Instruct-4bit` (Section 7) — ~700 examples across all 8 categories from 7.1, split into `data/datasets/train.jsonl` / `valid.jsonl` and a held-out `eval/rules_questions.jsonl`
+- [ ] Fine-tuning (Section 8) — not started
+- [ ] Evaluation against the RAG-only and base-model baselines (Section 9) — not started
+
+**Phase 2 (Card Data):** kickoff started early, ahead of finishing Phase 1 fine-tuning/eval — see Section 13. Standard-legal card data acquisition (the smallest current format pool) is in progress via the Scryfall API.
+
+---
+
 ## 0. Scope and Guiding Principles
 
 Before touching a model, be clear about what "understand Magic" means for Phase 1.
@@ -99,13 +115,18 @@ Requires Python 3.10+ and a recent macOS. No CUDA toolkit, no driver juggling.
 mtg-llm/
 ├── data/
 │   ├── raw/           # Original rules documents
-│   ├── processed/     # Cleaned, chunked rules
-│   └── datasets/      # Final training JSONL
+│   ├── processed/     # Cleaned, chunked rules + RAG index
+│   ├── datasets/      # Final training JSONL (train/valid)
+│   └── cards/         # Phase 2: Scryfall card pulls (Section 13)
+│       ├── raw/       # Format-scoped snapshots, e.g. standard_cards.jsonl
+│       └── processed/
 ├── scripts/
-│   ├── ingest.py      # Rules → clean text
-│   ├── chunk.py       # Chunking + cross-refs
-│   ├── build_sft.py   # Generate training examples
-│   └── eval.py        # Rules comprehension eval
+│   ├── ingest.py       # Rules → structured records
+│   ├── chunk.py        # Chunking + cross-refs
+│   ├── rag.py           # Embed chunks, retrieve at query time
+│   ├── build_sft.py    # Generate training examples via RAG-grounded synthesis
+│   ├── eval.py          # Rules comprehension eval
+│   └── fetch_cards.py  # Phase 2: pull a format's legal card pool from Scryfall
 ├── configs/
 │   └── phase1_lora.yaml   # mlx_lm.lora settings
 ├── models/            # Adapters / checkpoints
@@ -367,6 +388,51 @@ You're ready to move on when the model can, without card data:
 
 ---
 
-## 12. What Comes Next (Preview — Not This Pass)
+## 12. What Comes Next
 
-The following phase begins card data ingestion: structured card representations, mapping card text to the rules mechanics learned here, deck-list handling, and eventually game-state tracking for text-based play with provided decks. That work builds directly on the rules foundation established above — which is exactly why we established it first.
+Phase 2 begins card data ingestion: structured card representations, mapping card text to the rules mechanics learned here, deck-list handling, and eventually game-state tracking for text-based play with provided decks. That work builds directly on the rules foundation established above — which is exactly why we established it first.
+
+Kickoff on the data-acquisition side has started early (Section 13) while Phase 1 fine-tuning and evaluation (Sections 8–9) are still outstanding — pulling card data doesn't depend on the adapter being trained, so there's no reason to block one on the other.
+
+---
+
+## 13. Phase 2 Kickoff: Card Data Acquisition
+
+This section covers only the first step of Phase 2 — getting real card data onto disk. Card-to-rules mapping, deck-list handling, and game-state tracking (the rest of Phase 2) are still ahead.
+
+### 13.1 Source
+
+Card data comes from the **Scryfall REST API** (`api.scryfall.com`), a free, no-auth-required public API with comprehensive, actively-maintained Magic card data. Two ways to pull from it:
+
+- **Bulk data downloads** — full database dumps (all ~30,000+ unique cards across Magic's history,100+ MB). Best for eventually building the complete card corpus.
+- **`/cards/search` endpoint** — paginated, query-filtered results (175 cards/page). Best for pulling a scoped subset, like one format's legal pool, without downloading everything else first.
+
+> **Important:** as with the Comprehensive Rules (Section 3.1), card text and templating are Wizards of the Coast IP. Scryfall's API terms ask for attribution ("Data courtesy of Scryfall") and restrict bulk commercial redistribution — confirm your intended use is covered before publishing anything built on this data.
+
+**API etiquette:** every request needs a descriptive `User-Agent` and `Accept` header (missing/generic headers get throttled); stay under Scryfall's documented 10 requests/second guidance; back off 30 seconds on an HTTP 429 before retrying.
+
+### 13.2 Format-scoped rollout strategy
+
+Rather than pulling the entire card database up front, start with the **smallest actively-legal format pool** to validate the ingestion pipeline cheaply, then widen the net:
+
+| Order | Format | Why |
+| ----- | ------ | --- |
+| **1 (start here)** | **Standard** | Smallest currently-legal pool — cheapest way to prove out schema, storage, and downstream processing before committing to a bigger pull |
+| 2 | Pioneer | Meaningfully larger (all Standard-legal sets since 2012), next natural step up |
+| 3 | Modern | Larger still (back to 2003), broader templating history to handle |
+| 4 | Legacy/Vintage/full database | Everything, including reserved-list cards, un-sets, and the oldest templating conventions — do this last since it's the biggest surface area for parsing edge cases |
+
+Standard is fetched via `/cards/search?q=legal:standard`, which correctly reflects real tabletop legality (Arena-only digital rebalances aren't paper-legal and are excluded automatically — no extra filtering needed).
+
+### 13.3 Versioning
+
+Like the Comprehensive Rules, a format's legal pool is a moving target — Standard rotates roughly yearly and cards get banned/unbanned between rotations. Every pull is a **point-in-time snapshot**: record the fetch timestamp and card count in a manifest alongside the data, and re-fetch (with a new dated manifest) before relying on it for anything legality-sensitive. Don't silently overwrite an old snapshot without updating its manifest.
+
+### 13.4 What's deliberately deferred
+
+Out of scope for this kickoff, still ahead in Phase 2 proper:
+
+- Cleaning/normalizing the raw Scryfall JSON into a project-specific card schema
+- Mapping card text to the rules mechanics learned in Phase 1 (e.g. resolving a card's keyword abilities to their Section 702 definitions)
+- Deck-list handling and legality validation
+- Game-state tracking for text-based play
