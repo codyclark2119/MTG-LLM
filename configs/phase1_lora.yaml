@@ -1,0 +1,31 @@
+# mlx_lm.lora settings for the Phase 1 rules-comprehension adapter.
+# Starting hyperparameters per README Section 8.3, tuned for 36GB unified
+# memory (comfortable headroom for a 7-8B 4-bit QLoRA fine-tune).
+#
+# Usage: mlx_env/bin/python3 -m mlx_lm lora -c configs/phase1_lora.yaml
+
+model: mlx-community/Qwen2.5-7B-Instruct-4bit
+train: true
+data: ./data/datasets
+adapter_path: ./models/mtg-rules-adapter
+
+fine_tune_type: lora
+num_layers: 16          # Section 8.3: good-quality adapter starting point on 7-8B
+lora_parameters:
+  rank: 16               # Section 8.3: rank 16-32 range; start at the lower bound
+  dropout: 0.0
+  scale: 20.0            # MLX's own tuned default (applied directly, not alpha/rank)
+
+batch_size: 4
+iters: 600
+learning_rate: 1.0e-4
+max_seq_length: 2048
+
+# Our valid.jsonl is only 71 examples — use all of it each eval rather than
+# the default 25-batch subsample.
+val_batches: -1
+steps_per_report: 10
+steps_per_eval: 50
+save_every: 100
+
+seed: 42

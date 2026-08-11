@@ -58,14 +58,18 @@ def build_index(chunks_path: Path, index_path: Path) -> None:
 
 
 def retrieve(
-    query: str, k: int, chunks_path: Path = CHUNKS_PATH, index_path: Path = INDEX_PATH
+    query: str, k: int, chunks_path: Path = CHUNKS_PATH, index_path: Path = INDEX_PATH,
+    model_and_tokenizer: tuple | None = None,
 ) -> list[dict]:
     if not index_path.exists():
         raise FileNotFoundError(f"{index_path} not found — run `python scripts/rag.py index` first")
     stored = np.load(index_path, allow_pickle=True)
     embeddings, chunk_ids = stored["embeddings"], stored["chunk_ids"]
 
-    model, tokenizer = load(MODEL_ID)
+    # Loading the embedding model takes real time, so callers doing many
+    # retrievals in a loop (e.g. build_reddit_eval.py) should load it once
+    # and pass it in rather than paying that cost on every call.
+    model, tokenizer = model_and_tokenizer if model_and_tokenizer else load(MODEL_ID)
     query_vec = embed_texts(model, tokenizer, [query])[0]
     query_vec = query_vec / np.linalg.norm(query_vec)
 
