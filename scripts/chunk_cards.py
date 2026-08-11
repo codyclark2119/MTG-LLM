@@ -1,0 +1,169 @@
+"""Turn a Scryfall card pool into retrieval chunks linked to the rules.
+
+Phase 2 prep (README Section 13). Each card becomes one self-contained
+chunk — cards are already small and semantically atomic, so the
+overflow//bundling machinery that rules chunking needs (Section 5) doesn't
+apply here.
+
+The part that matters for this project is the **rules bridge**: Scryfall
+tags each card with the keywords it uses, and the CR stores keyword
+definitions under rule headers whose text is just the keyword name
+("702.33. Kicker"). That lets every card carry the rule IDs governing its
+own mechanics, which is exactly the "map card text to the rules mechanics
+learned in Phase 1" step Section 12 describes — and it means a card
+retrieved for a question can be traced back into the rules corpus.
+
+Ability words (Landfall, Delirium) and token types (Treasure, Food)
+deliberately do NOT resolve: rule 207.2c says ability words have no rules
+meaning, so there is no rule to point at. ~84% of keyword *instances* on
+Standard cards resolve; the remainder are these by-design misses.
+
+Written to a SEPARATE output/index from the rules chunks so it can be
+evaluated as its own arm rather than silently changing the rules-only
+retrieval baseline mid-experiment.
+
+Usage:
+    python scripts/chunk_cards.py [--cards PATH] [--out PATH]
+"""
+
+import argparse
+import json
+import re
+from pathlib import Path
+
+CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
+KEYWORD_RULE_RE = re.compile(r"70[12]\.\d+")
+
+# Scryfall's oracle dump includes entries that aren't playable cards. They
+# carry names and text that would otherwise compete with real cards during
+# retrieval, so they're dropped rather than embedded.
+EXCLUDED_LAYOUTS = {"art_series", "token", "double_faced_token", "emblem"}
+EXCLUDED_SET_TYPES = {"memorabilia", "token"}
+
+
+def is_playable(card: dict) -> bool:
+    return (
+        card.get("layout") not in EXCLUDED_LAYOUTS
+        and card.get("set_type") not in EXCLUDED_SET_TYPES
+    )
+
+
+def build_keyword_rule_map(rules_path: Path, glossary_path: Path) -> dict[str, str]:
+    """keyword name (lowercased) -> the rule ID defining it.
+
+    Primary source is the CR's own keyword rule headers, which parse into
+    records whose text is just the keyword name. The glossary is a fallback
+    for keywords whose header didn't survive as a clean record.
+    """
+    mapping: dict[str, str] = {}
+    with rules_path.open(encoding="utf-8") as f:
+        for line in f:
+            r = json.loads(line)
+            if KEYWORD_RULE_RE.fullmatch(r["rule_id"]):
+                text = r["text"].strip().rstrip(".")
+                if len(text) < 60 and "\n" not in text:
+                    mapping.setdefault(text.lower(), r["rule_id"])
+
+    with glossary_path.open(encoding="utf-8") as f:
+        for line in f:
+            g = json.loads(line)
+            term = g["term"].lower()
+            if term in mapping:
+                continue
+            refs = CROSS_REF_RE.findall(g["definition"])
+            if refs:
+                mapping[term] = refs[0]
+    return mapping
+
+
+def face_lines(face: dict) -> list[str]:
+    lines = [face["name"]]
+    if face.get("mana_cost"):
+        lines[0] += f"  {face['mana_cost']}"
+    if face.get("type_line"):
+        lines.append(face["type_line"])
+    if face.get("oracle_text"):
+        lines.append(face["oracle_text"])
+    if face.get("power") is not None and face.get("toughness") is not None:
+        lines.append(f"{face['power']}/{face['toughness']}")
+    if face.get("loyalty") is not None:
+        lines.append(f"Loyalty: {face['loyalty']}")
+    if face.get("defense") is not None:
+        lines.append(f"Defense: {face['defense']}")
+    return lines
+
+
+def render_card(card: dict) -> str:
+    if "card_faces" in card:
+        # Split/transform/adventure cards: render each face, since a question
+        # about one face shouldn't retrieve text with the other face missing.
+        blocks = ["\n".join(face_lines(f)) for f in card["card_faces"]]
+        body = "\n//\n".join(blocks)
+    else:
+        body = "\n".join(face_lines(card))
+    footer = f"({card.get('set_name', '?')}, {card.get('rarity', '?')})"
+    return f"{body}\n{footer}"
+
+
+def build_card_chunk(card: dict, keyword_rules: dict[str, str]) -> dict:
+    keywords = card.get("keywords", [])
+    linked = {k: keyword_rules[k.lower()] for k in keywords if k.lower() in keyword_rules}
+
+    text = render_card(card)
+    if linked:
+        text += "\n\nRules for this card's keywords:\n" + "\n".join(
+            f"- {kw}: see rule {rule_id}" for kw, rule_id in sorted(linked.items())
+        )
+
+    return {
+        "chunk_id": f"card:{card['name']}",
+        "kind": "card",
+        "name": card["name"],
+        "oracle_id": card.get("oracle_id"),
+        "type_line": card.get("type_line"),
+        "mana_cost": card.get("mana_cost"),
+        "cmc": card.get("cmc"),
+        "colors": card.get("color_identity", []),
+        "keywords": keywords,
+        "keyword_rule_ids": sorted(set(linked.values())),
+        "set_name": card.get("set_name"),
+        "rarity": card.get("rarity"),
+        "layout": card.get("layout"),
+        "scryfall_uri": card.get("scryfall_uri"),
+        "text": text,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--cards", type=Path, default=Path("data/cards/raw/standard_cards.jsonl"))
+    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
+    parser.add_argument("--glossary", type=Path, default=Path("data/processed/glossary.jsonl"))
+    parser.add_argument("--out", type=Path, default=Path("data/cards/processed/card_chunks.jsonl"))
+    args = parser.parse_args()
+
+    keyword_rules = build_keyword_rule_map(args.rules, args.glossary)
+    print(f"{len(keyword_rules)} keyword -> rule mappings available")
+
+    with args.cards.open(encoding="utf-8") as f:
+        raw = [json.loads(line) for line in f]
+    cards = [c for c in raw if is_playable(c)]
+    print(f"{len(raw)} entries, {len(cards)} playable after dropping tokens/art-series/memorabilia")
+
+    chunks = [build_card_chunk(c, keyword_rules) for c in cards]
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with args.out.open("w", encoding="utf-8") as f:
+        for c in chunks:
+            f.write(json.dumps(c, ensure_ascii=False) + "\n")
+
+    linked = sum(1 for c in chunks if c["keyword_rule_ids"])
+    with_kw = sum(1 for c in chunks if c["keywords"])
+    lengths = sorted(len(c["text"]) for c in chunks)
+    print(f"{len(chunks)} card chunks -> {args.out}")
+    print(f"  {with_kw} cards have keywords; {linked} carry at least one linked rule ID")
+    print(f"  chars per chunk: median {lengths[len(lengths) // 2]}, max {lengths[-1]} (~{lengths[-1] // 4} tokens)")
+
+
+if __name__ == "__main__":
+    main()

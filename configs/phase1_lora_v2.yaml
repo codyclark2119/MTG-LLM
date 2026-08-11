@@ -1,0 +1,63 @@
+# mlx_lm.lora settings for the Phase 1 adapter, run 2.
+#
+# Kept separate from phase1_lora.yaml so run 1 (Section 8.6) stays
+# reproducible — the two runs are the controlled comparison behind
+# Section 9.6, and only the dataset and schedule should differ.
+#
+# What changed vs. run 1, and why (all driven by the Section 9.5 result):
+#   - Dataset grew 569 -> 2,646 training lines, and now includes a
+#     RAG-format copy of every example whose grounding context is known.
+#     Run 1 trained only on bare question -> answer while the production
+#     architecture puts retrieved rules in the prompt; that mismatch is the
+#     leading suspect for the adapter ignoring retrieved context.
+#   - iters 600 -> 700. At batch size 4, one epoch is now ~662 iterations,
+#     so run 1's 600 would have been under a single pass over the new data.
+#     ~1 epoch is deliberately modest, since run 1 overfit hard by iter 200
+#     on far less data.
+#   - val_batches -1 -> 8, steps_per_eval 50 -> 150. The grounded examples
+#     carry a full rules chunk in the prompt, so they tokenize ~10x longer
+#     than run 1's bare Q&A: measured validation cost jumped from ~2.6s to
+#     ~23s per batch. At run 1's settings this run would have spent more
+#     wall-clock validating than training. 8 batches every 150 steps still
+#     locates the overfitting knee.
+#   - save_every 100 kept deliberately: a machine crash during the first
+#     attempt at this run lost everything because it died before iteration
+#     100, so checkpoints are the crash-recovery unit here.
+#
+# Usage: mlx_env/bin/python3 -m mlx_lm lora -c configs/phase1_lora_v2.yaml
+
+model: mlx-community/Qwen2.5-7B-Instruct-4bit
+train: true
+data: ./data/datasets
+adapter_path: ./models/mtg-rules-adapter-v2
+
+fine_tune_type: lora
+num_layers: 16
+lora_parameters:
+  rank: 16
+  dropout: 0.0
+  scale: 20.0
+
+# batch_size halved and gradient checkpointing enabled after the first two
+# v2 attempts drove peak memory to 65GB on a 36GB machine and hard-crashed
+# it twice. The underlying cause was oversized grounded examples (since
+# fixed in build_sft.py — see truncate_context), but these settings keep a
+# real margin rather than sitting just under the limit.
+# batch_size 2 is measured, not guessed: at these sequence lengths it peaks
+# at 9.2GB and sustains ~0.066 it/s. Raising it to 4 did not pay off — a
+# 20-iteration probe failed to report a single step in 10 minutes while
+# memory sat at 40% free with no swap, so the larger batch loses more to
+# per-step cost than it wins back in throughput here.
+batch_size: 2
+grad_checkpoint: true
+clear_cache_threshold: 8
+iters: 600
+learning_rate: 1.0e-4
+max_seq_length: 2048
+
+val_batches: 8
+steps_per_report: 10
+steps_per_eval: 150
+save_every: 100
+
+seed: 42
