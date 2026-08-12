@@ -35,6 +35,7 @@ Usage:
 
 import argparse
 import json
+import random
 import re
 import sys
 from pathlib import Path
@@ -54,6 +55,10 @@ SYSTEM_PROMPT = (
 RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
     " Use ONLY the provided rules text to answer; do not rely on outside knowledge."
 )
+CARDS_RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
+    " Use ONLY the provided card text and rules text to answer; do not rely on "
+    "outside knowledge. The card text is authoritative for what each named card does."
+)
 
 JUDGE_SYSTEM_PROMPT = (
     "You are an expert Magic: The Gathering rules judge grading AI-generated answers. "
@@ -64,6 +69,49 @@ JUDGE_SYSTEM_PROMPT = (
     "2 = mostly incorrect, 1 = wrong or fabricated (including a fabricated or "
     "contradicted rule citation). Output ONLY a JSON object mapping each system name "
     "to {\"score\": <1-5>, \"note\": \"<one short phrase>\"}. No other text."
+)
+
+# v2 judge. Section 9.6 measured a length bias in the prompt above: score
+# correlated with answer length at r = +0.21, and the four arms ranked by
+# score in exactly the order they ranked by verbosity. A near-verbatim
+# correct one-line answer was scored 4 "missing detail" while a longer
+# restatement of the same fact scored 5 — penalizing the fine-tuned model
+# for the concision its training data taught it.
+#
+# Two changes: correctness and citation validity are scored separately so a
+# right-but-terse answer can't be docked for thoroughness it was never asked
+# for, and length-neutrality is stated as an explicit rule rather than left
+# implicit. Candidates are also anonymized upstream (see judge_batch) so the
+# judge can't favor a system by name.
+JUDGE_SYSTEM_PROMPT_V2 = (
+    "You are an expert Magic: The Gathering rules judge grading answers.\n\n"
+    "You get a QUESTION, a REFERENCE ANSWER (treat as correct), and several "
+    "CANDIDATE answers labeled A, B, C, D. Score each candidate on two "
+    "independent 1-5 scales:\n\n"
+    "correctness — does it state the same ruling as the reference?\n"
+    "  5 = states the same ruling, no contradictions\n"
+    "  4 = same ruling, one small imprecision\n"
+    "  3 = partially right, or right but omits something the question asked for\n"
+    "  2 = mostly wrong\n"
+    "  1 = wrong, or contradicts the reference\n\n"
+    "citation — are the comprehensive-rule numbers it cites real and relevant?\n"
+    "  5 = cites a correct, relevant rule number\n"
+    "  3 = cites nothing at all\n"
+    "  1 = cites a rule number that is fabricated, wrong, or contradicts its own claim\n\n"
+    "CRITICAL SCORING RULES:\n"
+    "- Judge ONLY factual accuracy. Length, verbosity, tone, and formatting are "
+    "IRRELEVANT.\n"
+    "- A short answer that states the correct ruling is FULLY correct. Do NOT "
+    "deduct for brevity, for omitting background, or for 'missing detail' when "
+    "the ruling itself is right and complete.\n"
+    "- A long answer is not better for being long. Extra correct detail earns "
+    "nothing; extra INCORRECT detail must be penalized.\n"
+    "- If a candidate says the reference's rules text does not answer the "
+    "question, and that is true, score correctness 4-5 rather than penalizing "
+    "it for declining to guess.\n\n"
+    "Output ONLY a JSON object mapping each label to "
+    '{"correctness": <1-5>, "citation": <1-5>, "note": "<short phrase>"}. '
+    "No other text."
 )
 
 
@@ -111,11 +159,22 @@ def load_questions(synthetic_path: Path, reddit_path: Path, synthetic_limit: int
     return questions
 
 
-def build_prompt(tokenizer, question: str, context: str | None) -> str:
+def build_prompt(tokenizer, question: str, context: str | None, preformatted: bool = False) -> str:
     if context:
+        # `preformatted` marks context that already carries its own section
+        # headers (the hybrid card+rules builder emits "Cards referenced:" /
+        # "Rules text:"). Sniffing for a prefix instead of passing this
+        # explicitly silently double-labeled every no-card question as
+        # "Rules text:\nRules text:\n...", which showed up as a spurious
+        # -0.34 on questions whose context should have been identical.
+        body = context if preformatted else f"Rules text:\n{context}"
+        # The rules-only prompt says "use ONLY the provided rules text", which
+        # would instruct the model to ignore card text handed to it in the
+        # same turn — the exact unsatisfiable instruction Section 9.5 flagged.
+        system = CARDS_RAG_SYSTEM_PROMPT if "Cards referenced:" in context else RAG_SYSTEM_PROMPT
         messages = [
-            {"role": "system", "content": RAG_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Rules text:\n{context}\n\nQuestion: {question}"},
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"{body}\n\nQuestion: {question}"},
         ]
     else:
         messages = [
@@ -130,23 +189,48 @@ def retrieve_context(question: str, embed_model, k: int = 3) -> str:
     return "\n\n".join(h["text"] for h in hits)
 
 
-def generate_all_answers(questions: list[dict], embed_model, max_tokens: int, adapter_path_under_test: str) -> dict[str, list[str]]:
+def generate_all_answers(
+    questions: list[dict], embed_model, max_tokens: int, adapter_path_under_test: str,
+    with_cards: bool = False,
+) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
 
     answers: dict[str, list[str]] = {}
     contexts = [retrieve_context(q["question"], embed_model) for q in questions]
 
+    card_contexts = None
+    if with_cards:
+        # Card-augmented arms: rules retrieval unchanged, plus the cards the
+        # question actually names, resolved by lookup rather than embedding
+        # (see scripts/retrieve_hybrid.py for why they aren't merged).
+        from card_lookup import CardIndex
+        from retrieve_hybrid import build_context
+
+        print("loading card index for card-augmented arms ...")
+        card_index = CardIndex()
+        card_contexts = [
+            build_context(q["question"], card_index, embed_model=embed_model)["context"]
+            for q in questions
+        ]
+        named = sum(1 for c in card_contexts if c.startswith("Cards referenced:"))
+        print(f"  {named}/{len(questions)} questions had at least one card resolved")
+
     for arm_name, adapter_path in [("base", None), ("finetuned", adapter_path_under_test)]:
         print(f"loading model for arm(s) using adapter_path={adapter_path} ...")
         model, tokenizer = load_lm(BASE_MODEL_ID, adapter_path=adapter_path)
 
-        for use_rag, out_key in [(False, arm_name), (True, f"{arm_name}_rag")]:
+        # (contexts, arm name, whether that context is already section-labeled)
+        variants = [(contexts, f"{arm_name}_rag", False), (None, arm_name, False)]
+        if with_cards:
+            variants.append((card_contexts, f"{arm_name}_rag_cards", True))
+
+        for ctxs, out_key, preformatted in variants:
             print(f"generating arm: {out_key}")
             out = []
             for i, q in enumerate(questions, 1):
-                ctx = contexts[i - 1] if use_rag else None
-                prompt = build_prompt(tokenizer, q["question"], ctx)
+                ctx = ctxs[i - 1] if ctxs is not None else None
+                prompt = build_prompt(tokenizer, q["question"], ctx, preformatted)
                 out.append(lm_generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False))
                 if i % 25 == 0 or i == len(questions):
                     print(f"  {out_key}: {i}/{len(questions)}")
@@ -182,6 +266,121 @@ def judge_batch(lm_generate, judge_model, judge_tokenizer, question: str, refere
         return {}
 
 
+def judge_batch_anonymized(
+    lm_generate, judge_model, judge_tokenizer, question: str, reference: str,
+    candidates: dict[str, str], max_tokens: int, rng: random.Random,
+) -> dict:
+    """Score candidates behind randomized A/B/C/D labels.
+
+    The v1 judge saw real system names ("base", "finetuned_rag"), which
+    leaves it free to reward a name rather than an answer, and always in
+    the same order. Shuffling per question removes both the name signal and
+    any fixed position effect; scores are mapped back afterward.
+    """
+    arms = list(candidates)
+    rng.shuffle(arms)
+    labels = [chr(ord("A") + i) for i in range(len(arms))]
+    label_to_arm = dict(zip(labels, arms))
+
+    block = "\n\n".join(f"CANDIDATE {label}:\n{candidates[arm]}" for label, arm in label_to_arm.items())
+    user = f"QUESTION:\n{question}\n\nREFERENCE ANSWER:\n{reference}\n\n{block}"
+    messages = [
+        {"role": "system", "content": JUDGE_SYSTEM_PROMPT_V2},
+        {"role": "user", "content": user},
+    ]
+    prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
+
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end == -1:
+        return {}
+    try:
+        scored = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return {}
+
+    out = {}
+    for label, arm in label_to_arm.items():
+        entry = scored.get(label)
+        if isinstance(entry, dict):
+            out[arm] = entry
+    return out
+
+
+def rescore(args) -> None:
+    """Re-judge stored answers with the recalibrated judge.
+
+    Generation is by far the expensive half of this script, and the answers
+    being scored don't change when only the judge changes — so re-scoring
+    reads the previous results file instead of regenerating 440 answers.
+    """
+    from mlx_lm import generate as lm_generate
+    from mlx_lm import load as load_lm
+
+    with args.rescore_from.open(encoding="utf-8") as f:
+        results = [json.loads(line) for line in f]
+    print(f"re-scoring {len(results)} questions from {args.rescore_from}")
+
+    print(f"loading {BASE_MODEL_ID} as judge ...")
+    judge_model, judge_tokenizer = load_lm(BASE_MODEL_ID)
+    rng = random.Random(args.seed)
+
+    for i, r in enumerate(results, 1):
+        candidates = {arm: data["answer"] for arm, data in r["arms"].items()}
+        judged = judge_batch_anonymized(
+            lm_generate, judge_model, judge_tokenizer, r["question"], r["reference"],
+            candidates, args.judge_max_tokens, rng,
+        )
+        for arm, data in r["arms"].items():
+            entry = judged.get(arm, {})
+            data["correctness"] = entry.get("correctness")
+            data["citation_score"] = entry.get("citation")
+            data["judge_note_v2"] = entry.get("note")
+        if i % 20 == 0 or i == len(results):
+            print(f"  re-scored {i}/{len(results)}")
+
+    with args.out.open("w", encoding="utf-8") as f:
+        for r in results:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    arms = list(results[0]["arms"])
+    lines = ["# Section 9 Evaluation Report (recalibrated judge)\n"]
+    lines.append(
+        f"{len(results)} questions, re-scored from `{args.rescore_from.name}` with the v2 judge: "
+        "correctness and citation scored separately, length/style explicitly excluded, "
+        "candidates anonymized behind randomized A/B/C/D labels.\n"
+    )
+    lines.append("| Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |")
+    lines.append("| --- | --- | --- | --- |")
+    for arm in arms:
+        cs = [r["arms"][arm]["correctness"] for r in results if r["arms"][arm]["correctness"] is not None]
+        qs = [r["arms"][arm]["citation_score"] for r in results if r["arms"][arm]["citation_score"] is not None]
+        ln = [len(r["arms"][arm]["answer"]) for r in results]
+        c = sum(cs) / len(cs) if cs else float("nan")
+        q = sum(qs) / len(qs) if qs else float("nan")
+        lines.append(f"| {arm} | {c:.2f} (n={len(cs)}) | {q:.2f} | {sum(ln) / len(ln):.0f} |")
+
+    # The bias this recalibration targets: does score still track length?
+    pairs = [
+        (len(r["arms"][a]["answer"]), r["arms"][a]["correctness"])
+        for r in results for a in arms if r["arms"][a]["correctness"] is not None
+    ]
+    if len(pairs) > 2:
+        n = len(pairs)
+        mx = sum(p[0] for p in pairs) / n
+        my = sum(p[1] for p in pairs) / n
+        cov = sum((x - mx) * (y - my) for x, y in pairs) / n
+        sx = (sum((x - mx) ** 2 for x, _ in pairs) / n) ** 0.5
+        sy = (sum((y - my) ** 2 for _, y in pairs) / n) ** 0.5
+        r_len = cov / (sx * sy) if sx and sy else float("nan")
+        lines.append(f"\nCorrelation(answer length, correctness): **r = {r_len:+.3f}** "
+                     f"(v1 judge measured r = +0.21 against its single blended score).\n")
+
+    args.report_out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n" + "\n".join(lines))
+    print(f"\nresults -> {args.out}\nreport -> {args.report_out}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--synthetic", type=Path, default=Path("eval/rules_questions.jsonl"))
@@ -196,7 +395,15 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("eval/eval_results.jsonl"))
     parser.add_argument("--report-out", type=Path, default=Path("eval/EVAL_REPORT.md"))
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--with-cards", action="store_true",
+                        help="add {base,finetuned}_rag_cards arms using card-name lookup + rules retrieval")
+    parser.add_argument("--rescore-from", type=Path, default=None,
+                        help="re-judge stored answers from a previous results file instead of regenerating")
     args = parser.parse_args()
+
+    if args.rescore_from:
+        rescore(args)
+        return
 
     from mlx_embeddings import load as load_embedder
     from mlx_lm import generate as lm_generate
@@ -209,7 +416,7 @@ def main() -> None:
     print(f"loading {EMBED_MODEL_ID} for retrieval ...")
     embed_model = load_embedder(EMBED_MODEL_ID)
 
-    answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path)
+    answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path, args.with_cards)
     arm_names = list(answers.keys())
 
     # Consistency check: rerun a subset of finetuned_rag questions and see
@@ -228,10 +435,14 @@ def main() -> None:
     print(f"loading {BASE_MODEL_ID} (no adapter) as judge ...")
     judge_model, judge_tokenizer = load_lm(BASE_MODEL_ID)
 
+    judge_rng = random.Random(args.seed)
     results = []
     for i, q in enumerate(questions):
         candidates = {arm: answers[arm][i] for arm in arm_names}
-        judged = judge_batch(lm_generate, judge_model, judge_tokenizer, q["question"], q["reference"], candidates, args.judge_max_tokens)
+        judged = judge_batch_anonymized(
+            lm_generate, judge_model, judge_tokenizer, q["question"], q["reference"],
+            candidates, args.judge_max_tokens, judge_rng,
+        )
 
         per_arm = {}
         for arm in arm_names:
@@ -240,7 +451,9 @@ def main() -> None:
             per_arm[arm] = {
                 "answer": candidates[arm],
                 "citation": citation,
-                "judge_score": judge_result.get("score"),
+                "correctness": judge_result.get("correctness"),
+                "citation_score": judge_result.get("citation"),
+                "judge_score": judge_result.get("correctness"),
                 "judge_note": judge_result.get("note"),
             }
 
