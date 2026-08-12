@@ -1,0 +1,28 @@
+Question ID: 76
+Infractions: GPE-GRV, GPE-FMGS
+Cards: Bone to Ash, Monastery Siege
+Description: 
+	Algenon casts a Monestary Siege. Nigel responds with a Bone to Ash, countering the Siege and drawing a card. Algenon then double-checks Bone to Ash and points out that it can only target creature spells and calls a judge.
+Answer: 
+	Nigel receives a Game Rule Violation warning and Algenon receives a Failure to Maintain Game State warning. Back up to the casting of Bone to Ash by putting a random card from Nigel's hand on top of Nigel's library. Do not reveal the hand to apply the HCE fix since the root cause was the GRV of casting the Bone to Ash
+
+Question ID: 63
+Infractions: GPE-GRV
+Cards: Sphinx's Revelation
+Description: 
+	Nimitz has 3 cards including a Sphinx's Revelation in hand. He has 7 mana including two Islands and a Plains untapped. Andrew controls some lands. We are in Andrew's end step.
+
+Nimitz says ``Revelation for 4" and draws four cards, then untaps and draws. At this point Andrew says ``shouldn't Sphinx's Revelation be in the graveyard?  ". Nimitz says ``Oops, yes" and puts a Sphinx's Revelation into the graveyard. Andrew calls the judge.
+
+Upon questioning Andrew will admit that he did see Nimitz show the Revelation before drawing the cards.
+Answer: 
+	Nimitz receives a Game Rule Violation Warning. The game state has already been corrected.
+
+Question ID: 64
+Infractions: NO
+Cards: Karn Liberated
+Description: 
+	Ant and Ned are unsideboarding after the match. Ant discovers that the Karn Liberated in his sideboard is still a proxy.
+Answer: 
+	There is no penalty. While it's true that Ant did present an illegal deck in
+Game 2, despite him admitting to it, we have no proof.

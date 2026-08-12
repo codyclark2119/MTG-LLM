@@ -1,0 +1,222 @@
+"""Validate the judge-authored gold set and convert it to eval format.
+
+The gold set is the only human-authored data in the project, so mistakes
+in it are expensive: a wrong rule citation here silently becomes the
+"correct" answer everything else is scored against. This checks the parts
+a machine can check — rule IDs resolve against the pinned CR, card names
+resolve against the Oracle pool, categories are spelled the way the rest
+of the pipeline expects, ids are unique — and reports rows by id so they
+can be handed straight back to a contributor.
+
+It also converts to the record shape scripts/eval.py consumes, expanding
+`paraphrases` into their own eval rows that share the source question's
+rubric (see data/gold/SCHEMA.md).
+
+Usage:
+    python scripts/validate_gold.py
+    python scripts/validate_gold.py --to-eval
+    python scripts/validate_gold.py --from-csv intake.csv   # judge spreadsheet -> jsonl
+"""
+
+import argparse
+import csv
+import json
+import re
+import sys
+from pathlib import Path
+
+CROSS_REF_RE = re.compile(r"^\d{3}\.\d+[a-z]?$")
+CATEGORIES = {
+    "definition recall",
+    "turn-structure walkthrough",
+    "priority reasoning",
+    "interaction puzzle",
+    "state-based actions",
+    "zone transition",
+    "layer-system question",
+    "templating/keyword meaning",
+}
+DIFFICULTIES = {"basic", "intermediate", "advanced"}
+REQUIRED = ["id", "question", "answer", "key_points", "rule_citations", "category", "difficulty", "source", "cr_version"]
+LIST_FIELDS = ["paraphrases", "key_points", "common_errors", "rule_citations", "cards"]
+
+SYSTEM_PROMPT = (
+    "You are a Magic: The Gathering rules expert. Answer precisely and "
+    "cite comprehensive rule numbers."
+)
+
+
+def from_csv(csv_path: Path, out_path: Path) -> None:
+    """Convert a judge-filled spreadsheet to JSONL.
+
+    Semicolons separate list items — commas appear inside card names and
+    rules prose too often to be safe as a delimiter.
+    """
+    rows = []
+    with csv_path.open(encoding="utf-8-sig", newline="") as f:
+        for raw in csv.DictReader(f):
+            rec = {}
+            for k, v in raw.items():
+                if k is None:
+                    continue
+                key = k.strip()
+                val = (v or "").strip()
+                if key in LIST_FIELDS:
+                    rec[key] = [p.strip() for p in val.split(";") if p.strip()]
+                elif val:
+                    rec[key] = val
+            if rec.get("id"):
+                rows.append(rec)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(f"converted {len(rows)} rows -> {out_path}")
+
+
+def validate(records: list[dict], valid_rule_ids: set[str], card_index) -> list[str]:
+    problems: list[str] = []
+    seen_ids: set[str] = set()
+
+    for i, r in enumerate(records, 1):
+        rid = r.get("id") or f"<row {i}, no id>"
+
+        for field in REQUIRED:
+            if not r.get(field):
+                problems.append(f"[{rid}] missing required field: {field}")
+
+        if r.get("id"):
+            if r["id"] in seen_ids:
+                problems.append(f"[{rid}] duplicate id")
+            seen_ids.add(r["id"])
+
+        for field in LIST_FIELDS:
+            if field in r and not isinstance(r[field], list):
+                problems.append(f"[{rid}] {field} must be a list")
+
+        cat = r.get("category")
+        if cat and cat not in CATEGORIES:
+            problems.append(f"[{rid}] unknown category {cat!r} (expected one of: {', '.join(sorted(CATEGORIES))})")
+
+        diff = r.get("difficulty")
+        if diff and diff not in DIFFICULTIES:
+            problems.append(f"[{rid}] difficulty must be one of {sorted(DIFFICULTIES)}, got {diff!r}")
+
+        for rule in r.get("rule_citations", []) or []:
+            if not CROSS_REF_RE.match(rule):
+                problems.append(f"[{rid}] malformed rule id {rule!r} (expected like 704.5g)")
+            elif rule not in valid_rule_ids:
+                problems.append(f"[{rid}] rule {rule} does not exist in the pinned CR — check the number")
+
+        if card_index is not None:
+            for name in r.get("cards", []) or []:
+                card, how = card_index.resolve(name)
+                if card is None:
+                    problems.append(f"[{rid}] card {name!r} did not resolve ({how})")
+                elif how != "exact":
+                    problems.append(f"[{rid}] card {name!r} resolved only via {how} -> {card['name']!r}; use the exact name")
+
+        kp = r.get("key_points") or []
+        if kp and len(kp) < 2:
+            problems.append(f"[{rid}] only {len(kp)} key_point — rubric scoring needs at least 2 to be meaningful")
+
+    return problems
+
+
+def to_eval_records(records: list[dict]) -> list[dict]:
+    out = []
+    for r in records:
+        # Each paraphrase becomes its own eval row sharing the rubric, so
+        # wording robustness is measured without re-authoring judgement.
+        for variant, q in enumerate([r["question"], *(r.get("paraphrases") or [])]):
+            out.append(
+                {
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": q},
+                        {"role": "assistant", "content": r["answer"]},
+                    ],
+                    "source": f"gold:{r['source']}",
+                    "gold_id": r["id"],
+                    "variant": "canonical" if variant == 0 else f"paraphrase-{variant}",
+                    "category": r["category"],
+                    "difficulty": r["difficulty"],
+                    "key_points": r.get("key_points", []),
+                    "common_errors": r.get("common_errors", []),
+                    "supporting_rule_ids": r.get("rule_citations", []),
+                    "cited_rule_ids": r.get("rule_citations", []),
+                    "retrieved_rule_ids": [],
+                    "cards": r.get("cards", []),
+                    "cr_version": r["cr_version"],
+                }
+            )
+    return out
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--gold", type=Path, default=Path("data/gold/gold_questions.jsonl"))
+    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
+    parser.add_argument("--from-csv", type=Path, default=None, help="convert a judge spreadsheet to JSONL first")
+    parser.add_argument("--to-eval", action="store_true", help="write eval-format records")
+    parser.add_argument("--eval-out", type=Path, default=Path("eval/gold_questions.eval.jsonl"))
+    parser.add_argument("--skip-cards", action="store_true", help="skip card-name validation (faster)")
+    args = parser.parse_args()
+
+    if args.from_csv:
+        from_csv(args.from_csv, args.gold)
+
+    if not args.gold.exists():
+        print(f"{args.gold} does not exist yet — see data/gold/SCHEMA.md", file=sys.stderr)
+        sys.exit(1)
+
+    with args.gold.open(encoding="utf-8") as f:
+        records = [json.loads(line) for line in f if line.strip()]
+    if not records:
+        print(f"{args.gold} is empty", file=sys.stderr)
+        sys.exit(1)
+
+    valid_rule_ids = {json.loads(l)["rule_id"] for l in args.rules.open(encoding="utf-8")}
+
+    card_index = None
+    if not args.skip_cards and any(r.get("cards") for r in records):
+        sys.path.insert(0, str(Path(__file__).parent))
+        from card_lookup import CardIndex
+
+        card_index = CardIndex()
+
+    problems = validate(records, valid_rule_ids, card_index)
+
+    from collections import Counter
+
+    cats = Counter(r.get("category") for r in records)
+    diffs = Counter(r.get("difficulty") for r in records)
+    n_para = sum(len(r.get("paraphrases") or []) for r in records)
+
+    print(f"{len(records)} gold records ({n_para} paraphrases -> {len(records) + n_para} eval rows)")
+    print("by category:")
+    for c in sorted(CATEGORIES):
+        n = cats.get(c, 0)
+        flag = "  <- under target (8)" if n < 8 else ""
+        print(f"  {c}: {n}{flag}")
+    print("by difficulty:", dict(diffs))
+
+    if problems:
+        print(f"\n{len(problems)} problem(s):", file=sys.stderr)
+        for p in problems:
+            print(f"  - {p}", file=sys.stderr)
+        sys.exit(1)
+
+    print("\nvalidation passed")
+
+    if args.to_eval:
+        rows = to_eval_records(records)
+        args.eval_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.eval_out.open("w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        print(f"{len(rows)} eval rows -> {args.eval_out}")
+
+
+if __name__ == "__main__":
+    main()

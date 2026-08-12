@@ -1,0 +1,190 @@
+Question
+"Amy casts Assassin's Trophy targeting Nihil Spellbomb. Nico searches for a Snow-Covered Swamp and wants to tap it to pay for the triggered ability of Nihil Spellbomb. Can they do this?"
+Answer
+"Yes. Assassin's Trophy will resolve completely before Nihil Spellbomb's trigger is placed onto the stack (603.3,117.2a). The payment of {b} is made as the trigger resolves. (603.5)"
+Cards Mentioned:
+[Assassin's Trophy, Nihil Spellbomb, Snow-Covered Swamp]
+
+
+Question:
+"Adaline casts Seasoned Pyromancer and has two other cards in hand, one of which is a land card. Nehemiah controls Leyline of the Void. How many tokens are created?"
+Answer:
+"One token is created. The cards discarded from hand can still be seen by Seasoned Pyromancer's effect even though going to the graveyard was replaced by going to exile. (400.7j, 701.9a)"
+Cards Mentioned:
+[Seasoned Pyromancer, Leyline of the Void]
+
+
+Question:
+"Aubree has Murderous Rider in their graveyard. Can they flash back Murderous Rider's Adventure with Flashback?"
+Answer:
+"No. An Adventure defines alternative characteristics the card can have when cast as an Adventure. (715.2) Adventurer cards only have their normal characteristics in every zone other than the stack (715.4), so it's not a legal target for Flashback."
+Cards Mentioned:
+[Murderous Rider, Flashback]
+
+
+Question:
+"Nylah controls Urborg, Tomb of Yawgmoth. Alex controls no lands and plays Castle Locthwain. Does it enter tapped or untapped?"
+Answer:
+"Tapped. The game determines how replacement effects apply before the event in question occurs (614.4), and at that time, Alex controls no Swamps.
+
+(614.12 means that the game considers the Castle Locthwain to be a Swamp itself for these purposes, but it's not on the battlefield yet, so this doesn't matter.)"
+Cards Mentioned:
+['Urborg, Tomb of Yawgmoth', Castle Locthwain]
+
+
+Question:
+"Armando controls Leyline of the Guildpact and casts Magus of the Moon. What are the characteristics of Snow-Covered Plains, Gloomlake Verge, Dryad Arbor, and Wastes after Magus of the Moon resolves?"
+Answer:
+"Snow-Covered Plains and Wastes have all basic land subtypes: "Plains", "Island", "Swamp", "Mountain", and "Forest". (305.6) Leyline of the Guildpact doesn't change supertypes and Magus of the Moon affects nonbasic lands. (305.7)
+
+Gloomlake Verge has subtype Mountain. (305.7) There are no dependencies between Leyline of the Guildpact and Magus of the Moon, so we apply the type-changing effects in timestamp order. (613.1d, 613.8a)
+
+Dryad Arbor is now a Creature Land - Dryad Mountain. Gaining a basic land type doesn't remove other card types or nonland subtypes. (305.7)"
+Cards Mentioned:
+[Leyline of the Guildpact, Magus of the Moon, Snow-Covered Plains, Gloomlake Verge, Dryad Arbor, Wastes]
+
+
+Question:
+"Anton casts Xenagos, God of Revels. Can Natalie counter it with Spell Pierce?"
+Answer:
+"No. Xenagos, God of Revels's ability that stops it from being a creature is only active on the battlefield. (113.6)"
+Cards Mentioned:
+['Xenagos, God of Revels', Spell Pierce]
+
+
+Question:
+"Can Nelson cast Pact of Negation targeting Avery's Ox of Agonas that is escaping from their graveyard?"
+Answer:
+"Yes. Escape is an alternative cost (702.138a), which means that once paid the escaped spell is on the stack, and can be interacted with as normal. Countering a spell means to remove that spell from the stack before it resolves. (701.6a) Ox of Agonas is a legal target for Pact of Negation."
+Cards Mentioned:
+[Pact of Negation, Ox of Agonas]
+
+
+Question:
+"Alex casts Thoughtseize targeting Neil. In response, Neil casts their last card, and when Thoughtseize resolves, Neil has zero cards in hand. Does Alex lose 2 life?"
+Answer:
+"Yes.
+
+Although there are no cards to choose from, Neil is still a legal target for Thoughtseize (608.2b) and it will do as much as is possible. (609.3)"
+Cards Mentioned:
+[Thoughtseize]
+
+
+Question:
+"Anson activates Karn, the Great Creator to make Nico's Cryptic Coat an artifact creature, which was equipped to Memnite. What happens?"
+Answer:
+"Cryptic Coat will become an Equipment artifact creature and will become unattached from Memnite as a state-based action. (704.5p)"
+Cards Mentioned:
+['Karn, the Great Creator', Cryptic Coat, Memnite]
+
+
+Question:
+"Alex would like to choose colorless for Utopia Sprawl. Can they?"
+Answer:
+"No. Colorless is not a color. (105.2c/105.1/105.4)"
+Cards Mentioned:
+[Utopia Sprawl]
+
+
+Question:
+"In a game of Two-Headed Giant, both Adalyn and Aspen have no cards left in their library. Adalyn controls Jace, Wielder of Mysteries. What happens in their draw step?"
+Answer:
+"Their team wins the game. Both players would draw their card at the same time. (805.4b) Jace, Wielder of Mysteries replaces Adalyn's draw with winning the game. Since their team has won (810.8a), Aspen doesn't lose, since that doesn't happen until state-based actions are checked. (704.5b/121.4)"
+Cards Mentioned:
+['Jace, Wielder of Mysteries']
+
+
+Question:
+"Alex casts Solitude. Braelyn passes priority. Cesar passes priority. Dale taps a land, floating a mana, then passes priority. What happens next?"
+Answer:
+"Alex gets priority again. If Alex passes, priority will go around again. If it gets to Cesar without anyone taking an action, Solitude resolves. (117.4)"
+Cards Mentioned:
+[Solitude]
+
+
+Question:
+"Nico controls Elesh Norn, Grand Cenobite. Adelina casts Murderous Cut targeting Elesh Norn, Grand Cenobite. In response, Nico casts Ephemerate targeting Elesh Norn, Grand Cenobite. After everything has resolved, is Elesh Norn, Grand Cenobite on the battlefield?"
+Answer:
+"Yes. When Ephemerate resolves and returns Elesh Norn, Grand Cenobite to the battlefield, it becomes a completely new object that's unrelated to the old one. (400.7) When Murderous Cut tries to resolve, its target doesn't exist anymore, so it's just put into the graveyard. (608.2b)"
+Cards Mentioned:
+['Elesh Norn, Grand Cenobite', Murderous Cut, Ephemerate]
+
+
+Question:
+"Alice controls Ral, Monsoon Mage and casts Past in Flames for its Flashback cost. Will Ral, Monsoon Mage decrease the cost they have to pay?"
+Answer:
+"Yes. Flashback is an alternative cost to cast a spell. (702.34a) When casting Past in Flames, Alice will first determine the base cost, which in this case is the flashback cost. After that, they will apply all cost increases and reductions. (601.2f)"
+Cards Mentioned:
+['Ral, Monsoon Mage', Past in Flames]
+
+
+Question:
+"Alden controls Elesh Norn, Mother of Machines and Omnath, Locus of Creation and plays a land. After all triggers have resolved, how much life will they have gained, and will they have any mana in their mana pool?"
+Answer:
+"Alden will have gained 4 life and have {w}{u}{r}{g} in their mana pool. Elesh Norn, Mother of Machines makes Omnath, Locus of Creation's trigger trigger twice, just like if two lands had entered the battlefield at the same time."
+Cards Mentioned:
+['Elesh Norn, Mother of Machines', 'Omnath, Locus of Creation']
+
+
+Question:
+"Avery controls Magus of the Moon enchanted with Unable to Scream. Is Avery's Shivan Reef a Mountain?"
+Answer:
+"Yes. Continuous effects are applied in a specific order, and type-changing effects are applied before ability-removing effects. (613.1d, 613.1f)"
+Cards Mentioned:
+[Magus of the Moon, Unable to Scream, Shivan Reef]
+
+
+Question:
+"Nico controls Striped Riverwinder. Annika casts Mockingbird. Can they have it enter the battlefield as a copy of Striped Riverwinder?"
+Answer:
+"Yes. Hexproof prevents Striped Riverwinder from being the target of an opponent's spell or ability, but Mockingbird doesn't target anything. (702.11b, 115.1)"
+Cards Mentioned:
+[Striped Riverwinder, Mockingbird]
+
+
+Question:
+"Ashley controls Karn Liberated, and exiles Hydroelectric Specimen from Nyla's hand. Later, Ashley activates Karn Liberated's -14 Planeswalker ability, restarting the game. Can they put Hydroelectric Specimen onto the battlefield on its back face, Hydroelectric Laboratory?"
+Answer:
+"No. Permanents enter the battlefield with their front face up unless otherwise specified. (712.14) Modal double-faced cards can only be put on their back face when being cast (712.11b) or played as a land. (712.12)"
+Cards Mentioned:
+[Karn Liberated, Hydroelectric Specimen, Hydroelectric Laboratory]
+
+
+Question:
+"Nickolas controls Trinisphere. Amiya casts Surgical Extraction, paying 2 life for the Phyrexian mana. What is the total cost of the Surgical Extraction?"
+Answer:
+"3 Colorless and 2 life. While casting Surgical Extraction, Amiya chooses whether to pay life or mana for each Phyrexian mana symbol in the cost. (601.2b) Trinisphere is applied afterwards (601.2f) and increases the cost up to the minimum of 3 mana."
+Cards Mentioned:
+[Trinisphere, Surgical Extraction]
+
+
+Question:
+""
+Answer:
+""
+Cards Mentioned:
+[]
+
+
+Question:
+""
+Answer:
+""
+Cards Mentioned:
+[]
+
+
+Question:
+""
+Answer:
+""
+Cards Mentioned:
+[]
+
+
+Question:
+""
+Answer:
+""
+Cards Mentioned:
+[]

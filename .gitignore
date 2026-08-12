@@ -14,3 +14,14 @@ data/processed/chunk_embeddings.npz
 # Scryfall bulk dumps (re-downloadable; derived chunks are tracked instead)
 data/cards/raw/oracle_cards.jsonl
 data/cards/raw/rulings.jsonl
+
+# editor lock files (LibreOffice/OpenOffice on the intake templates)
+.~lock.*#
+
+# raw worksheet fetches — re-fetchable and redundant; the parsed
+# scenarios.jsonl is the tracked artifact
+data/judge_worksheets/raw/
+
+# RulesGuru raw API responses — redundant with the frozen
+# questions.jsonl snapshot, which is the tracked artifact
+data/gold/rulesguru/raw/
