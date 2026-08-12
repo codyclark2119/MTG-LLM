@@ -11,5 +11,6 @@ models/*
 # regenerable vector index (rebuild with: python scripts/rag.py index)
 data/processed/chunk_embeddings.npz
 
-# Scryfall bulk dump (203MB, re-downloadable; derived chunks are tracked instead)
+# Scryfall bulk dumps (re-downloadable; derived chunks are tracked instead)
 data/cards/raw/oracle_cards.jsonl
+data/cards/raw/rulings.jsonl

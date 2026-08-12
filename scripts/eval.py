@@ -321,8 +321,8 @@ def rescore(args) -> None:
         results = [json.loads(line) for line in f]
     print(f"re-scoring {len(results)} questions from {args.rescore_from}")
 
-    print(f"loading {BASE_MODEL_ID} as judge ...")
-    judge_model, judge_tokenizer = load_lm(BASE_MODEL_ID)
+    print(f"loading {args.judge_model} as judge ...")
+    judge_model, judge_tokenizer = load_lm(args.judge_model)
     rng = random.Random(args.seed)
 
     for i, r in enumerate(results, 1):
@@ -397,6 +397,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--with-cards", action="store_true",
                         help="add {base,finetuned}_rag_cards arms using card-name lookup + rules retrieval")
+    parser.add_argument("--judge-model", default=BASE_MODEL_ID,
+                        help="model used as judge. Defaults to the base model — which is ALSO the "
+                             "'base' arm under test, so an independent judge is needed to rule out "
+                             "self-preference bias.")
     parser.add_argument("--rescore-from", type=Path, default=None,
                         help="re-judge stored answers from a previous results file instead of regenerating")
     args = parser.parse_args()

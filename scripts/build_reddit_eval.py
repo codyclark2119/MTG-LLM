@@ -86,6 +86,15 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("eval/reddit_questions.jsonl"))
     parser.add_argument("--manifest-out", type=Path, default=Path("eval/REDDIT_MANIFEST.md"))
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--require-cards", action="store_true",
+        help="keep only questions naming a card that resolves — builds the card-focused set "
+             "needed to give the Section 13.5 comparison enough statistical power",
+    )
+    parser.add_argument(
+        "--exclude-from", type=Path, nargs="*", default=[],
+        help="jsonl files whose questions must be excluded (existing eval sets, training data)",
+    )
     parser.add_argument("--skip-judge", action="store_true", help="skip LLM quality filtering (fast, for testing only)")
     parser.add_argument("--skip-retrieval", action="store_true", help="skip RAG grounding lookup (faster, for testing)")
     args = parser.parse_args()
@@ -102,6 +111,40 @@ def main() -> None:
         and len(r["response"]) >= MIN_RESPONSE_LEN
     ]
     print(f"{len(candidates)}/{len(ds)} pass score>={args.min_score} + length filters")
+
+    # Exclude anything already used for training or in an existing eval set,
+    # so a "new" eval set can't quietly re-test questions the model was
+    # trained on or that were already scored.
+    excluded_questions: set[str] = set()
+    for path in args.exclude_from:
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                rec = json.loads(line)
+                if "messages" in rec:
+                    for m in rec["messages"]:
+                        if m["role"] == "user":
+                            t = m["content"]
+                            excluded_questions.add(t.split("\n\nQuestion: ", 1)[-1].strip())
+                elif "question" in rec:
+                    excluded_questions.add(rec["question"].strip())
+    if excluded_questions:
+        before = len(candidates)
+        candidates = [r for r in candidates if r["prompt"].strip() not in excluded_questions]
+        print(f"excluded {before - len(candidates)} already used in training/eval ({len(excluded_questions)} known)")
+
+    if args.require_cards:
+        import sys as _sys
+
+        _sys.path.insert(0, str(Path(__file__).parent))
+        from card_lookup import CardIndex
+
+        print("loading card index to filter for resolvable card references ...")
+        card_index = CardIndex()
+        before = len(candidates)
+        candidates = [r for r in candidates if card_index.find_in_text(r["prompt"])]
+        print(f"{len(candidates)}/{before} name at least one card that resolves")
 
     # Highest-signal answers first, but cap so we don't just take the single
     # most-upvoted topic cluster repeated — sort by score, then take an even
