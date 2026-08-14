@@ -38,9 +38,13 @@ import argparse
 import json
 import re
 import time
+import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from common import REPO_ROOT  # noqa: E402
 
 RECORD_RE = re.compile(r"^Question ID:\s*(\d+)\s*$", re.M)
 FIELD_RE = re.compile(r"^(Infractions|Cards|Description|Answer):\s*$|^(Infractions|Cards):\s*(.*)$", re.M)
@@ -162,8 +166,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fetch", type=int, default=0, help="number of times to pull the randomized export")
     parser.add_argument("--from-file", type=Path, nargs="*", default=[], help="parse local worksheet text files")
-    parser.add_argument("--out", type=Path, default=Path("data/judge_worksheets/scenarios.jsonl"))
-    parser.add_argument("--raw-dir", type=Path, default=Path("data/judge_worksheets/raw"))
+    parser.add_argument("--out", type=Path, default=REPO_ROOT / "data/judge_worksheets/scenarios.jsonl")
+    parser.add_argument("--raw-dir", type=Path, default=REPO_ROOT / "data/judge_worksheets/raw")
     parser.add_argument("--delay", type=float, default=1.5, help="seconds between fetches — be polite to a hobby host")
     args = parser.parse_args()
 

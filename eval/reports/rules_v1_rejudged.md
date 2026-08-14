@@ -1,6 +1,6 @@
 # Section 9 Evaluation Report (recalibrated judge)
 
-110 questions, re-scored from `eval_results.jsonl` with the v2 judge: correctness and citation scored separately, length/style explicitly excluded, candidates anonymized behind randomized A/B/C/D labels.
+110 questions, re-scored from `rules_v1.jsonl` with the v2 judge: correctness and citation scored separately, length/style explicitly excluded, candidates anonymized behind randomized A/B/C/D labels.
 
 | Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |
 | --- | --- | --- | --- |

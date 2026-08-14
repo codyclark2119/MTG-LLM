@@ -165,7 +165,7 @@ def main() -> None:
     print(f"{len(keyword_rules)} keyword -> rule mappings available")
 
     with args.cards.open(encoding="utf-8") as f:
-        raw = [json.loads(line) for line in f]
+        raw = [json.loads(line) for line in f if line.strip()]
     cards = [c for c in raw if is_playable(c)]
     print(f"{len(raw)} entries, {len(cards)} playable after dropping tokens/art-series/memorabilia")
 

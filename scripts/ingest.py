@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CR_TEXT_PATH
+from common import CR_TEXT_PATH, PROCESSED_DIR
 from common import RULE_ID_RE as CROSS_REF_RE
 
 SECTION_RE = re.compile(r"^([1-9])\.\s+(.+)$")
@@ -193,7 +193,7 @@ def main() -> None:
         help="Path to the raw Comprehensive Rules .txt file",
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=Path("data/processed"),
+        "--out-dir", type=Path, default=PROCESSED_DIR,
         help="Directory to write rules.jsonl and glossary.jsonl into",
     )
     args = parser.parse_args()

@@ -1,3 +1,17 @@
+# Full `pip freeze` of the working environment, not a hand-curated dependency
+# list. Everything here is known to work together; most of it is transitive.
+#
+# The project imports exactly six third-party packages directly:
+#   mlx-lm, mlx-embeddings   models and inference
+#   numpy                    the retrieval index (scripts/rag.py)
+#   datasets                 SFT and reddit eval construction
+#   fastapi, uvicorn         the local web console (scripts/webui.py)
+#
+# Some pins below (mlx-audio, mlx-vlm, opencv-python, miniaudio, sounddevice)
+# come from the wider MLX environment this was frozen from and are NOT used by
+# any script here. Trimming them is safe but changes what a fresh clone
+# installs, so it is left as a deliberate choice rather than done silently.
+
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
 aiosignal==1.4.0

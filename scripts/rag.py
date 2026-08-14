@@ -25,7 +25,7 @@ import numpy as np
 from mlx_embeddings import generate, load
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CHUNKS_PATH, INDEX_PATH  # noqa: F401  (re-exported; eval.py imports from here)
+from common import CHUNKS_PATH, INDEX_PATH, read_jsonl  # noqa: F401  (re-exported; eval.py imports from here)
 
 MODEL_ID = "mlx-community/all-MiniLM-L6-v2-4bit"
 
@@ -46,8 +46,7 @@ def fingerprint(chunks: list[dict]) -> str:
 
 
 def load_chunks(path: Path) -> list[dict]:
-    with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    return read_jsonl(path, missing_ok=False)
 
 
 def embed_texts(model, tokenizer, texts: list[str], batch_size: int = 32) -> np.ndarray:

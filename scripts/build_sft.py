@@ -41,7 +41,7 @@ import sys
 import time
 from pathlib import Path
 
-from common import build_rag_messages
+from common import CHUNKS_PATH, DATASETS_DIR, GLOSSARY_PATH, INDEX_PATH, REPO_ROOT, RULES_PATH, build_rag_messages, read_jsonl
 from common import RULE_ID_RE as CROSS_REF_RE
 
 REDIRECT_RE = re.compile(r"^See [^.]+\.$")
@@ -102,11 +102,7 @@ def assign_category(chunk: dict) -> str:
     return "definition recall"
 
 
-def load_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+load_jsonl = read_jsonl  # one definition, in common.py
 
 
 def append_jsonl(path: Path, record: dict) -> None:
@@ -234,7 +230,7 @@ def categorize_by_rule_ids(rule_ids: list[str], section_by_group: dict[str, str]
 def load_eval_questions(*paths: Path) -> set[str]:
     """Every question already committed to a held-out eval set.
 
-    eval/rules_questions.jsonl was carved out of this same generation pool by
+    eval/sets/rules_questions.jsonl was carved out of this same generation pool by
     an earlier run, so re-splitting from scratch would silently leak held-out
     questions into training and invalidate every Section 9 comparison. These
     are excluded by exact question text before any split happens.
@@ -452,10 +448,10 @@ def stratified_split(records: list[dict], train_frac: float, valid_frac: float, 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--chunks", type=Path, default=Path("data/processed/chunks.jsonl"))
-    parser.add_argument("--glossary", type=Path, default=Path("data/processed/glossary.jsonl"))
+    parser.add_argument("--chunks", type=Path, default=CHUNKS_PATH)
+    parser.add_argument("--glossary", type=Path, default=GLOSSARY_PATH)
     parser.add_argument("--model", default="mlx-community/Qwen2.5-7B-Instruct-4bit")
-    parser.add_argument("--raw-out", type=Path, default=Path("data/processed/sft_raw_generations.jsonl"))
+    parser.add_argument("--raw-out", type=Path, default=REPO_ROOT / "data/processed/sft_raw_generations.jsonl")
     # Chunk-derived "definition recall" is already ~40% of the generated
     # set (definitional/structural rules genuinely make up a large share
     # of the CR) — kept modest so glossary defs supplement rather than
@@ -465,13 +461,13 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train-frac", type=float, default=0.8)
     parser.add_argument("--valid-frac", type=float, default=0.1)
-    parser.add_argument("--out-dir", type=Path, default=Path("data/datasets"))
-    parser.add_argument("--eval-out", type=Path, default=Path("eval/rules_questions.jsonl"))
-    parser.add_argument("--needs-review-out", type=Path, default=Path("data/processed/sft_needs_review.jsonl"))
+    parser.add_argument("--out-dir", type=Path, default=DATASETS_DIR)
+    parser.add_argument("--eval-out", type=Path, default=REPO_ROOT / "eval/sets/rules_questions.jsonl")
+    parser.add_argument("--needs-review-out", type=Path, default=REPO_ROOT / "data/processed/sft_needs_review.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="only process the first N chunks (smoke testing)")
     parser.add_argument("--skip-generation", action="store_true", help="rebuild splits from an existing raw-out file")
-    parser.add_argument("--index", type=Path, default=Path("data/processed/chunk_embeddings.npz"))
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
+    parser.add_argument("--index", type=Path, default=INDEX_PATH)
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
     parser.add_argument("--reddit-dataset", default="Javier-Jimenez99/reddit-mtgrules-qa")
     parser.add_argument("--reddit-questions", type=int, default=0, help="generate N RAG-grounded answers to real reddit questions")
     parser.add_argument("--reddit-min-score", type=int, default=3)
@@ -482,7 +478,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--held-out", type=Path, nargs="*",
-        default=[Path("eval/rules_questions.jsonl"), Path("eval/reddit_questions.jsonl")],
+        default=[Path("eval/sets/rules_questions.jsonl"), Path("eval/sets/reddit_questions.jsonl")],
         help="eval files whose questions must never enter train/valid",
     )
     parser.add_argument("--freeze-eval", action="store_true", help="keep the existing eval file rather than re-splitting one")

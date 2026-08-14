@@ -9,7 +9,7 @@ One JSON object per line in `data/gold/gold_questions.jsonl`. Validate with:
 
 ```bash
 python scripts/validate_gold.py            # check
-python scripts/validate_gold.py --to-eval  # emit eval/gold_questions.eval.jsonl
+python scripts/validate_gold.py --to-eval  # emit eval/sets/gold_questions_eval.jsonl
 ```
 
 ## Why a rubric instead of one reference answer

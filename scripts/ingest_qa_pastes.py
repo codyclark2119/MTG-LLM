@@ -36,7 +36,7 @@ import re
 import sys
 from pathlib import Path
 
-from common import CR_VERSION, load_rule_ids
+from common import CR_VERSION, GOLD_PATH, RULES_PATH, load_rule_ids
 from common import RULE_ID_RE as CROSS_REF_RE
 
 # Labels vary across sources ("Question" vs "Question:"), and pasted text
@@ -146,8 +146,8 @@ def parse_pastes(text: str) -> tuple[list[dict], int]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="sources", type=Path, nargs="+", required=True)
-    parser.add_argument("--out", type=Path, default=Path("data/gold/gold_questions.jsonl"))
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
+    parser.add_argument("--out", type=Path, default=GOLD_PATH)
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
     parser.add_argument("--cr-version", default=CR_VERSION)
     parser.add_argument("--source-label", default="rules-qa-paste")
     parser.add_argument("--category", default="interaction puzzle", help="default category; review per record")

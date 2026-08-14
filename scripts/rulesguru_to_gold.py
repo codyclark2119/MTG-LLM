@@ -38,7 +38,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from common import CR_VERSION, load_rule_ids
+from common import CR_VERSION, GOLD_CANDIDATES_PATH, GOLD_PATH, REPO_ROOT, RULESGURU_SNAPSHOT, RULES_PATH, load_rule_ids
 from common import RULE_ID_EXACT_RE as CROSS_REF_RE
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -133,11 +133,11 @@ def dedupe_key(text: str, card_names: list[str]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--snapshot", type=Path, default=Path("data/gold/rulesguru/questions.jsonl"))
-    parser.add_argument("--out", type=Path, default=Path("data/gold/rulesguru/gold_candidates.jsonl"))
-    parser.add_argument("--needs-work", type=Path, default=Path("data/gold/rulesguru/needs_work.jsonl"))
-    parser.add_argument("--gold", type=Path, default=Path("data/gold/gold_questions.jsonl"))
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
+    parser.add_argument("--snapshot", type=Path, default=RULESGURU_SNAPSHOT)
+    parser.add_argument("--out", type=Path, default=GOLD_CANDIDATES_PATH)
+    parser.add_argument("--needs-work", type=Path, default=REPO_ROOT / "data/gold/rulesguru/needs_work.jsonl")
+    parser.add_argument("--gold", type=Path, default=GOLD_PATH)
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
     parser.add_argument("--cr-version", default=CR_VERSION)
     parser.add_argument("--min-key-points", type=int, default=2, help="validator requires 2+ to score a rubric")
     parser.add_argument("--promote", type=int, nargs="+", default=[], help="RulesGuru ids to append to the gold set")
@@ -299,7 +299,7 @@ def main() -> None:
     else:
         print("\nNext:")
         print(f"  python scripts/validate_gold.py --gold {args.out} \\")
-        print("      --to-eval --eval-out eval/rulesguru.eval.jsonl")
+        print("      --to-eval --eval-out eval/sets/rulesguru_candidates.jsonl")
 
 if __name__ == "__main__":
     main()

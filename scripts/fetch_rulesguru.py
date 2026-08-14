@@ -43,11 +43,15 @@ Usage:
 import argparse
 import json
 import time
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from common import REPO_ROOT, RULESGURU_SNAPSHOT  # noqa: E402
 
 API_URL = "https://rulesguru.org/api/questions/"
 # The API asks callers to identify themselves. Doing so is free and it is
@@ -147,8 +151,8 @@ def build_settings(args) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", type=Path, default=Path("data/gold/rulesguru/questions.jsonl"))
-    parser.add_argument("--raw-dir", type=Path, default=Path("data/gold/rulesguru/raw"))
+    parser.add_argument("--out", type=Path, default=RULESGURU_SNAPSHOT)
+    parser.add_argument("--raw-dir", type=Path, default=REPO_ROOT / "data/gold/rulesguru/raw")
     parser.add_argument("--count", type=int, default=100, help="questions per request (API tolerates 250)")
     parser.add_argument("--max", type=int, default=200, help="stop after this many NEW questions")
     parser.add_argument("--all", action="store_true", help="walk the whole matching set")

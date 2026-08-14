@@ -28,8 +28,23 @@ their own directory is already on `sys.path`:
 """
 
 import json
+import os
 import re
 from pathlib import Path
+
+# --- Where the repository lives ---------------------------------------------
+#
+# Every canonical path below is anchored here rather than to the current
+# working directory. They used to be bare relative paths, which meant every
+# script silently required being run from the repo root: `python
+# /path/to/scripts/card_lookup.py "Llanowar Elves"` from anywhere else died on
+# `FileNotFoundError: data/cards/processed/card_chunks.jsonl`. Nothing said so,
+# and the web console's runner only worked because it happened to inherit the
+# right cwd.
+#
+# Paths a *user* supplies on the command line stay relative to their cwd, which
+# is what anyone would expect.
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # --- Comprehensive Rules pinning -------------------------------------------
 
@@ -37,7 +52,7 @@ from pathlib import Path
 # means re-running ingest and re-validating the gold set; `cr_version` on a
 # gold record refers to this value.
 CR_VERSION = "2026-08-07"
-CR_TEXT_PATH = Path(f"data/raw/MagicCompRules_{CR_VERSION.replace('-', '')}.txt")
+CR_TEXT_PATH = REPO_ROOT / f"data/raw/MagicCompRules_{CR_VERSION.replace('-', '')}.txt"
 
 # --- Rule-id patterns -------------------------------------------------------
 
@@ -70,17 +85,24 @@ CARDS_RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
 
 # --- Canonical data paths ---------------------------------------------------
 
-RULES_PATH = Path("data/processed/rules.jsonl")
-GLOSSARY_PATH = Path("data/processed/glossary.jsonl")
-CHUNKS_PATH = Path("data/processed/chunks.jsonl")
-INDEX_PATH = Path("data/processed/chunk_embeddings.npz")
+RULES_PATH = REPO_ROOT / "data/processed/rules.jsonl"
+GLOSSARY_PATH = REPO_ROOT / "data/processed/glossary.jsonl"
+CHUNKS_PATH = REPO_ROOT / "data/processed/chunks.jsonl"
+INDEX_PATH = REPO_ROOT / "data/processed/chunk_embeddings.npz"
 
-ORACLE_CARDS_PATH = Path("data/cards/raw/oracle_cards.jsonl")
-CARD_CHUNKS_PATH = Path("data/cards/processed/card_chunks.jsonl")
-RULING_CHUNKS_PATH = Path("data/cards/processed/ruling_chunks.jsonl")
+ORACLE_CARDS_PATH = REPO_ROOT / "data/cards/raw/oracle_cards.jsonl"
+CARD_CHUNKS_PATH = REPO_ROOT / "data/cards/processed/card_chunks.jsonl"
+RULING_CHUNKS_PATH = REPO_ROOT / "data/cards/processed/ruling_chunks.jsonl"
 
-GOLD_PATH = Path("data/gold/gold_questions.jsonl")
-POSITIONS_PATH = Path("data/gold/positions.jsonl")
+RAW_RULINGS_PATH = REPO_ROOT / "data/cards/raw/rulings.jsonl"
+
+GOLD_PATH = REPO_ROOT / "data/gold/gold_questions.jsonl"
+POSITIONS_PATH = REPO_ROOT / "data/gold/positions.jsonl"
+RULESGURU_SNAPSHOT = REPO_ROOT / "data/gold/rulesguru/questions.jsonl"
+GOLD_CANDIDATES_PATH = REPO_ROOT / "data/gold/rulesguru/gold_candidates.jsonl"
+
+PROCESSED_DIR = REPO_ROOT / "data/processed"
+DATASETS_DIR = REPO_ROOT / "data/datasets"
 
 # --- Gameplay -----------------------------------------------------------------
 #
@@ -314,11 +336,48 @@ def build_position_messages(pos: dict, context: str | None = None,
     ]
 
 
+def read_jsonl(path: Path, missing_ok: bool = True) -> list[dict]:
+    """Read a .jsonl file, skipping blank lines.
+
+    There were five near-identical copies of this (three named `load_jsonl`,
+    plus `read_jsonl` and `load_positions`) and eight more inline
+    comprehensions, and they did NOT agree: three of them omitted the
+    `if line.strip()` guard, so a trailing blank line — exactly what appending
+    by hand or with a text editor leaves behind — raised
+    `JSONDecodeError: Expecting value: line 2 column 1`.
+
+    That is the same failure `load_rule_ids` was consolidated to fix in
+    Section 15.3, reappearing one level up. One definition, so the guard cannot
+    be missing from some callers and present in others.
+    """
+    if missing_ok and not path.exists():
+        return []
+    with path.open(encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
+    """Write via a temp file in the same directory, then replace.
+
+    A half-written gold file is worse than no gold file: validation fails on a
+    truncated final line and the loss is hand-authored work. Lives here rather
+    than in label_store so gameplay/positions.py can use it without a
+    function-level `sys.path` insert to reach back into scripts/.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
 def load_rule_ids(rules_path: Path = RULES_PATH) -> set[str]:
     """Every rule id in the pinned CR, for validating citations.
 
     Six callers each had their own copy of this — two as functions, four as
     inline set comprehensions that would raise on a trailing newline.
     """
-    with rules_path.open(encoding="utf-8") as f:
-        return {json.loads(line)["rule_id"] for line in f if line.strip()}
+    return {r["rule_id"] for r in read_jsonl(rules_path, missing_ok=False)}

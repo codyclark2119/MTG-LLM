@@ -29,7 +29,7 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CARD_CHUNKS_PATH, RULES_PATH, RULING_CHUNKS_PATH, load_rule_ids
+from common import CARD_CHUNKS_PATH, RAW_RULINGS_PATH, RULES_PATH, RULING_CHUNKS_PATH, load_rule_ids
 from common import RULE_ID_RE as CROSS_REF_RE
 
 # Scryfall bulk downloading lives in fetch_cards.py — this was a second,
@@ -39,7 +39,7 @@ from fetch_cards import download_bulk  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--rulings", type=Path, default=Path("data/cards/raw/rulings.jsonl"))
+    parser.add_argument("--rulings", type=Path, default=RAW_RULINGS_PATH)
     parser.add_argument("--card-chunks", type=Path, default=CARD_CHUNKS_PATH)
     parser.add_argument("--rules", type=Path, default=RULES_PATH)
     parser.add_argument("--out", type=Path, default=RULING_CHUNKS_PATH)

@@ -34,14 +34,18 @@ import argparse
 import json
 from pathlib import Path
 
-from common import CR_VERSION, SYSTEM_PROMPT, load_rule_ids
+from common import CHUNKS_PATH, CR_VERSION, INDEX_PATH, REPO_ROOT, RULES_PATH, SYSTEM_PROMPT, load_rule_ids
 from common import RULE_ID_RE as CROSS_REF_RE
 
 MIN_PROMPT_LEN = 30
 MIN_RESPONSE_LEN = 20
 
 
-JUDGE_SYSTEM_PROMPT = (
+# Named for what it does, not for the role it plays. eval.py also had a
+# JUDGE_SYSTEM_PROMPT that meant something entirely different (grade this
+# answer, not classify this comment) — the same one-name-two-meanings trap
+# Section 15.3 documented for CROSS_REF_RE.
+RULING_FILTER_PROMPT = (
     "You classify Reddit r/MTGRules posts. Given a QUESTION and a REPLY, answer "
     "with exactly one word: YES if the reply is a genuine, substantive attempt to "
     "answer the Magic: The Gathering rules question, or NO if it is a joke, meme, "
@@ -53,7 +57,7 @@ JUDGE_SYSTEM_PROMPT = (
 def is_genuine_ruling(generate_fn, model, tokenizer, prompt_text: str, response_text: str) -> bool:
     user = f"QUESTION:\n{prompt_text}\n\nREPLY:\n{response_text}"
     messages = [
-        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+        {"role": "system", "content": RULING_FILTER_PROMPT},
         {"role": "user", "content": user},
     ]
     prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True)
@@ -68,11 +72,11 @@ def main() -> None:
     parser.add_argument("--pre-judge-limit", type=int, default=400, help="cap on candidates sent to the LLM judge")
     parser.add_argument("--limit", type=int, default=200, help="final eval-set size after judging")
     parser.add_argument("--judge-model", default="mlx-community/Qwen2.5-7B-Instruct-4bit")
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
-    parser.add_argument("--chunks", type=Path, default=Path("data/processed/chunks.jsonl"))
-    parser.add_argument("--index", type=Path, default=Path("data/processed/chunk_embeddings.npz"))
-    parser.add_argument("--out", type=Path, default=Path("eval/reddit_questions.jsonl"))
-    parser.add_argument("--manifest-out", type=Path, default=Path("eval/REDDIT_MANIFEST.md"))
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
+    parser.add_argument("--chunks", type=Path, default=CHUNKS_PATH)
+    parser.add_argument("--index", type=Path, default=INDEX_PATH)
+    parser.add_argument("--out", type=Path, default=REPO_ROOT / "eval/sets/reddit_questions.jsonl")
+    parser.add_argument("--manifest-out", type=Path, default=REPO_ROOT / "eval/sets/reddit_questions.manifest.md")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--require-cards", action="store_true",

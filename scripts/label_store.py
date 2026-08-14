@@ -18,9 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CR_VERSION, GOLD_PATH, RULES_PATH
+from common import CR_VERSION, GOLD_CANDIDATES_PATH, GOLD_PATH, RULES_PATH, read_jsonl, write_jsonl_atomic
 
-CANDIDATES_PATH = Path("data/gold/rulesguru/gold_candidates.jsonl")
+CANDIDATES_PATH = GOLD_CANDIDATES_PATH
 REJECTED_PATH = Path("data/gold/rejected.jsonl")
 
 CATEGORIES = [
@@ -32,27 +32,8 @@ DIFFICULTIES = ["basic", "intermediate", "advanced"]
 DIFFICULTY_RANK = {"advanced": 0, "intermediate": 1, "basic": 2}
 
 
-def read_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-def write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
-    """Write via a temp file in the same directory, then replace.
-
-    A half-written gold file is worse than no gold file: validate_gold
-    would fail on a truncated final line and the loss is hand-authored work.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+# read_jsonl / write_jsonl_atomic now live in common.py — see the note there
+# on the five divergent copies this replaced.
 
 
 class Store:

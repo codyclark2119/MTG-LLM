@@ -24,7 +24,7 @@ import json
 import sys
 from pathlib import Path
 
-from common import SYSTEM_PROMPT, load_rule_ids
+from common import GOLD_PATH, REPO_ROOT, RULES_PATH, SYSTEM_PROMPT, load_rule_ids
 from common import RULE_ID_EXACT_RE as CROSS_REF_RE
 
 CATEGORIES = {
@@ -151,11 +151,11 @@ def to_eval_records(records: list[dict]) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--gold", type=Path, default=Path("data/gold/gold_questions.jsonl"))
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
+    parser.add_argument("--gold", type=Path, default=GOLD_PATH)
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
     parser.add_argument("--from-csv", type=Path, default=None, help="convert a judge spreadsheet to JSONL first")
     parser.add_argument("--to-eval", action="store_true", help="write eval-format records")
-    parser.add_argument("--eval-out", type=Path, default=Path("eval/gold_questions.eval.jsonl"))
+    parser.add_argument("--eval-out", type=Path, default=REPO_ROOT / "eval/sets/gold_questions_eval.jsonl")
     parser.add_argument("--skip-cards", action="store_true", help="skip card-name validation (faster)")
     args = parser.parse_args()
 

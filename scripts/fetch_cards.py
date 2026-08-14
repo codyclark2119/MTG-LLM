@@ -29,11 +29,15 @@ import argparse
 import gzip
 import json
 import shutil
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).parent))
+from common import REPO_ROOT  # noqa: E402
 
 API_ROOT = "https://api.scryfall.com"
 BULK_URL = f"{API_ROOT}/bulk-data"
@@ -107,7 +111,7 @@ def main() -> None:
     parser.add_argument("--bulk", default=None, metavar="TYPE",
                         help="download a Scryfall bulk file instead of searching a format "
                              "(oracle_cards is the full pool chunk_cards.py expects)")
-    parser.add_argument("--out-dir", type=Path, default=Path("data/cards/raw"))
+    parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "data/cards/raw")
     args = parser.parse_args()
 
     if args.bulk:

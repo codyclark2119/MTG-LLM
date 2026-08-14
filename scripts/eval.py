@@ -43,7 +43,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
     CARDS_RAG_SYSTEM_PROMPT,
+    REPO_ROOT,
     RAG_SYSTEM_PROMPT,
+    RULES_PATH,
     SYSTEM_PROMPT,
     load_rule_ids,
 )
@@ -64,18 +66,14 @@ from rag import retrieve
 BASE_MODEL_ID = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 ADAPTER_PATH = "models/mtg-rules-adapter-v2-best"
 
-JUDGE_SYSTEM_PROMPT = (
-    "You are an expert Magic: The Gathering rules judge grading AI-generated answers. "
-    "You will be given a QUESTION, a REFERENCE ANSWER (assumed correct), and several "
-    "CANDIDATE ANSWERS labeled by system name. Score each candidate's correctness "
-    "against the reference on a 1-5 scale: 5 = fully correct and complete, "
-    "4 = correct but missing a minor detail, 3 = partially correct, "
-    "2 = mostly incorrect, 1 = wrong or fabricated (including a fabricated or "
-    "contradicted rule citation). Output ONLY a JSON object mapping each system name "
-    "to {\"score\": <1-5>, \"note\": \"<one short phrase>\"}. No other text."
-)
+# The v1 judge prompt and its judge_batch() were removed in the Section 17
+# review: Section 9.7 replaced them with the length-neutral, anonymized v2
+# judge and RE-SCORED both earlier runs under it (rules_v1_rejudged.md,
+# rules_v2_rejudged.md), so nothing referenced them any more. The v1
+# results they produced are preserved in eval/; the code is in git history.
 
-# v2 judge. Section 9.6 measured a length bias in the prompt above: score
+# v2 judge. Section 9.6 measured a length bias in the v1 prompt (removed
+# above, see the note): score
 # correlated with answer length at r = +0.21, and the four arms ranked by
 # score in exactly the order they ranked by verbosity. A near-verbatim
 # correct one-line answer was scored 4 "missing detail" while a longer
@@ -85,8 +83,8 @@ JUDGE_SYSTEM_PROMPT = (
 # Two changes: correctness and citation validity are scored separately so a
 # right-but-terse answer can't be docked for thoroughness it was never asked
 # for, and length-neutrality is stated as an explicit rule rather than left
-# implicit. Candidates are also anonymized upstream (see judge_batch) so the
-# judge can't favor a system by name.
+# implicit. Candidates are also anonymized behind randomized A/B/C/D labels
+# in judge_batch_anonymized so the judge can't favor a system by name.
 JUDGE_SYSTEM_PROMPT_V2 = (
     "You are an expert Magic: The Gathering rules judge grading answers.\n\n"
     "You get a QUESTION, a REFERENCE ANSWER (treat as correct), and several "
@@ -238,7 +236,7 @@ def load_questions(synthetic_path: Path, reddit_path: Path, synthetic_limit: int
     questions = []
 
     with synthetic_path.open(encoding="utf-8") as f:
-        synthetic = [json.loads(l) for l in f]
+        synthetic = [json.loads(l) for l in f if l.strip()]
     for r in synthetic[:synthetic_limit]:
         questions.append(
             {
@@ -251,7 +249,7 @@ def load_questions(synthetic_path: Path, reddit_path: Path, synthetic_limit: int
         )
 
     with reddit_path.open(encoding="utf-8") as f:
-        reddit = [json.loads(l) for l in f]
+        reddit = [json.loads(l) for l in f if l.strip()]
     reddit.sort(key=lambda r: -r["reddit_score"])
     if reddit_limit and len(reddit) > reddit_limit:
         stride = len(reddit) / reddit_limit
@@ -420,24 +418,6 @@ def score_citations(answer: str, supporting_rule_ids: list[str], valid_rule_ids:
     }
 
 
-def judge_batch(lm_generate, judge_model, judge_tokenizer, question: str, reference: str, candidates: dict[str, str], max_tokens: int) -> dict:
-    candidate_block = "\n\n".join(f"CANDIDATE ({name}):\n{text}" for name, text in candidates.items())
-    user = f"QUESTION:\n{question}\n\nREFERENCE ANSWER:\n{reference}\n\n{candidate_block}"
-    messages = [
-        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
-    prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
-    raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
-    start, end = raw.find("{"), raw.rfind("}")
-    if start == -1 or end == -1:
-        return {}
-    try:
-        return json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
-        return {}
-
-
 def judge_batch_anonymized(
     lm_generate, judge_model, judge_tokenizer, question: str, reference: str,
     candidates: dict[str, str], max_tokens: int, rng: random.Random,
@@ -490,7 +470,7 @@ def rescore(args) -> None:
     from mlx_lm import load as load_lm
 
     with args.rescore_from.open(encoding="utf-8") as f:
-        results = [json.loads(line) for line in f]
+        results = [json.loads(line) for line in f if line.strip()]
     print(f"re-scoring {len(results)} questions from {args.rescore_from}")
 
     print(f"loading {args.judge_model} as judge ...")
@@ -530,7 +510,7 @@ def rescore(args) -> None:
         "candidates anonymized behind randomized A/B/C/D labels.\n"
     )
     # Name the judge in the body. The earlier reports recorded it only in the
-    # filename (EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md), which puts the single
+    # filename (cards_n100_judge2.md), which puts the single
     # most important variable of a two-judge study outside the document.
     lines.append(f"- judge: `{args.judge_model}`\n")
     lines.append("| Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |")
@@ -566,20 +546,20 @@ def rescore(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--synthetic", type=Path, default=Path("eval/rules_questions.jsonl"))
-    parser.add_argument("--reddit", type=Path, default=Path("eval/reddit_questions.jsonl"))
+    parser.add_argument("--synthetic", type=Path, default=REPO_ROOT / "eval/sets/rules_questions.jsonl")
+    parser.add_argument("--reddit", type=Path, default=REPO_ROOT / "eval/sets/reddit_questions.jsonl")
     parser.add_argument("--synthetic-limit", type=int, default=70)
     parser.add_argument("--reddit-limit", type=int, default=40)
     parser.add_argument("--gold", type=Path, nargs="*", default=[],
-                        help="rubric-bearing eval files (eval/gold_questions.eval.jsonl, "
-                             "eval/rulesguru.eval.jsonl); these route to the V3 rubric judge")
+                        help="rubric-bearing eval files (eval/sets/gold_questions_eval.jsonl, "
+                             "eval/sets/rulesguru_candidates.jsonl); these route to the V3 rubric judge")
     parser.add_argument("--gold-limit", type=int, default=None,
                         help="sample this many rows from each --gold file")
     parser.add_argument("--no-gold-stratify", action="store_true",
                         help="sample --gold-limit by flat stride instead of balancing across categories")
     parser.add_argument("--gold-only", action="store_true",
                         help="evaluate only the --gold files, skipping the synthetic and reddit sets")
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
     parser.add_argument("--max-tokens", type=int, default=300)
     parser.add_argument("--judge-max-tokens", type=int, default=500)
     parser.add_argument("--consistency-sample", type=int, default=15)
@@ -588,8 +568,11 @@ def main() -> None:
                         help="base model for every arm and for the consistency rerun. A larger "
                              "4-bit model fits at 36GB for inference even though training one "
                              "does not, so this is the cheap capability lever.")
-    parser.add_argument("--out", type=Path, default=Path("eval/eval_results.jsonl"))
-    parser.add_argument("--report-out", type=Path, default=Path("eval/EVAL_REPORT.md"))
+    parser.add_argument("--out", type=Path, default=REPO_ROOT / "eval/runs/latest.jsonl",
+                        help="archived runs use a descriptive stem (see eval/README.md); "
+                             "the default is deliberately neutral so a bare run cannot "
+                             "overwrite a published experiment")
+    parser.add_argument("--report-out", type=Path, default=REPO_ROOT / "eval/reports/latest.md")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--with-cards", action="store_true",
                         help="add {base,finetuned}_rag_cards arms using card-name lookup + rules retrieval")
@@ -742,7 +725,7 @@ def main() -> None:
     lines.append(f"{len(questions)} questions ({composition})")
     # Provenance in the report itself. Previously the only record of which judge
     # scored a run was the filename someone chose for it, which is how
-    # EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md ended up carrying its most important
+    # cards_n100_judge2.md ended up carrying its most important
     # variable in its name.
     lines.append(
         f"\n- base model: `{args.base_model}`\n"

@@ -28,7 +28,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from actions import Action, parse_line  # noqa: E402
-from common import CR_VERSION, POSITIONS_PATH, build_position_messages, render_position  # noqa: E402
+from common import (  # noqa: E402
+    CR_VERSION,
+    POSITIONS_PATH,
+    build_position_messages,
+    read_jsonl,
+    render_position,
+    write_jsonl_atomic,
+)
 
 # Kept separate from label_store.CATEGORIES on purpose. Those eight drive
 # stratified sampling and validation for the rules gold set, and an in-flight
@@ -43,10 +50,7 @@ PLAYERS = ("you", "opp")
 
 
 def load_positions(path: Path = POSITIONS_PATH) -> list[dict]:
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+    return read_jsonl(path)
 
 
 def position_card_names(pos: dict) -> list[str]:
@@ -186,9 +190,87 @@ def append_position(pos: dict, path: Path = POSITIONS_PATH) -> None:
     costs hand-authored work, and positions are the most expensive records
     in the project to author.
     """
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from label_store import write_jsonl_atomic
     write_jsonl_atomic(path, load_positions(path) + [pos])
+
+
+_STOP = {"a", "an", "the", "at", "to", "of", "on", "in", "with", "for", "and", "or",
+         "it", "its", "is", "as", "by", "into", "then", "your", "their", "you",
+         "instead", "rather", "than", "this", "that", "here", "which", "but"}
+
+
+def _stem(word: str) -> str:
+    """Crude suffix strip so 'casts' and 'cast' compare equal."""
+    w = re.sub(r"[^a-z0-9/+-]", "", word.lower())
+    for suffix in ("ing", "es", "ed", "s"):
+        if len(w) > 4 and w.endswith(suffix):
+            return w[: -len(suffix)]
+    return w
+
+
+def _content(text: str, limit: int | None = None) -> list[str]:
+    words = [_stem(w) for w in text.split()]
+    words = [w for w in words if w and w not in _STOP]
+    return words[:limit] if limit else words
+
+
+def lint_common_errors(pos: dict) -> list[str]:
+    """Warn when a blunder's opening clause is also true of the correct line.
+
+    Measured, not guessed (Section 16.12). Six of eight disputed judge calls on
+    the seed set sat on two positions, and both had a `common_errors` line whose
+    leading clause restated the correct play — the right line *is* to cast
+    Lightning Strike, and the error read "Casts Lightning Strike at the
+    opponent's face instead of...". A judge extracting claims can match the
+    opening before it reaches the qualifier that makes the play wrong.
+
+    Rewriting three such lines closed the two judges' blunder-rate gap from 28
+    points to 6. It did not fix per-call disagreement, so this is a warning
+    about a known bias, not a correctness check — the form shows it and still
+    lets the position be saved.
+    """
+    # Deliberately CONSERVATIVE: it fires only when the error's opening words
+    # appear as a contiguous run in the correct line, i.e. a verbatim restatement.
+    #
+    # A looser "do these words appear anywhere in the reference" version was
+    # tried first and was wrong in both directions on the seed set — it missed
+    # "Casts Lightning Strike at the opponent's face" (the case it was built
+    # for, because the cap let non-matching words like "face" veto it) and fired
+    # on "Plays Island" and "Attacks with Centaur Courser", neither of which the
+    # judges ever disputed. A warning that is wrong both ways gets ignored, so
+    # this one only claims the clearest form and stays silent otherwise.
+    references = [_content(pos.get("answer", ""))]
+    references += [_content(kp) for kp in (pos.get("key_points") or [])]
+    references = [r for r in references if r]
+    if not references:
+        return []
+
+    def restates(words: list[str]) -> bool:
+        return any(
+            any(ref[i:i + len(words)] == words for i in range(len(ref) - len(words) + 1))
+            for ref in references
+        )
+
+    warnings = []
+    for err in pos.get("common_errors") or []:
+        lead = err.split(",")[0]
+        words = _content(lead)
+        raw = [w for w in lead.split() if _stem(w) in words]  # original spellings
+        # Try the longest opening first, down to a two-word minimum — one word
+        # ("blocks", "casts") is far too common to mean anything. The span must
+        # also carry two real words: "takes 4" matched a correct line that
+        # mentioned taking 4 damage, and that position drew no judge dispute.
+        for n in range(min(4, len(words)), 1, -1):
+            span = words[:n]
+            if sum(1 for w in span if not w.isdigit()) < 2:
+                continue
+            if restates(span):
+                shown = " ".join(raw[:n]) or " ".join(span)
+                warnings.append(
+                    f'"{shown}" restates the correct line, so a judge can match this '
+                    f"error before reaching what makes the play wrong. Lead with the "
+                    f"mistake instead — {err[:55]}...")
+                break
+    return warnings
 
 
 def validate_position(pos: dict, card_index=None,

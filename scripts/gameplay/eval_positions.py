@@ -30,7 +30,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from actions import match_to_legal, parse_output  # noqa: E402
-from common import POSITIONS_PATH, build_position_messages, render_position  # noqa: E402
+from common import (  # noqa: E402
+    POSITIONS_PATH,
+    REPO_ROOT,
+    build_position_messages,
+    render_position,
+)
 from positions import load_positions, position_card_names  # noqa: E402
 
 # Four arms, matching the judge prompt's "labeled A, B, C, D". Each of the
@@ -198,13 +203,17 @@ def main() -> None:
                              "at 36GB for inference")
     parser.add_argument("--adapter-path", default=None, help="defaults to eval.ADAPTER_PATH")
     parser.add_argument("--judge-model", default=None, help="defaults to --base-model")
+    parser.add_argument("--second-judge", default=None,
+                        help="also score with this judge and emit an agreement report. "
+                             "Section 16.12: Gates 2 and 3 both reversed between judges on "
+                             "identical answers, so this is how a gate run should be done.")
     parser.add_argument("--max-tokens", type=int, default=400)
     parser.add_argument("--judge-max-tokens", type=int, default=600)
     parser.add_argument("--k-rules", type=int, default=2)
     parser.add_argument("--no-retrieval", action="store_true",
                         help="drop the retrieval arms (skips loading the embedder and card index)")
-    parser.add_argument("--out", type=Path, default=Path("eval/position_results.jsonl"))
-    parser.add_argument("--report-out", type=Path, default=Path("eval/POSITION_REPORT.md"))
+    parser.add_argument("--out", type=Path, default=REPO_ROOT / "eval/runs/positions_latest.jsonl")
+    parser.add_argument("--report-out", type=Path, default=REPO_ROOT / "eval/reports/positions_latest.md")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--rescore-from", type=Path, default=None,
                         help="re-judge the answers stored in a previous results file instead "
@@ -269,6 +278,31 @@ def main() -> None:
         arm_names = [a["name"] for a in arms]
         closed_arms = {a["name"] for a in arms if a["closed"]}
 
+    def judge_with(model_id: str) -> list[dict]:
+        """Score every stored answer with one judge. Split out so a second judge
+        is a loop iteration rather than a separate run — Section 16.12 showed the
+        gate verdict reversing between judges, so one judge is never enough."""
+        return _judge_all(rules_eval, model_id, positions, answers, arm_names, args)
+
+    results = judge_with(judge_model_id)
+    _write_results(results, args.out)
+    _write_report(results, positions, arm_names, closed_arms, args,
+                  base_model, adapter_path, judge_model_id, args.report_out)
+
+    if args.second_judge:
+        second_out = args.out.with_name(args.out.stem + "_judge2" + args.out.suffix)
+        second_report = args.report_out.with_name(args.report_out.stem + "_JUDGE2.md")
+        print(f"\n=== second judge: {args.second_judge} ===")
+        results2 = judge_with(args.second_judge)
+        _write_results(results2, second_out)
+        _write_report(results2, positions, arm_names, closed_arms, args,
+                      base_model, adapter_path, args.second_judge, second_report)
+        agreement = args.report_out.with_name(args.report_out.stem + "_AGREEMENT.md")
+        compare_judges(args.out, second_out, agreement)
+    return
+
+
+def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) -> list[dict]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
     print(f"loading {judge_model_id} as judge ...")
@@ -310,12 +344,18 @@ def main() -> None:
         results.append({"id": pos["id"], "category": pos["category"],
                         "difficulty": pos["difficulty"], "arms": per_arm})
         print(f"  judged {i + 1}/{len(positions)}")
+    return results
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8") as f:
+
+def _write_results(results: list[dict], out: Path) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as f:
         for r in results:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
+
+def _write_report(results, positions, arm_names, closed_arms, args,
+                  base_model, adapter_path, judge_model_id, report_out) -> None:
     # ---- aggregate ---------------------------------------------------------
     def rate(arm, key):
         vals = [r["arms"][arm][key] for r in results if r["arms"][arm][key] is not None]
@@ -406,17 +446,17 @@ def main() -> None:
                      "unparseable JSON) and are excluded rather than counted as clean.\n")
 
     if judge_model_id == base_model:
-        lines.append("\n> **Single judge, and it is the same model as the base arms.** Blunder "
-                     "rate here is one judge's opinion of whether a listed error was committed, "
-                     "and spot-checking the first run found a false positive (an answer that "
-                     "targeted the right creature was marked as committing the "
-                     "'aimed it at the face' error). Section 9.9's two-judge protocol is the "
-                     "check: re-run with `--judge-model` pointed at an independent model before "
-                     "treating any blunder rate as settled.\n")
+        lines.append("\n> **The judge is the same model as the base arms**, so self-preference "
+                     "bias is not ruled out (Section 9.9).\n")
+    if not args.second_judge:
+        lines.append("\n> **One judge only.** Section 16.12 measured Gates 2 and 3 BOTH "
+                     "reversing between judges on byte-identical answers, so a gate verdict "
+                     "from a single judge is a statement about the judge. Re-run with "
+                     "`--second-judge mlx-community/Meta-Llama-3.1-8B-Instruct-4bit`.\n")
 
-    args.report_out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    report_out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n" + "\n".join(lines[3:]))
-    print(f"\nresults -> {args.out}\nreport -> {args.report_out}")
+    print(f"\nresults -> {args.out}\nreport -> {report_out}")
 
     by_cat = Counter(p["category"] for p in positions)
     print("categories: " + ", ".join(f"{c}={n}" for c, n in sorted(by_cat.items())))

@@ -1,6 +1,6 @@
 # Section 9 Evaluation Report (recalibrated judge)
 
-45 questions, re-scored from `pilot_v3_results.jsonl` with the v2 judge: correctness and citation scored separately, length/style explicitly excluded, candidates anonymized behind randomized A/B/C/D labels.
+45 questions, re-scored from `pilot_v3.jsonl` with the v2 judge: correctness and citation scored separately, length/style explicitly excluded, candidates anonymized behind randomized A/B/C/D labels.
 
 | Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |
 | --- | --- | --- | --- |

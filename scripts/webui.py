@@ -52,6 +52,7 @@ from label_store import CANDIDATES_PATH, CATEGORIES, DIFFICULTIES, Store
 from positions import (
     POSITION_CATEGORIES,
     append_position,
+    lint_common_errors,
     load_positions,
     next_position_id,
     position_from_form,
@@ -87,8 +88,9 @@ ACTIONS = [
     },
     {
         "id": "eval_positions", "group": "Gameplay", "label": "Score positions (gates)",
-        "desc": "Blunder rate, legality and the three gates across four arms. Loads models — "
-                "this is the long one.",
+        "desc": "Blunder rate, legality and the three gates across four arms, scored by TWO "
+                "judges — Gates 2 and 3 both reversed between judges on identical answers "
+                "(Section 16.12), so a one-judge verdict is a statement about the judge.",
         "cmd": "scripts/gameplay/eval_positions.py", "eta": "~20 min", "writes": True,
         "args": [
             {"name": "--positions", "type": "text",
@@ -96,6 +98,9 @@ ACTIONS = [
             {"name": "--limit", "type": "int", "default": 0, "label": "max positions (0 = all)"},
             {"name": "--no-retrieval", "type": "flag", "default": False,
              "label": "skip the card/rules arms"},
+            {"name": "--second-judge", "type": "text",
+             "default": "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit",
+             "label": "second judge (blank = one judge only)"},
         ],
     },
     {
@@ -385,7 +390,12 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
         pos = position_from_form(payload)
         pos["id"] = pos["id"] or "pos-preview"
         problems = validate_position(pos, store.card_index)
+        # Warnings, not problems: a flagged rubric still saves. Section 16.12
+        # measured this defect widening the two judges' blunder-rate gap to 28
+        # points, but the lint is deliberately conservative and catches only
+        # verbatim restatement, so it advises rather than blocks.
         return {"rendered": render_position(pos), "problems": problems,
+                "warnings": lint_common_errors(pos),
                 "n_battlefield": len(pos["battlefield"])}
 
     @app.post("/api/position")
@@ -400,7 +410,8 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
         if problems:
             return {"ok": False, "problems": problems}
         append_position(pos, POSITIONS_PATH)
-        return {"ok": True, "id": pos["id"], "total": len(existing) + 1}
+        return {"ok": True, "id": pos["id"], "total": len(existing) + 1,
+                "warnings": lint_common_errors(pos)}
 
     @app.get("/api/positions")
     def positions_list():
@@ -720,6 +731,7 @@ async function viewPosition(){
     '<div class="hint">What a correct answer must say. Two minimum.</div>'+
     '<label for="pce">Common errors — the blunders, one per line</label><textarea id="pce" rows="3"></textarea>'+
     '<div class="hint">Required. Blunder rate is measured from these, so a position without one cannot contribute to the gate.</div>'+
+    '<div class="hint" id="pce_warn"></div>'+
     '<label for="pcites">Rule citations — optional</label><input type="text" class="mono" id="pcites" placeholder="509.1a 510.1c">'+
     '<div class="row"><div><label for="pcat">Category</label><select id="pcat">'+opts(META.position_categories)+'</select></div>'+
     '<div><label for="pdif">Difficulty</label><select id="pdif">'+opts(META.difficulties)+'</select></div>'+
@@ -747,6 +759,9 @@ async function preview(){
   $('#pgram').innerHTML=live.length
     ?'<span style="color:var(--bad)">'+live.map(esc).join('<br>')+'</span>'
     :'<span style="color:var(--ok)">board and actions parse</span>';
+  // Advisory, never blocking — see Section 16.12.
+  $('#pce_warn').innerHTML=(r.warnings||[]).length
+    ?'<span style="color:var(--warn,#b8860b)">⚠ '+r.warnings.map(esc).join('<br>⚠ ')+'</span>':'';
 }
 async function createPosition(){
   const m=$('#pm');m.className='msg';m.textContent='saving…';$('#pprobs').innerHTML='';

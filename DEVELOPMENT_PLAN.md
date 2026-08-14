@@ -18,7 +18,7 @@ This walkthrough covers everything from base model selection through ingesting t
 - [x] Comprehensive Rules corpus acquired, pinned to the 2026-08-07 release (Section 3)
 - [x] Rules parsed into structured section/rule/subrule records; chunked for retrieval and training with reference-aware bundling and glossary injection (Sections 4–5)
 - [x] RAG baseline stood up over the chunks — `mlx-community/all-MiniLM-L6-v2-4bit` embeddings, brute-force cosine retrieval (Section 6)
-- [x] SFT dataset generated via RAG-grounded, category-balanced question/answer synthesis over `mlx-community/Qwen2.5-7B-Instruct-4bit` (Section 7) — ~700 examples across all 8 categories from 7.1, split into `data/datasets/train.jsonl` / `valid.jsonl` and a held-out `eval/rules_questions.jsonl`
+- [x] SFT dataset generated via RAG-grounded, category-balanced question/answer synthesis over `mlx-community/Qwen2.5-7B-Instruct-4bit` (Section 7) — ~700 examples across all 8 categories from 7.1, split into `data/datasets/train.jsonl` / `valid.jsonl` and a held-out `eval/sets/rules_questions.jsonl`
 - [x] Fine-tuning run (Section 8) — QLoRA over `mlx-community/Qwen2.5-7B-Instruct-4bit`, 600 iterations, rank-16 LoRA on 16 layers. **Validation loss bottomed out at iteration 200 (1.159) and climbed steadily afterward (1.631 by iteration 600)** — classic overfitting on a 569-example train set. The iteration-200 checkpoint is promoted to `models/mtg-rules-adapter-best/`. **Spot-checks after training found the adapter fabricating rule citations more confidently than the un-tuned base model, including ignoring correct RAG-retrieved context it was explicitly told to use** — see the caveat in Section 8.6. Fine-tuning as currently trained is not yet a net improvement; needs the real Section 9 eval to quantify, and likely a larger/more diverse SFT set.
 - [x] Evaluation against the RAG-only and base-model baselines (Section 9) — 110 questions (70 synthetic + 40 reddit) × 4 arms, judge-scored. Run 1: `finetuned_rag` 2.37 vs `base_rag` 3.19 (Section 9.5).
 - [x] Second fine-tune + re-eval after fixing a train/inference format mismatch and growing the dataset 569 → 2,646 examples (Sections 8.7, 9.6). `finetuned_rag` improved **+0.43 (2.37 → 2.80)** against a measured judge-noise floor of ±0.09, and bare-`finetuned` citation fabrication fell 58% (26 → 11). Still below `base_rag` (3.25) — but that comparison is confounded by a judge length bias (r = +0.21 between answer length and score), so it reads as "not yet demonstrated better," not "worse."
@@ -27,7 +27,7 @@ This walkthrough covers everything from base model selection through ingesting t
 - [x] Card-augmented retrieval measured (Section 13.5) — on card-referencing questions `base_rag_cards` gains **+0.69** over `base_rag` with citation quality 3.25 → 4.00, but n=16 gives a 95% CI of [−0.17, +1.54], so it is promising rather than established. A no-card control subset (+0.00) caught a prompt-formatting bug that had produced a convincing false result.
 - [x] Settled the card question at n=100 (Section 13.5) — the +0.69 **did not replicate**: −0.01, CI [−0.33, +0.31], 25 better / 28 worse / 47 tied. It was small-sample noise, correctly flagged at the time as unestablished.
 - [x] Tested judge validity with an independent Llama-3.1-8B judge (Section 9.9) — **the two judges rank the arms in opposite order** on identical answers, and agree only r = +0.43 (37% exact, mean disagreement 1.18 points). The earlier ±0.16 "noise floor" measured within-judge reproducibility only; judge-choice uncertainty is far larger, so previously reported effects of +0.4 to +0.7 are provisional.
-- [x] Ingested 77,931 official WotC rulings covering 19,726 cards (Section 13.6) — the most authoritative corpus available, and the fix for eval references that currently cite a rule only 21% of the time.
+- [x] Ingested 77,918 official WotC rulings covering 19,726 cards (Section 13.6) — the most authoritative corpus available, and the fix for eval references that currently cite a rule only 21% of the time.
 - [x] Built the gold set on RulesGuru's verified Q&A and measured what actually drives judge disagreement (Sections 14, 14.6) — **hand-authored rubrics lift inter-judge agreement from r = +0.30 to +0.62** on identical answers, resolving the Section 9.9 ranking inversion. Rubric quality does *not* reduce the sample size needed: per-question variance is unchanged, so ~100–150 questions are still required to resolve a 0.4-point effect.
 - [x] Built the Phase 3 gameplay scaffolding alongside the open Phase 1 work (Section 16) — position schema, action grammar and parser, position authoring in the console, and a gate-reporting eval that **reuses the V3 rubric judge unchanged**, because `common_errors` is the blunder list and `errors_made` was already being computed per question. Model choice is now a `--base-model` flag rather than a constant (Section 16.8), which also caught `--judge-model` being silently ignored on the generate-and-judge path. On 8 machine-drafted seed fixtures **all three gates fail**, which is the correct result for a pipeline whose fixtures are seeds: the closed arm lifts legality (88% vs 62%) but every arm blunders at exactly 75%, so the eval does not yet discriminate. See Section 16.11 — at n=8 with a single judge these numbers move substantially between runs, and a spot-check found the judge marking a false blunder.
 - [ ] **Next:** (a) **re-run the fine-tune at a full epoch** — the v2 adapter every Section 9 comparison scores trained for only **0.45 epochs** (Section 15.6), so "fine-tuning hurts" is confounded with under-training and that is the cheapest confound to remove; (b) author ~80 more rubrics to reach n≈100 and run the real comparison under both judges; (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk.
@@ -126,28 +126,31 @@ Requires Python 3.10+ and a recent macOS. No CUDA toolkit, no driver juggling.
 ### 2.2 Repository layout
 
 ```text
-mtg-llm/
+magic-llm/
+├── CLAUDE.md          # Orientation for Claude Code: architecture, traps, conventions
+├── README.md          # How to run things
+├── DEVELOPMENT_PLAN.md # This file — design rationale and the full experiment log
 ├── data/
-│   ├── raw/           # Original rules documents
-│   ├── processed/     # Cleaned, chunked rules + RAG index
-│   ├── datasets/      # Final training JSONL (train/valid)
-│   ├── cards/         # Phase 2: Scryfall card pulls (Section 13)
-│   │   ├── raw/       # oracle_cards.jsonl (full pool); format snapshots optional
-│   │   └── processed/
-│   └── gold/          # Human-reviewed eval set + RulesGuru corpus (Section 14)
-├── scripts/
-│   ├── common.py       # Shared prompts, CR pinning, rule-id patterns, paths
-│   ├── ingest.py       # Rules → structured records
-│   ├── chunk.py        # Chunking + cross-refs
-│   ├── rag.py           # Embed chunks, retrieve at query time
-│   ├── build_sft.py    # Generate training examples via RAG-grounded synthesis
-│   ├── eval.py          # Rules comprehension eval
-│   └── fetch_cards.py  # Phase 2: Scryfall bulk/format card pulls
-├── configs/
-│   └── phase1_lora.yaml   # mlx_lm.lora settings
-├── models/            # Adapters / checkpoints
+│   ├── raw/           # Original rules documents, pinned by date
+│   ├── processed/     # Parsed rules, chunks, RAG index
+│   ├── datasets/      # SFT train/valid JSONL
+│   ├── cards/         # Scryfall Oracle pull + derived chunks (Section 13)
+│   └── gold/          # Hand-reviewed data: rules Q&A, board positions, RulesGuru
+│       ├── SCHEMA.md      # How to author a gold record
+│       └── POSITIONS.md   # How to author a board position (Section 16)
+├── scripts/           # Every stage is a CLI; see CLAUDE.md for the map
+│   ├── common.py      # Shared prompts, CR pinning, rule-id patterns, paths, jsonl IO
+│   ├── ingest.py chunk.py rag.py            # rules → chunks → retrieval
+│   ├── fetch_cards.py chunk_cards.py card_lookup.py retrieve_hybrid.py
+│   ├── build_sft.py eval.py                 # training data and evaluation
+│   ├── webui.py label_store.py              # the local authoring console
+│   └── gameplay/     # Phase 3: positions, action grammar, gate scoring (Section 16)
+├── configs/           # mlx_lm.lora settings, one file per training run
+├── models/            # Adapters and checkpoints (gitignored)
 └── eval/
-    └── rules_questions.jsonl
+    ├── sets/          # Inputs: the question sets, with their manifests
+    ├── runs/          # Outputs: per-question scored results (.jsonl)
+    └── reports/       # Outputs: human-readable reports, same stem as their run
 ```
 
 ### 2.3 Reproducibility
@@ -402,7 +405,7 @@ Do not judge by loss alone. Build a real rules exam.
 
 Curate a held-out set of rules questions across all categories from 7.1, with reference answers and the rule IDs that support them. Include deliberately tricky interaction puzzles.
 
-**Real-world addendum:** alongside the synthetic held-out set (`eval/rules_questions.jsonl`, Section 7.4), `eval/reddit_questions.jsonl` adds 200 actual questions Magic players asked on r/MTGRules with community-vetted answers (`scripts/build_reddit_eval.py`, source: `Javier-Jimenez99/reddit-mtgrules-qa`, CC-BY-SA-4.0). Reddit's upvote score alone isn't a quality signal — it rewards jokes as readily as correct rulings (a top-scored reply to a real rules question was "Isn't Marty's cause to get back to the future?") — so candidates are filtered through an LLM judge for topical relevance before inclusion, and explicit rule citations are checked against the currently-pinned CR. Real questions surface phrasing, ambiguity, and multi-card interactions a synthetic set generated from rules text alone tends not to reproduce.
+**Real-world addendum:** alongside the synthetic held-out set (`eval/sets/rules_questions.jsonl`, Section 7.4), `eval/sets/reddit_questions.jsonl` adds 200 actual questions Magic players asked on r/MTGRules with community-vetted answers (`scripts/build_reddit_eval.py`, source: `Javier-Jimenez99/reddit-mtgrules-qa`, CC-BY-SA-4.0). Reddit's upvote score alone isn't a quality signal — it rewards jokes as readily as correct rulings (a top-scored reply to a real rules question was "Isn't Marty's cause to get back to the future?") — so candidates are filtered through an LLM judge for topical relevance before inclusion, and explicit rule citations are checked against the currently-pinned CR. Real questions surface phrasing, ambiguity, and multi-card interactions a synthetic set generated from rules text alone tends not to reproduce.
 
 ### 9.2 Scoring dimensions
 
@@ -434,7 +437,7 @@ Always compare fine-tuned model vs. (a) base model alone and (b) base model + RA
 
 **The robust finding:** `finetuned` and `finetuned_rag` both score below their non-fine-tuned counterparts, on both judge score and fabrication rate. This holds up at full scale, not just in the Section 8.6 anecdotes — of the 10 lowest-scoring cases in the report, half involve `finetuned_rag` producing a wrong or contradicted answer despite being handed the correct rule text. Per Section 9.4's decision rule, this is unambiguous: **the SFT dataset needs work** (very likely just more of it — 569 train examples is well short of Section 7.4's "low thousands" floor), not different LoRA hyperparameters.
 
-**A finding that needs a caveat, not a headline:** `base` outscoring `base_rag` (3.62 vs. 3.19) looks like "RAG hurts," but spot-checking the disagreements says otherwise. On "What does 'Reveal' mean?", `base_rag` quoted the actual rule 701.20a text verbatim and still scored a point below `base`'s vaguer, more general answer — docked for "missing detail" despite being the more precisely grounded response. On "Archenemy Commander," `base_rag`'s retrieval (k=3) surfaced the general Archenemy rules but missed the specific compound concept, producing a real but incomplete answer. Two distinct issues are tangled together here: the LLM judge appears to have a verbosity/completeness bias that isn't well calibrated against precise-but-concise grounded answers, and k=3 retrieval sometimes misses the ideal chunk for compound or unusual questions. Neither of these is "RAG doesn't work" — but neither should be papered over either. Section 9.3's "spot-checked by you" caveat on model-graded scoring is doing real work here; a human pass on a sample of judge disagreements (starting with `eval/EVAL_REPORT.md`'s lowest-scoring cases) is the natural next step before trusting the aggregate numbers further.
+**A finding that needs a caveat, not a headline:** `base` outscoring `base_rag` (3.62 vs. 3.19) looks like "RAG hurts," but spot-checking the disagreements says otherwise. On "What does 'Reveal' mean?", `base_rag` quoted the actual rule 701.20a text verbatim and still scored a point below `base`'s vaguer, more general answer — docked for "missing detail" despite being the more precisely grounded response. On "Archenemy Commander," `base_rag`'s retrieval (k=3) surfaced the general Archenemy rules but missed the specific compound concept, producing a real but incomplete answer. Two distinct issues are tangled together here: the LLM judge appears to have a verbosity/completeness bias that isn't well calibrated against precise-but-concise grounded answers, and k=3 retrieval sometimes misses the ideal chunk for compound or unusual questions. Neither of these is "RAG doesn't work" — but neither should be papered over either. Section 9.3's "spot-checked by you" caveat on model-graded scoring is doing real work here; a human pass on a sample of judge disagreements (starting with `eval/reports/rules_v1.md`'s lowest-scoring cases) is the natural next step before trusting the aggregate numbers further.
 
 Consistency (15 questions rerun on `finetuned_rag`): 15/15 identical. This mostly confirms the generation config is deterministic (no temperature/sampling variance) rather than telling us much about the model's actual stability — a more meaningful consistency check would vary phrasing of the same underlying question, not literally repeat it.
 
@@ -975,7 +978,7 @@ consistent, but it changes what a fresh clone gets, so it is a repo-policy call
 rather than a fix.
 
 The `eval/` directory has also accumulated 8 result files and 9 reports under
-inconsistent names (`EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md`). They are the record
+inconsistent names (`cards_n100_judge2.md`). They are the record
 of the experiments in Sections 9 and 13–14 and worth keeping, but a naming
 convention would help before the next run adds more.
 
@@ -1143,7 +1146,7 @@ reports were produced by re-scoring stored answers, which is the correct design
 anyway and is the path that worked. Reports now also record the base model,
 adapter and judge in the body — previously the only record of which judge
 scored a run was the filename someone chose for it
-(`EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md`), which put the most important variable
+(`cards_n100_judge2.md`), which put the most important variable
 of a two-judge study outside the document.
 
 ### 16.9 Predictions, registered before the first run
@@ -1311,4 +1314,151 @@ second half of that sentence is the load-bearing part. Concretely:
    Lead with the thing that makes the play wrong.
 
 That is a rule worth having before eight to twelve hours go into authoring, and
-it cost one rescore to learn.
+it cost one rescore to learn. All three are now enforced rather than advised:
+`--second-judge` runs both judges and the agreement report in one invocation
+and is the console's default, a one-judge report prints why it should not be
+trusted, and `lint_common_errors` flags the wording defect in the authoring
+form. The guide is [data/gold/POSITIONS.md](data/gold/POSITIONS.md).
+
+The lint took two attempts, which is worth recording because the first one was
+the more tempting design. Scoring word overlap anywhere in the correct line
+missed the canonical case — "Casts Lightning Strike **at the opponent's face**"
+has non-matching words that veto the match — while firing on two positions the
+judges never disputed. A warning that is wrong in both directions gets ignored,
+so it now requires a contiguous verbatim restatement: it catches the canonical
+case, stays silent on all six undisputed positions, and warns without blocking.
+
+Evidence files: `eval/runs/positions_seed.jsonl` and `_judge2` are the current
+run under both judges, `_v0rubrics_judge2` is the pre-rewrite Llama run behind
+the 28-point figure.
+
+---
+
+## 17. Repository review: the same consolidation failure, one level up
+
+Section 15 consolidated values that had been copied into four to eight files.
+This pass found the identical pattern in the *helpers*, plus three defects that
+only appear when you run things the way a new contributor would.
+
+### 17.1 Five jsonl readers, and three of them crashed on a blank line
+
+The same six-line function existed five times — `load_jsonl` in three scripts,
+`read_jsonl` in `label_store`, `load_positions` in `positions` — plus eight
+more inline comprehensions. They did **not** agree:
+
+```python
+[json.loads(line) for line in f]                    # chunk.py, build_sft.py, rag.py
+[json.loads(line) for line in f if line.strip()]    # label_store.py, positions.py
+```
+
+A trailing blank line is what appending by hand or saving in an editor leaves
+behind, and the unguarded form raises
+`JSONDecodeError: Expecting value: line 2 column 1`. Eight call sites carried
+that bug.
+
+This is exactly what Section 15.3 fixed for `load_rule_ids` — "six callers each
+had their own copy, four as inline comprehensions that would raise on a trailing
+newline" — reappearing because the *lesson* was applied to one function rather
+than to the class of problem. There is now one `common.read_jsonl`, and
+`write_jsonl_atomic` moved there too, which also removed a function-level
+`sys.path` insert that `positions.py` used to reach back into `scripts/`.
+
+### 17.2 Every script required being run from the repo root
+
+```
+$ cd /tmp && python ~/magic-llm/scripts/card_lookup.py "Llanowar Elves"
+FileNotFoundError: data/cards/processed/card_chunks.jsonl
+```
+
+Every canonical path was relative to the current working directory. Nothing
+documented it; the web console's runner only worked because it happened to
+inherit the right cwd. Paths are now anchored to `REPO_ROOT`, computed from
+`common.py`'s own location. Paths a user supplies on the command line stay
+relative to their cwd, which is what anyone would expect.
+
+The same pass found **30 argparse defaults re-hardcoding paths `common.py`
+already defined** — `data/processed/rules.jsonl` appeared six separate times,
+`gold_questions.jsonl` three. Those are now the constants, which fixes the
+duplication and the cwd bug in one change.
+
+### 17.3 Dead code and a name collision
+
+`judge_batch` — the v1 judge — had been unreachable since Section 9.7 replaced
+it and re-scored both earlier runs under v2. Removed, along with the prompt only
+it used. The v1 *results* remain in `eval/`; the code remains in git history.
+
+Removing it also surfaced a collision: `JUDGE_SYSTEM_PROMPT` existed in two
+files meaning different things — "grade this answer against a reference" in
+`eval.py`, "classify whether this Reddit comment is a genuine ruling" in
+`build_reddit_eval.py`. That is the `CROSS_REF_RE` hazard from Section 15.3
+verbatim. The survivor is renamed `RULING_FILTER_PROMPT`.
+
+### 17.4 Documentation checked against the artifacts
+
+Every corpus count in the README was verified by counting the file. Thirteen of
+fourteen matched. The exception: official rulings were documented as 77,931 and
+the tracked chunks contain **77,918** across 19,726 cards.
+
+`requirements.txt` turned out to be a full `pip freeze` — 73 pins, of which the
+project imports six directly (`mlx-lm`, `mlx-embeddings`, `numpy`, `datasets`,
+`fastapi`, `uvicorn`). It also pins `mlx-audio`, `mlx-vlm`, `opencv-python`,
+`miniaudio` and `sounddevice`, which no script here uses. Trimming is safe but
+changes what a fresh clone installs, so the file now says what it is and the
+decision is left open rather than made silently.
+
+`CLAUDE.md` was added: architecture, the evaluation rules that make a number
+trustworthy, and a list of the traps this repository has actually fallen into,
+since those recur in new code.
+
+### 17.5 The eval/ directory, reorganized
+
+33 files sat at one level under four competing naming schemes, and Section 15.7
+had flagged it. It is now split by role, because the roles were genuinely
+indistinguishable by name:
+
+```text
+eval/sets/      inputs — the question sets, with their manifests
+eval/runs/      outputs — per-question scored results
+eval/reports/   outputs — human-readable summaries
+```
+
+**A report now shares its run's stem**, which was not previously true and was
+actively misleading. `EVAL_REPORT_CARDS.md` documented
+`eval_results_cards_v2.jsonl`, while the similarly-named
+`eval_results_cards.jsonl` was the *discarded* run — the one whose no-card
+control read −0.34, which is impossible when both arms receive byte-identical
+context, and which is why the control exists at all. Pairing report to data by
+name would have analyzed the wrong file. Determining which was which needed the
+data rather than the names: the corrected run has 44 of 60 no-card answers
+identical between arms, exactly matching Section 13.5; the discarded one has 5.
+It is now `runs/cards_n60_superseded_headerbug.jsonl`.
+
+Two suffixes, consistently:
+
+| Suffix | Means | What varied |
+| --- | --- | --- |
+| `_rejudged` | re-scored under the v2 judge **prompt** (9.7) | the prompt |
+| `_judge2` | re-scored by an independent judge **model** (9.9) | the model |
+
+Both mean the answers are byte-identical and only the judge changed — the only
+design under which an agreement number means anything.
+
+`eval/README.md` documents the convention. Every reference was rewritten across
+13 files, and 28 of the 33 moves used `git mv` so history follows.
+
+**One hazard the rename created and then removed.** Mapping
+`eval_results.jsonl` onto `runs/rules_v1.jsonl` left `eval.py`'s default `--out`
+pointing at an archived experiment, so a bare `python scripts/eval.py` would
+have overwritten the Section 9.5 run. Output defaults are now neutral
+(`runs/latest.jsonl`) and anchored to `REPO_ROOT`. That is the same destructive-
+default shape as the `chunk_cards.py` bug in Section 15.1, reintroduced by a
+cleanup and caught by checking what every default resolved to.
+
+`REPO_MAP.md` was added — every file and its purpose in one document. It is
+deliberately **untracked**: a file-by-file inventory goes stale on every commit,
+and a stale map is worse than none.
+
+### 17.6 What the review did not change
+
+`data/cards/raw/standard_cards.jsonl` is still tracked at ~26MB with nothing
+depending on it (Section 15.7). Still a repo-policy call.

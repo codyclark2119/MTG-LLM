@@ -25,3 +25,7 @@ data/judge_worksheets/raw/
 # RulesGuru raw API responses — redundant with the frozen
 # questions.jsonl snapshot, which is the tracked artifact
 data/gold/rulesguru/raw/
+
+# Local orientation doc — regenerate or edit freely; deliberately untracked so
+# it never becomes another file that has to be kept in sync at review time.
+REPO_MAP.md

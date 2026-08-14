@@ -30,9 +30,9 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import GOLD_PATH
+from common import GOLD_CANDIDATES_PATH, GOLD_PATH, read_jsonl
 
-CANDIDATES_PATH = Path("data/gold/rulesguru/gold_candidates.jsonl")
+CANDIDATES_PATH = GOLD_CANDIDATES_PATH
 WORKSHEET_DIR = Path("data/gold/worksheets")
 
 BLOCK_RE = re.compile(r"^###\s+(?P<id>\S+)", re.M)
@@ -88,11 +88,7 @@ COMMON ERRORS:
 """
 
 
-def load_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+load_jsonl = read_jsonl  # one definition, in common.py
 
 
 def needs_authoring(record: dict) -> bool:

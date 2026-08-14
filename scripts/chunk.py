@@ -13,8 +13,12 @@ Usage:
 
 import argparse
 import json
+import sys
 from collections import OrderedDict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from common import CHUNKS_PATH, GLOSSARY_PATH, RULES_PATH, read_jsonl  # noqa: E402
 
 
 def estimate_tokens(text: str) -> int:
@@ -25,9 +29,7 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def load_jsonl(path: Path) -> list[dict]:
-    with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+load_jsonl = read_jsonl  # one definition, in common.py
 
 
 def group_rules(rules: list[dict]) -> "OrderedDict[str, list[dict]]":
@@ -134,9 +136,9 @@ def build_chunk(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
-    parser.add_argument("--glossary", type=Path, default=Path("data/processed/glossary.jsonl"))
-    parser.add_argument("--out", type=Path, default=Path("data/processed/chunks.jsonl"))
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
+    parser.add_argument("--glossary", type=Path, default=GLOSSARY_PATH)
+    parser.add_argument("--out", type=Path, default=CHUNKS_PATH)
     # Tuned so body + related-rules + glossary together land near the
     # README's "a few hundred to ~1,000 tokens" target (Section 5.3)
     # rather than each budget stacking independently toward 1,500+.

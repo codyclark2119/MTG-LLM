@@ -56,17 +56,17 @@ Each stage writes a committed artifact, so you can start anywhere.
 | Chunk for retrieval | `python scripts/chunk.py` | `chunks.jsonl` (448) |
 | Build the index | `python scripts/rag.py index` | `chunk_embeddings.npz` (gitignored) |
 | Generate SFT data | `python scripts/build_sft.py --grounded --freeze-eval` | `train.jsonl` (2,644), `valid.jsonl` (327) |
-| Fine-tune | `python -m mlx_lm lora -c configs/phase1_lora_v2.yaml` | adapter in `models/` |
+| Fine-tune | `python -m mlx_lm lora -c configs/phase1_lora_v3.yaml` | adapter in `models/` |
 | Evaluate | `python scripts/eval.py --adapter-path models/mtg-rules-adapter-v2-best` | `eval/EVAL_REPORT*.md` |
 
-Fine-tuning takes ~2.5 hours and evaluation ~2.5 hours on an M3 Pro. Both checkpoint incrementally.
+Evaluation takes ~2.5 hours on an M3 Pro; both stages checkpoint incrementally. The v3 config runs `iters: 1322` — exactly one epoch at batch 2 over 2,644 lines, ~6 hours. `phase1_lora_v2.yaml` is kept for comparability but ran only **0.45 epochs**, which confounds every result that scores its adapter (§15.6); use v3 for new runs.
 
 ### Card data
 
 ```bash
 python scripts/fetch_cards.py --bulk oracle_cards      # full Oracle pool via Scryfall bulk data
 python scripts/chunk_cards.py                          # -> card_chunks.jsonl (34,933 playable)
-python scripts/ingest_rulings.py                       # 77,931 official WotC rulings -> ruling_chunks.jsonl
+python scripts/ingest_rulings.py                       # 77,918 official WotC rulings -> ruling_chunks.jsonl
 ```
 
 Use the **full Oracle pool**, not a format subset: the Standard-only pool covered just 4% of the cards players actually ask about. `fetch_cards.py --format standard` still exists for format-scoped experiments, but `chunk_cards.py` refuses to overwrite the full corpus with a subset unless you pass `--force`.
@@ -93,7 +93,7 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | Comprehensive Rules | 3,162 rules + 739 glossary | WotC, pinned 2026-08-07 | yes |
 | Retrieval chunks | 448 (avg ~690 tok) | derived | yes |
 | Cards | 34,933 playable | Scryfall Oracle | chunks only |
-| Official rulings | 77,931 across 19,726 cards | WotC via Scryfall | chunks only |
+| Official rulings | 77,918 across 19,726 cards | WotC via Scryfall | chunks only |
 | SFT training set | 2,644 train / 327 valid | synthesized, RAG-grounded | yes |
 | Eval — synthetic | 70 | generated from rules | yes |
 | Eval — Reddit | 200 + 100 card-focused | r/MTGRules, LLM-filtered | yes |
@@ -139,7 +139,9 @@ python scripts/gameplay/positions.py --render pos-seed-0002 --closed   # see the
 python scripts/gameplay/eval_positions.py --positions data/gold/positions_seed.jsonl
 ```
 
-A position is a gold record whose question is a board, so `key_points` is the correct line and **`common_errors` is the blunder list** — `eval.py`'s rubric judge scores it unchanged, and blunder rate is just how often `errors_made` is non-empty. Author them at `#/position` in the web console.
+A position is a gold record whose question is a board, so `key_points` is the correct line and **`common_errors` is the blunder list** — `eval.py`'s rubric judge scores it unchanged, and blunder rate is just how often `errors_made` is non-empty. Author them at `#/position` in the web console; see [data/gold/POSITIONS.md](data/gold/POSITIONS.md).
+
+`eval_positions.py` scores with **two judges** by default. On the seed set, swapping the judge reversed two of the three gates on byte-identical answers (kappa +0.48 on the blunder call), so a one-judge verdict is a statement about the judge.
 
 `data/gold/positions_seed.jsonl` is machine-drafted plumbing verification, kept separate from `data/gold/positions.jsonl`; Section 14.6's result says the gate needs hand-authored rubrics.
 
