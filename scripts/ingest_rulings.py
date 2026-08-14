@@ -23,49 +23,39 @@ Usage:
 """
 
 import argparse
-import gzip
 import json
-import re
-import shutil
-import urllib.request
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
-BULK_URL = "https://api.scryfall.com/bulk-data"
-HEADERS = {"User-Agent": "MagicLLM-Phase2/0.1 (hobby research project)", "Accept": "application/json"}
+sys.path.insert(0, str(Path(__file__).parent))
+from common import CARD_CHUNKS_PATH, RULES_PATH, RULING_CHUNKS_PATH, load_rule_ids
+from common import RULE_ID_RE as CROSS_REF_RE
 
-
-def download_rulings(dest: Path) -> None:
-    meta = json.loads(urllib.request.urlopen(urllib.request.Request(BULK_URL, headers=HEADERS)).read())
-    entry = next(d for d in meta["data"] if d["type"] == "rulings")
-    print(f"downloading rulings bulk data (updated {entry['updated_at']}) ...")
-    req = urllib.request.Request(entry["jsonl_download_uri"], headers=HEADERS)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    gz = dest.with_suffix(".jsonl.gz")
-    with urllib.request.urlopen(req) as r, gz.open("wb") as f:
-        shutil.copyfileobj(r, f)
-    with gzip.open(gz, "rt", encoding="utf-8") as fin, dest.open("w", encoding="utf-8") as fout:
-        for line in fin:
-            fout.write(line)
-    gz.unlink()
-    print(f"-> {dest}")
+# Scryfall bulk downloading lives in fetch_cards.py — this was a second,
+# near-identical copy of it.
+from fetch_cards import download_bulk  # noqa: E402
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--rulings", type=Path, default=Path("data/cards/raw/rulings.jsonl"))
-    parser.add_argument("--card-chunks", type=Path, default=Path("data/cards/processed/card_chunks.jsonl"))
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
-    parser.add_argument("--out", type=Path, default=Path("data/cards/processed/ruling_chunks.jsonl"))
+    parser.add_argument("--card-chunks", type=Path, default=CARD_CHUNKS_PATH)
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
+    parser.add_argument("--out", type=Path, default=RULING_CHUNKS_PATH)
     parser.add_argument("--refresh", action="store_true", help="re-download even if the file exists")
-    parser.add_argument("--wotc-only", action="store_true", default=True, help="keep only WotC-issued rulings")
+    # `store_true` with `default=True` can never be false, so --wotc-only was a
+    # no-op that read like a toggle. The filter is the intended behaviour, so
+    # the opt-out is what gets a flag.
+    parser.add_argument("--include-non-wotc", action="store_true",
+                        help="also keep rulings not issued by Wizards of the Coast")
     args = parser.parse_args()
+    wotc_only = not args.include_non_wotc
 
     if args.refresh or not args.rulings.exists():
-        download_rulings(args.rulings)
+        download_bulk("rulings", args.rulings)
 
-    valid_rule_ids = {json.loads(l)["rule_id"] for l in args.rules.open(encoding="utf-8")}
+    valid_rule_ids = load_rule_ids(args.rules)
 
     cards_by_oracle: dict[str, dict] = {}
     with args.card_chunks.open(encoding="utf-8") as f:
@@ -80,7 +70,7 @@ def main() -> None:
         for line in f:
             r = json.loads(line)
             total += 1
-            if args.wotc_only and r.get("source") != "wotc":
+            if wotc_only and r.get("source") != "wotc":
                 continue
             kept += 1
             grouped[r["oracle_id"]].append(r)
@@ -128,7 +118,6 @@ def main() -> None:
     print(f"  {orphans} oracle_ids had no matching playable card (skipped)")
     print(f"  {with_rules} carry a rule number that resolves against the pinned CR")
     print(f"  chars per chunk: median {lengths[len(lengths) // 2]}, p90 {lengths[int(len(lengths) * 0.9)]}, max {lengths[-1]}")
-
 
 if __name__ == "__main__":
     main()

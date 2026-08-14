@@ -10,10 +10,19 @@
 #     Run 1 trained only on bare question -> answer while the production
 #     architecture puts retrieved rules in the prompt; that mismatch is the
 #     leading suspect for the adapter ignoring retrieved context.
-#   - iters 600 -> 700. At batch size 4, one epoch is now ~662 iterations,
-#     so run 1's 600 would have been under a single pass over the new data.
-#     ~1 epoch is deliberately modest, since run 1 overfit hard by iter 200
-#     on far less data.
+#   - batch_size 4 -> 2 with grad_checkpoint, after grounded examples drove
+#     peak memory to 65GB on a 36GB machine and took it down twice
+#     (Section 8.7). Peak fell to 9.2GB.
+#
+#     !! This halved the training actually performed, and iters was not
+#     raised to compensate. At batch 2 over 2,644 train lines one epoch is
+#     ~1,322 iterations, so iters: 600 is **0.45 epochs** — not the ~1 epoch
+#     this file originally planned for at batch 4 / iters 700. The adapter
+#     under evaluation has seen less than half of the training data once.
+#     That makes under-training a live alternative explanation for the
+#     Section 9 finding that fine-tuning hurts, alongside the
+#     self-distillation ceiling. Raise iters to ~1,300 for a true 1-epoch
+#     comparison before concluding anything further about the method.
 #   - val_batches -1 -> 8, steps_per_eval 50 -> 150. The grounded examples
 #     carry a full rules chunk in the prompt, so they tokenize ~10x longer
 #     than run 1's bare Q&A: measured validation cost jumped from ~2.6s to

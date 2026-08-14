@@ -29,9 +29,13 @@ Usage:
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
-CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
+sys.path.insert(0, str(Path(__file__).parent))
+from common import CARD_CHUNKS_PATH, GLOSSARY_PATH, ORACLE_CARDS_PATH, RULES_PATH
+from common import RULE_ID_RE as CROSS_REF_RE
+
 KEYWORD_RULE_RE = re.compile(r"70[12]\.\d+")
 
 # Scryfall's oracle dump includes entries that aren't playable cards. They
@@ -136,11 +140,26 @@ def build_card_chunk(card: dict, keyword_rules: dict[str, str]) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--cards", type=Path, default=Path("data/cards/raw/standard_cards.jsonl"))
-    parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
-    parser.add_argument("--glossary", type=Path, default=Path("data/processed/glossary.jsonl"))
-    parser.add_argument("--out", type=Path, default=Path("data/cards/processed/card_chunks.jsonl"))
+    # Defaults to the FULL Oracle pool, not a format subset. This used to
+    # default to standard_cards.jsonl while writing over the Oracle-derived
+    # card_chunks.jsonl, so the documented `python scripts/chunk_cards.py`
+    # replaced 34,933 chunks with 4,887 Standard ones — silently reverting to
+    # the 4% card coverage Section 13.5 was written to fix, and breaking card
+    # resolution for card_lookup, retrieve_hybrid, and gold-set validation.
+    parser.add_argument("--cards", type=Path, default=ORACLE_CARDS_PATH)
+    parser.add_argument("--rules", type=Path, default=RULES_PATH)
+    parser.add_argument("--glossary", type=Path, default=GLOSSARY_PATH)
+    parser.add_argument("--out", type=Path, default=CARD_CHUNKS_PATH)
+    parser.add_argument("--force", action="store_true",
+                        help="write even if it would shrink an existing corpus by more than half")
     args = parser.parse_args()
+
+    if not args.cards.exists():
+        raise SystemExit(
+            f"{args.cards} not found.\n"
+            f"  Full Oracle pool (recommended):  python scripts/fetch_cards.py --bulk oracle_cards\n"
+            f"  Or point at a format subset:     python scripts/chunk_cards.py --cards <file>"
+        )
 
     keyword_rules = build_keyword_rule_map(args.rules, args.glossary)
     print(f"{len(keyword_rules)} keyword -> rule mappings available")
@@ -151,6 +170,18 @@ def main() -> None:
     print(f"{len(raw)} entries, {len(cards)} playable after dropping tokens/art-series/memorabilia")
 
     chunks = [build_card_chunk(c, keyword_rules) for c in cards]
+
+    # A large shrink almost always means a format subset is being written over
+    # the full pool. Downstream card resolution degrades quietly when that
+    # happens, so make it an explicit choice rather than a silent one.
+    if args.out.exists() and not args.force:
+        existing = sum(1 for _ in args.out.open(encoding="utf-8"))
+        if existing > 2 * len(chunks):
+            raise SystemExit(
+                f"refusing to shrink {args.out} from {existing} to {len(chunks)} chunks.\n"
+                f"  This usually means --cards points at a format subset rather than the "
+                f"full Oracle pool.\n  Pass --force if the shrink is intended."
+            )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as f:

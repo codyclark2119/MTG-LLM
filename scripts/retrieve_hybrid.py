@@ -56,8 +56,17 @@ def build_context(
         parts.append("Cards referenced:\n" + "\n\n".join(c["text"] for c in cards))
     parts.append("Rules text:\n" + "\n\n".join(h["text"] for h in rules_hits))
 
-    # A card's own keyword rules are worth surfacing even when the question's
-    # phrasing didn't retrieve them semantically.
+    # Returned as METADATA ONLY — these ids are not injected into `context`.
+    # The original comment here claimed a card's keyword rules were "worth
+    # surfacing even when the question's phrasing didn't retrieve them
+    # semantically", which describes a feature that was never wired up:
+    # nothing downstream reads this field except the debug print in main().
+    #
+    # Injecting the rule TEXT for these ids is a genuine retrieval
+    # improvement to try — a card with trample would arrive with 702.19
+    # attached regardless of phrasing — but it changes what every card arm
+    # sees, so it must be run as a measured change against the current
+    # baseline rather than switched on quietly.
     card_rule_ids = sorted({r for c in cards for r in c["keyword_rule_ids"]})
 
     return {

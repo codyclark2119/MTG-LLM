@@ -16,15 +16,33 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 from mlx_embeddings import generate, load
 
+sys.path.insert(0, str(Path(__file__).parent))
+from common import CHUNKS_PATH, INDEX_PATH  # noqa: F401  (re-exported; eval.py imports from here)
+
 MODEL_ID = "mlx-community/all-MiniLM-L6-v2-4bit"
-CHUNKS_PATH = Path("data/processed/chunks.jsonl")
-INDEX_PATH = Path("data/processed/chunk_embeddings.npz")
+
+
+def fingerprint(chunks: list[dict]) -> str:
+    """Identify the exact chunk set an index was built from.
+
+    Re-running chunk.py with different budgets rewrites chunks.jsonl while
+    leaving a stale .npz in place. Chunk ids are positional, so the stale
+    vectors still *resolve* — retrieval silently returns text that was
+    never embedded. Comparing a content hash turns that into an error.
+    """
+    h = hashlib.sha256()
+    for c in chunks:
+        h.update(c["chunk_id"].encode())
+        h.update(c["text"].encode())
+    return h.hexdigest()
 
 
 def load_chunks(path: Path) -> list[dict]:
@@ -53,6 +71,7 @@ def build_index(chunks_path: Path, index_path: Path) -> None:
         embeddings=embeddings,
         chunk_ids=np.array([c["chunk_id"] for c in chunks]),
         model_id=MODEL_ID,
+        chunks_fingerprint=fingerprint(chunks),
     )
     print(f"embedded {len(chunks)} chunks ({embeddings.shape[1]}-dim) -> {index_path}")
 
@@ -66,6 +85,21 @@ def retrieve(
     stored = np.load(index_path, allow_pickle=True)
     embeddings, chunk_ids = stored["embeddings"], stored["chunk_ids"]
 
+    chunks = load_chunks(chunks_path)
+    stored_model = str(stored["model_id"]) if "model_id" in stored else None
+    if stored_model and stored_model != MODEL_ID:
+        raise ValueError(
+            f"{index_path} was built with {stored_model}, but this run uses {MODEL_ID}. "
+            f"Vectors from different models are not comparable — rebuild with "
+            f"`python scripts/rag.py index`."
+        )
+    stored_fp = str(stored["chunks_fingerprint"]) if "chunks_fingerprint" in stored else None
+    if stored_fp and stored_fp != fingerprint(chunks):
+        raise ValueError(
+            f"{index_path} is stale: {chunks_path} has changed since it was embedded. "
+            f"Rebuild with `python scripts/rag.py index`."
+        )
+
     # Loading the embedding model takes real time, so callers doing many
     # retrievals in a loop (e.g. build_reddit_eval.py) should load it once
     # and pass it in rather than paying that cost on every call.
@@ -76,7 +110,7 @@ def retrieve(
     scores = embeddings @ query_vec  # both sides pre-normalized -> cosine similarity
     top_k = np.argsort(-scores)[:k]
 
-    chunks_by_id = {c["chunk_id"]: c for c in load_chunks(chunks_path)}
+    chunks_by_id = {c["chunk_id"]: c for c in chunks}
     return [{**chunks_by_id[str(chunk_ids[i])], "score": float(scores[i])} for i in top_k]
 
 

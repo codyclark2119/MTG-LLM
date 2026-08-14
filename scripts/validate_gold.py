@@ -21,11 +21,12 @@ Usage:
 import argparse
 import csv
 import json
-import re
 import sys
 from pathlib import Path
 
-CROSS_REF_RE = re.compile(r"^\d{3}\.\d+[a-z]?$")
+from common import SYSTEM_PROMPT, load_rule_ids
+from common import RULE_ID_EXACT_RE as CROSS_REF_RE
+
 CATEGORIES = {
     "definition recall",
     "turn-structure walkthrough",
@@ -39,11 +40,6 @@ CATEGORIES = {
 DIFFICULTIES = {"basic", "intermediate", "advanced"}
 REQUIRED = ["id", "question", "answer", "key_points", "rule_citations", "category", "difficulty", "source", "cr_version"]
 LIST_FIELDS = ["paraphrases", "key_points", "common_errors", "rule_citations", "cards"]
-
-SYSTEM_PROMPT = (
-    "You are a Magic: The Gathering rules expert. Answer precisely and "
-    "cite comprehensive rule numbers."
-)
 
 
 def from_csv(csv_path: Path, out_path: Path) -> None:
@@ -176,7 +172,7 @@ def main() -> None:
         print(f"{args.gold} is empty", file=sys.stderr)
         sys.exit(1)
 
-    valid_rule_ids = {json.loads(l)["rule_id"] for l in args.rules.open(encoding="utf-8")}
+    valid_rule_ids = load_rule_ids(args.rules)
 
     card_index = None
     if not args.skip_cards and any(r.get("cards") for r in records):
@@ -216,7 +212,6 @@ def main() -> None:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         print(f"{len(rows)} eval rows -> {args.eval_out}")
-
 
 if __name__ == "__main__":
     main()

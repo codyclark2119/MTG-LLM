@@ -41,17 +41,10 @@ import sys
 import time
 from pathlib import Path
 
-CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
-REDIRECT_RE = re.compile(r"^See [^.]+\.$")
+from common import build_rag_messages
+from common import RULE_ID_RE as CROSS_REF_RE
 
-SYSTEM_PROMPT = (
-    "You are a Magic: The Gathering rules expert. Answer precisely and "
-    "cite comprehensive rule numbers."
-)
-# Must match scripts/eval.py's RAG arm exactly — see build_grounded_messages().
-RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
-    " Use ONLY the provided rules text to answer; do not rely on outside knowledge."
-)
+REDIRECT_RE = re.compile(r"^See [^.]+\.$")
 
 CATEGORY_STYLE = {
     "definition recall": 'a concise definition-recall question (e.g. "What is X?")',
@@ -386,11 +379,8 @@ def has_citation(record: dict) -> bool:
 
 def build_messages(record: dict) -> dict:
     return {
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": record["question"]},
-            {"role": "assistant", "content": record["answer"]},
-        ]
+        "messages": build_rag_messages(record["question"])
+        + [{"role": "assistant", "content": record["answer"]}]
     }
 
 
@@ -431,14 +421,14 @@ def build_grounded_messages(record: dict, context: str) -> dict:
     Section 9.5 result where the fine-tuned model ignored correct retrieved
     context and answered from parametric memory instead: it had never once
     been shown an example where the answer was supposed to come from text in
-    the prompt. Must stay byte-identical in shape to eval.py's RAG arm.
+    the prompt.
+
+    Shape is delegated to common.build_rag_messages, which eval.py also uses,
+    so the two cannot drift apart again.
     """
     return {
-        "messages": [
-            {"role": "system", "content": RAG_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Rules text:\n{context}\n\nQuestion: {record['question']}"},
-            {"role": "assistant", "content": record["answer"]},
-        ]
+        "messages": build_rag_messages(record["question"], context)
+        + [{"role": "assistant", "content": record["answer"]}]
     }
 
 
@@ -616,7 +606,6 @@ def main() -> None:
         "for MTG-rules correctness — human-review a sample before trusting it "
         "(README Section 7.2 step 4), starting with the needs-review file."
     )
-
 
 if __name__ == "__main__":
     main()

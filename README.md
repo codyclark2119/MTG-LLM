@@ -33,12 +33,17 @@ python scripts/rag.py index                        # embed 448 rules chunks (~1 
 python scripts/rag.py query "when are state-based actions checked?" --k 3
 ```
 
-Card-aware retrieval needs the card corpus (~25MB download, not committed):
+The derived card corpus is committed too, so card lookup works immediately:
 
 ```bash
-python scripts/fetch_cards.py --format standard    # or: see Card data below
-python scripts/chunk_cards.py
 python scripts/retrieve_hybrid.py "Does [[Chatterfang]] double token creation?"
+```
+
+Rebuilding it from source needs the raw Oracle dump (~200MB, not committed):
+
+```bash
+python scripts/fetch_cards.py --bulk oracle_cards   # -> data/cards/raw/oracle_cards.jsonl
+python scripts/chunk_cards.py                       # -> card_chunks.jsonl (34,933)
 ```
 
 ## Pipeline
@@ -59,23 +64,27 @@ Fine-tuning takes ~2.5 hours and evaluation ~2.5 hours on an M3 Pro. Both checkp
 ### Card data
 
 ```bash
-python scripts/fetch_cards.py --format standard        # 4,887 Standard-legal cards via Scryfall search
-python scripts/chunk_cards.py                          # -> card_chunks.jsonl
+python scripts/fetch_cards.py --bulk oracle_cards      # full Oracle pool via Scryfall bulk data
+python scripts/chunk_cards.py                          # -> card_chunks.jsonl (34,933 playable)
 python scripts/ingest_rulings.py                       # 77,931 official WotC rulings -> ruling_chunks.jsonl
 ```
 
-For the full card pool (recommended — the Standard-only pool covered just 4% of cards players actually ask about), download Scryfall's `oracle_cards` bulk file to `data/cards/raw/oracle_cards.jsonl` and run `chunk_cards.py --cards data/cards/raw/oracle_cards.jsonl`.
+Use the **full Oracle pool**, not a format subset: the Standard-only pool covered just 4% of the cards players actually ask about. `fetch_cards.py --format standard` still exists for format-scoped experiments, but `chunk_cards.py` refuses to overwrite the full corpus with a subset unless you pass `--force`.
 
 ### Gold set
 
-Human-authored questions with rubric-based answers — the highest-trust data here, and the basis for deciding which automated judge to believe.
+Human-reviewed questions with rubric-based answers — the highest-trust data here, and the basis for deciding which automated judge to believe.
 
 ```bash
-python scripts/ingest_qa_pastes.py --from data/gold/pastes/*.txt --draft-rubric
+python scripts/fetch_rulesguru.py --all                # 1,402 verified Q&A from rulesguru.org
+python scripts/rulesguru_to_gold.py                    # -> gold_candidates.jsonl (rubrics drafted, not final)
+python scripts/rulesguru_to_gold.py --promote 3518     # after rewriting a rubric by hand
 python scripts/validate_gold.py --to-eval
 ```
 
-Format and contribution guidance: [data/gold/SCHEMA.md](data/gold/SCHEMA.md).
+Candidates carry machine-drafted rubrics and are deliberately **not** part of the gold set until a human rewrites the rubric — that review is what the gold tier means. Rubric quality is not cosmetic: hand-authored rubrics roughly doubled inter-judge agreement (r +0.30 → +0.62).
+
+Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCHEMA.md](data/gold/SCHEMA.md).
 
 ## Corpora
 
@@ -88,7 +97,9 @@ Format and contribution guidance: [data/gold/SCHEMA.md](data/gold/SCHEMA.md).
 | SFT training set | 2,644 train / 327 valid | synthesized, RAG-grounded | yes |
 | Eval — synthetic | 70 | generated from rules | yes |
 | Eval — Reddit | 200 + 100 card-focused | r/MTGRules, LLM-filtered | yes |
-| **Gold set** | **6** | judge study site | yes |
+| RulesGuru snapshot | 1,402 verified Q&A | rulesguru.org API | yes |
+| RulesGuru candidates | 1,202 (drafted rubrics) | derived | yes |
+| **Gold set** | **39** (human-reviewed rubrics) | RulesGuru + judge sources | yes |
 | Judge worksheets | 39 scenarios | Competitive REL sims | yes |
 
 ## Scripts
@@ -104,9 +115,41 @@ Format and contribution guidance: [data/gold/SCHEMA.md](data/gold/SCHEMA.md).
 | `card_lookup.py` | resolve card names by dictionary (99% on eval) |
 | `retrieve_hybrid.py` | route cards and rules into separate retrieval budgets |
 | `ingest_rulings.py` | official WotC rulings → chunks |
+| `fetch_rulesguru.py` / `rulesguru_to_gold.py` | RulesGuru API → frozen snapshot → gold candidates |
 | `ingest_qa_pastes.py` / `validate_gold.py` | gold set ingestion and validation |
 | `ingest_judge_worksheets.py` | Competitive REL scenarios → structured records |
 | `build_reddit_eval.py` | community Q&A → eval set, LLM-filtered for real rulings |
+| `webui.py` / `label_store.py` | local console: label, author records and positions, run scripts |
+| `common.py` | shared prompts, CR pinning, rule-id patterns, canonical paths |
+| `gameplay/actions.py` | the action grammar and its parser |
+| `gameplay/positions.py` | board-position schema, validation, rendering |
+| `gameplay/eval_positions.py` | blunder rate, legality, and the three gates |
+
+`common.py` is not a grab bag: the prompts, the pinned CR version, and the rule-id regexes were each duplicated across four to eight scripts, and a divergent copy of the prompt is exactly what caused the Section 8.7 fine-tune failure. Training data and evaluation must be built from the same strings.
+
+## Gameplay (Phase 3)
+
+Beyond explaining rules: give the model a board and let it choose a play. See [DEVELOPMENT_PLAN.md §16](DEVELOPMENT_PLAN.md).
+
+```bash
+python scripts/gameplay/test_actions.py                 # parser assertions (70)
+python scripts/gameplay/make_seed_positions.py          # -> positions_seed.jsonl (8 fixtures)
+python scripts/gameplay/positions.py --positions data/gold/positions_seed.jsonl
+python scripts/gameplay/positions.py --render pos-seed-0002 --closed   # see the prompt
+python scripts/gameplay/eval_positions.py --positions data/gold/positions_seed.jsonl
+```
+
+A position is a gold record whose question is a board, so `key_points` is the correct line and **`common_errors` is the blunder list** — `eval.py`'s rubric judge scores it unchanged, and blunder rate is just how often `errors_made` is non-empty. Author them at `#/position` in the web console.
+
+`data/gold/positions_seed.jsonl` is machine-drafted plumbing verification, kept separate from `data/gold/positions.jsonl`; Section 14.6's result says the gate needs hand-authored rubrics.
+
+## Local web console
+
+```bash
+python scripts/webui.py --lan --author "judge:CC"   # prints laptop/phone/Bonjour URLs + token
+```
+
+Four views: `#/label`, `#/new`, `#/position`, `#/scripts`. Off loopback a token is generated and required. The script runner is an **allowlist** — the client names an action id and values for its declared args, and the command line is assembled server-side, never accepted from the client.
 
 ## Honest results
 
@@ -128,9 +171,11 @@ Measured on 110 questions (70 synthetic + 40 Reddit), four system arms, LLM-judg
 
 - **Card-augmented retrieval showed +0.69 at n=16 and −0.01 at n=100.** It was noise.
 - **The synthetic eval flatters RAG.** 65% of its questions retrieve their own source chunk — closer to a lookup test than a generalization test. On real questions all arms cluster within noise.
-- **Judge choice can reverse the ranking.** Two independent judges agree at only r = +0.43 (37% exact, mean disagreement 1.18 points on a 1–5 scale). Effects below ~0.5 are not currently measurable.
+- **Judge choice can reverse the ranking.** Two independent judges agreed at only r = +0.43 (37% exact, mean disagreement 1.18 points on a 1–5 scale), which made effects below ~0.5 unmeasurable.
 
-That last point gates everything else, which is why the gold set exists: 6 human-authored questions so far, against a target of 8–10 per category across eight categories.
+**What we did about the last one.** Scoring against an enumerated rubric — *which of these specific claims did the answer make?* — instead of against one prose reference, and then writing the rubrics carefully. On identical answers under identical judges, hand-authored rubrics lifted agreement from r = +0.30 to **+0.62** and cut mean disagreement from 1.26 to 0.80 points. Under those rubrics both judges finally rank the arms the same way.
+
+Two things that fix is careful not to claim. It does **not** shrink the sample needed: per-question variance is unchanged, so resolving a 0.4-point effect still takes ~100–150 questions. And the current gold set is **39 records** against a target of 8–10 per category across eight categories, so no per-category conclusion is available yet.
 
 ## Licensing
 

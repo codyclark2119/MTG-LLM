@@ -14,12 +14,15 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from common import CR_TEXT_PATH
+from common import RULE_ID_RE as CROSS_REF_RE
+
 SECTION_RE = re.compile(r"^([1-9])\.\s+(.+)$")
 GROUP_RE = re.compile(r"^(\d{3})\.\s+([A-Za-z].+)$")
 # Handles both "509.1. Text" and typo'd variants missing the trailing
 # period ("606.5 Text") or adding one after the subrule letter ("119.1d. Text").
 RULE_RE = re.compile(r"^(\d{3}\.\d+)([a-z]*)\.?\s+(.+)$")
-CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
 REDIRECT_RE = re.compile(r"^See [^.]+\.$")
 
 HEADING_START = "1. Game Concepts"
@@ -186,7 +189,7 @@ def main() -> None:
     parser.add_argument(
         "--raw",
         type=Path,
-        default=Path("data/raw/MagicCompRules_20260807.txt"),
+        default=CR_TEXT_PATH,
         help="Path to the raw Comprehensive Rules .txt file",
     )
     parser.add_argument(
@@ -230,7 +233,6 @@ def main() -> None:
         sys.exit(1)
     else:
         print("validation passed: sections complete, all subrules parented, no orphaned cross-refs")
-
 
 if __name__ == "__main__":
     main()

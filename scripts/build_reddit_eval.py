@@ -32,25 +32,13 @@ Usage:
 
 import argparse
 import json
-import re
 from pathlib import Path
 
-CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
+from common import CR_VERSION, SYSTEM_PROMPT, load_rule_ids
+from common import RULE_ID_RE as CROSS_REF_RE
+
 MIN_PROMPT_LEN = 30
 MIN_RESPONSE_LEN = 20
-
-SYSTEM_PROMPT = (
-    "You are a Magic: The Gathering rules expert. Answer precisely and "
-    "cite comprehensive rule numbers."
-)
-
-
-def load_rule_ids(rules_path: Path) -> set[str]:
-    ids = set()
-    with rules_path.open(encoding="utf-8") as f:
-        for line in f:
-            ids.add(json.loads(line)["rule_id"])
-    return ids
 
 
 JUDGE_SYSTEM_PROMPT = (
@@ -237,7 +225,7 @@ def main() -> None:
         f"- These are real community answers, not verified by an actual Magic rules judge — "
         f"correctness is not guaranteed even after LLM filtering. Explicit rule-number "
         f"citations in the original answers are checked against the currently-pinned CR "
-        f"(2026-08-07) and flagged in `cited_rule_ids_stale` when they don't resolve — "
+        f"({CR_VERSION}) and flagged in `cited_rule_ids_stale` when they don't resolve — "
         f"Reddit posts span many CR revisions, so a cited number may have since been "
         f"renumbered or reused. {stale_count}/{len(records)} records have at least one "
         f"stale citation.\n"
@@ -250,7 +238,6 @@ def main() -> None:
     print(f"\n{len(records)} examples -> {args.out}")
     print(f"manifest -> {args.manifest_out}")
     print(f"{stale_count}/{len(records)} records have a citation that doesn't resolve against the current CR")
-
 
 if __name__ == "__main__":
     main()

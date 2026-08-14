@@ -22,11 +22,14 @@ import argparse
 import difflib
 import json
 import re
+import sys
 from functools import lru_cache
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from common import CARD_CHUNKS_PATH as CARD_CHUNKS
+
 BRACKET_RE = re.compile(r"\[\[(.*?)\]\]")
-CARD_CHUNKS = Path("data/cards/processed/card_chunks.jsonl")
 
 
 def normalize(name: str) -> str:

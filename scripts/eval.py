@@ -36,29 +36,33 @@ Usage:
 import argparse
 import json
 import random
-import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
+    CARDS_RAG_SYSTEM_PROMPT,
+    RAG_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    load_rule_ids,
+)
+from common import RULE_ID_RE as CROSS_REF_RE
 from rag import MODEL_ID as EMBED_MODEL_ID
 from rag import retrieve
 
-CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
+# DEFAULTS, not constants. Both of these are overridable per run (--base-model,
+# --adapter-path) and both are recorded in the results file, because a stale
+# default here has already produced a wrong run once: ADAPTER_PATH pointed at
+# the v1 adapter long after v2 superseded it, so a bare `python scripts/eval.py`
+# silently evaluated the old one.
+#
+# Nothing downstream may read these directly — take the model from args and
+# pass it down. That is what keeps swapping in a new checkpoint (or a larger
+# base model, which fits at 36GB for inference) a flag change rather than an
+# edit.
 BASE_MODEL_ID = "mlx-community/Qwen2.5-7B-Instruct-4bit"
-ADAPTER_PATH = "models/mtg-rules-adapter-best"
-
-SYSTEM_PROMPT = (
-    "You are a Magic: The Gathering rules expert. Answer precisely and "
-    "cite comprehensive rule numbers."
-)
-RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
-    " Use ONLY the provided rules text to answer; do not rely on outside knowledge."
-)
-CARDS_RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
-    " Use ONLY the provided card text and rules text to answer; do not rely on "
-    "outside knowledge. The card text is authoritative for what each named card does."
-)
+ADAPTER_PATH = "models/mtg-rules-adapter-v2-best"
 
 JUDGE_SYSTEM_PROMPT = (
     "You are an expert Magic: The Gathering rules judge grading AI-generated answers. "
@@ -115,12 +119,119 @@ JUDGE_SYSTEM_PROMPT_V2 = (
 )
 
 
-def load_rule_ids(rules_path: Path) -> set[str]:
-    ids = set()
-    with rules_path.open(encoding="utf-8") as f:
-        for line in f:
-            ids.add(json.loads(line)["rule_id"])
-    return ids
+# v3 judge. Sections 9.6-9.9 kept treating judge disagreement as a prompt
+# wording problem, but the disagreement is structural: asking for a holistic
+# 1-5 "how close is this to my one phrasing?" has no objective answer, so two
+# judges landed at r = +0.43 and effects below ~0.5 became unmeasurable.
+#
+# This prompt does not ask for a score at all. It asks which enumerated
+# claims a candidate asserted and which known misconceptions it fell into —
+# extraction questions with checkable answers — and the score is computed
+# from the counts here in Python. Two judges can still disagree about whether
+# a claim was asserted, but they can no longer disagree about the arithmetic.
+#
+# Requires a rubric, so it only applies to questions carrying `key_points`
+# (see data/gold/SCHEMA.md). Everything else falls back to V2.
+JUDGE_SYSTEM_PROMPT_V3 = (
+    "You are an expert Magic: The Gathering rules judge.\n\n"
+    "You get a QUESTION, a numbered list of KEY POINTS (facts a correct "
+    "answer must state), an optional numbered list of COMMON ERRORS (false "
+    "claims a correct answer must avoid), and several CANDIDATE answers "
+    "labeled A, B, C, D.\n\n"
+    "For each candidate, report:\n"
+    "  points_hit  — the numbers of the KEY POINTS the candidate actually "
+    "asserts. Count a point as hit if the candidate states it in ANY wording, "
+    "including paraphrase or implication. Do not require matching vocabulary.\n"
+    "  errors_made — the numbers of the COMMON ERRORS the candidate asserts. "
+    "Only list an error the candidate actually commits.\n"
+    "  citation    — 1-5 on whether cited comprehensive-rule numbers are real "
+    "and relevant: 5 = correct relevant rule cited, 3 = cites nothing, "
+    "1 = fabricated, wrong, or self-contradicting citation.\n\n"
+    "CRITICAL:\n"
+    "- Length, verbosity, tone, and formatting are IRRELEVANT. A one-sentence "
+    "answer that states every key point hits every key point.\n"
+    "- Extra correct information neither adds nor removes points.\n"
+    "- Do NOT award a point the candidate never makes, and do NOT withhold a "
+    "point that is stated in different words than the rubric uses.\n\n"
+    "Output ONLY a JSON object mapping each label to "
+    '{"points_hit": [<numbers>], "errors_made": [<numbers>], '
+    '"citation": <1-5>, "note": "<short phrase>"}. No other text.'
+)
+
+
+def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int) -> dict:
+    """Turn rubric extraction into a 1-5 correctness score, in Python.
+
+    Mapped onto 1-5 so results stay comparable with the V2-judged runs in
+    Sections 9.5-9.9 rather than starting a fresh, incomparable scale.
+
+    Asserting a documented misconception halves credit instead of zeroing
+    it: an answer can state the right ruling and still tack on a wrong
+    reason, and that is meaningfully better than an answer that gets the
+    ruling wrong, but clearly worse than a clean one.
+    """
+    hit = {i for i in points_hit if isinstance(i, int) and 1 <= i <= n_points}
+    err = {i for i in errors_made if isinstance(i, int) and 1 <= i <= n_errors}
+    fraction = len(hit) / n_points if n_points else 0.0
+    if err:
+        fraction *= 0.5
+    return {
+        "correctness": round(1 + 4 * fraction, 2),
+        "points_hit": sorted(hit),
+        "points_total": n_points,
+        "errors_made": sorted(err),
+    }
+
+
+def judge_batch_rubric(
+    lm_generate, judge_model, judge_tokenizer, question: str,
+    key_points: list[str], common_errors: list[str],
+    candidates: dict[str, str], max_tokens: int, rng: random.Random,
+) -> dict:
+    """Score against an enumerated rubric behind randomized A/B/C/D labels."""
+    arms = list(candidates)
+    rng.shuffle(arms)
+    label_to_arm = dict(zip((chr(ord("A") + i) for i in range(len(arms))), arms))
+
+    points_block = "\n".join(f"{i}. {p}" for i, p in enumerate(key_points, 1))
+    user = f"QUESTION:\n{question}\n\nKEY POINTS:\n{points_block}\n"
+    if common_errors:
+        errors_block = "\n".join(f"{i}. {e}" for i, e in enumerate(common_errors, 1))
+        user += f"\nCOMMON ERRORS:\n{errors_block}\n"
+    user += "\n" + "\n\n".join(f"CANDIDATE {label}:\n{candidates[arm]}" for label, arm in label_to_arm.items())
+
+    messages = [
+        {"role": "system", "content": JUDGE_SYSTEM_PROMPT_V3},
+        {"role": "user", "content": user},
+    ]
+    prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
+
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end == -1:
+        return {}
+    try:
+        scored = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return {}
+
+    out = {}
+    for label, arm in label_to_arm.items():
+        entry = scored.get(label)
+        if not isinstance(entry, dict):
+            continue
+        computed = rubric_correctness(
+            entry.get("points_hit") or [], entry.get("errors_made") or [],
+            len(key_points), len(common_errors),
+        )
+        citation = entry.get("citation")
+        out[arm] = {
+            **computed,
+            "citation": citation if isinstance(citation, (int, float)) else 3,
+            "note": entry.get("note", ""),
+            "scored_by": "rubric",
+        }
+    return out
 
 
 def load_questions(synthetic_path: Path, reddit_path: Path, synthetic_limit: int, reddit_limit: int) -> list[dict]:
@@ -159,28 +270,89 @@ def load_questions(synthetic_path: Path, reddit_path: Path, synthetic_limit: int
     return questions
 
 
+def stratified_sample(rows: list[dict], limit: int, key: str = "category") -> list[dict]:
+    """Take `limit` rows spread as evenly as possible across `key`.
+
+    The RulesGuru candidates are wildly unbalanced — 265 priority-reasoning
+    against 62 turn-structure — so a flat stride under-samples exactly the
+    category the corpus was pulled to fix. Round-robin across categories
+    instead, striding within each so the pick stays a cross-section rather
+    than the first few of each group. Small categories exhaust and drop out;
+    their budget spills to the rest.
+    """
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(r.get(key) or "uncategorized", []).append(r)
+
+    # Stride within each group, deterministically, largest budget first.
+    ordered = {
+        name: [members[int(i * len(members) / min(len(members), limit))]
+               for i in range(min(len(members), limit))]
+        for name, members in sorted(groups.items())
+    }
+
+    picked: list[dict] = []
+    round_idx = 0
+    while len(picked) < limit and any(round_idx < len(v) for v in ordered.values()):
+        for name in sorted(ordered):
+            if round_idx < len(ordered[name]) and len(picked) < limit:
+                picked.append(ordered[name][round_idx])
+        round_idx += 1
+    return picked
+
+
+def load_gold_questions(path: Path, limit: int | None = None, stratify: bool = True) -> list[dict]:
+    """Load rubric-bearing eval rows (gold set or RulesGuru candidates).
+
+    These carry `key_points`, which routes them to the V3 rubric judge.
+    Never truncated: the files are ordered by id, which correlates with
+    topic, so the first N is not a cross-section.
+    """
+    with path.open(encoding="utf-8") as f:
+        rows = [json.loads(l) for l in f if l.strip()]
+    if limit and len(rows) > limit:
+        if stratify:
+            rows = stratified_sample(rows, limit)
+        else:
+            stride = len(rows) / limit
+            rows = [rows[int(i * stride)] for i in range(limit)]
+
+    questions = []
+    for r in rows:
+        questions.append(
+            {
+                "source": r.get("source", "gold"),
+                "category": r.get("category"),
+                "question": r["messages"][1]["content"],
+                "reference": r["messages"][2]["content"],
+                "supporting_rule_ids": r.get("supporting_rule_ids", []),
+                "key_points": r.get("key_points", []),
+                "common_errors": r.get("common_errors", []),
+                "gold_id": r.get("gold_id"),
+                "difficulty": r.get("difficulty"),
+            }
+        )
+    return questions
+
+
+def score_one_question(lm_generate, judge_model, judge_tokenizer, q: dict,
+                       candidates: dict[str, str], max_tokens: int, rng: random.Random) -> dict:
+    """Route to the rubric judge when a rubric exists, else the V2 judge."""
+    if q.get("key_points"):
+        return judge_batch_rubric(
+            lm_generate, judge_model, judge_tokenizer, q["question"],
+            q["key_points"], q.get("common_errors") or [], candidates, max_tokens, rng,
+        )
+    return judge_batch_anonymized(
+        lm_generate, judge_model, judge_tokenizer, q["question"], q["reference"],
+        candidates, max_tokens, rng,
+    )
+
+
 def build_prompt(tokenizer, question: str, context: str | None, preformatted: bool = False) -> str:
-    if context:
-        # `preformatted` marks context that already carries its own section
-        # headers (the hybrid card+rules builder emits "Cards referenced:" /
-        # "Rules text:"). Sniffing for a prefix instead of passing this
-        # explicitly silently double-labeled every no-card question as
-        # "Rules text:\nRules text:\n...", which showed up as a spurious
-        # -0.34 on questions whose context should have been identical.
-        body = context if preformatted else f"Rules text:\n{context}"
-        # The rules-only prompt says "use ONLY the provided rules text", which
-        # would instruct the model to ignore card text handed to it in the
-        # same turn — the exact unsatisfiable instruction Section 9.5 flagged.
-        system = CARDS_RAG_SYSTEM_PROMPT if "Cards referenced:" in context else RAG_SYSTEM_PROMPT
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": f"{body}\n\nQuestion: {question}"},
-        ]
-    else:
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ]
+    # Shape comes from common.build_rag_messages so that what is evaluated is
+    # what build_sft.py trained on — see Section 8.7.
+    messages = build_rag_messages(question, context, preformatted)
     return tokenizer.apply_chat_template(messages, add_generation_prompt=True)
 
 
@@ -191,7 +363,7 @@ def retrieve_context(question: str, embed_model, k: int = 3) -> str:
 
 def generate_all_answers(
     questions: list[dict], embed_model, max_tokens: int, adapter_path_under_test: str,
-    with_cards: bool = False,
+    with_cards: bool = False, base_model_id: str = BASE_MODEL_ID,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
@@ -217,8 +389,8 @@ def generate_all_answers(
         print(f"  {named}/{len(questions)} questions had at least one card resolved")
 
     for arm_name, adapter_path in [("base", None), ("finetuned", adapter_path_under_test)]:
-        print(f"loading model for arm(s) using adapter_path={adapter_path} ...")
-        model, tokenizer = load_lm(BASE_MODEL_ID, adapter_path=adapter_path)
+        print(f"loading {base_model_id} for arm(s) using adapter_path={adapter_path} ...")
+        model, tokenizer = load_lm(base_model_id, adapter_path=adapter_path)
 
         # (contexts, arm name, whether that context is already section-labeled)
         variants = [(contexts, f"{arm_name}_rag", False), (None, arm_name, False)]
@@ -327,15 +499,22 @@ def rescore(args) -> None:
 
     for i, r in enumerate(results, 1):
         candidates = {arm: data["answer"] for arm, data in r["arms"].items()}
-        judged = judge_batch_anonymized(
-            lm_generate, judge_model, judge_tokenizer, r["question"], r["reference"],
-            candidates, args.judge_max_tokens, rng,
+        # Stored results carry the rubric when the question had one, so a
+        # rescore keeps rubric-judging rubric questions rather than silently
+        # dropping back to prose comparison.
+        judged = score_one_question(
+            lm_generate, judge_model, judge_tokenizer, r, candidates, args.judge_max_tokens, rng,
         )
         for arm, data in r["arms"].items():
             entry = judged.get(arm, {})
             data["correctness"] = entry.get("correctness")
             data["citation_score"] = entry.get("citation")
             data["judge_note_v2"] = entry.get("note")
+            if entry.get("scored_by") == "rubric":
+                data["scored_by"] = "rubric"
+                data["points_hit"] = entry.get("points_hit")
+                data["points_total"] = entry.get("points_total")
+                data["errors_made"] = entry.get("errors_made")
         if i % 20 == 0 or i == len(results):
             print(f"  re-scored {i}/{len(results)}")
 
@@ -350,6 +529,10 @@ def rescore(args) -> None:
         "correctness and citation scored separately, length/style explicitly excluded, "
         "candidates anonymized behind randomized A/B/C/D labels.\n"
     )
+    # Name the judge in the body. The earlier reports recorded it only in the
+    # filename (EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md), which puts the single
+    # most important variable of a two-judge study outside the document.
+    lines.append(f"- judge: `{args.judge_model}`\n")
     lines.append("| Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |")
     lines.append("| --- | --- | --- | --- |")
     for arm in arms:
@@ -387,23 +570,42 @@ def main() -> None:
     parser.add_argument("--reddit", type=Path, default=Path("eval/reddit_questions.jsonl"))
     parser.add_argument("--synthetic-limit", type=int, default=70)
     parser.add_argument("--reddit-limit", type=int, default=40)
+    parser.add_argument("--gold", type=Path, nargs="*", default=[],
+                        help="rubric-bearing eval files (eval/gold_questions.eval.jsonl, "
+                             "eval/rulesguru.eval.jsonl); these route to the V3 rubric judge")
+    parser.add_argument("--gold-limit", type=int, default=None,
+                        help="sample this many rows from each --gold file")
+    parser.add_argument("--no-gold-stratify", action="store_true",
+                        help="sample --gold-limit by flat stride instead of balancing across categories")
+    parser.add_argument("--gold-only", action="store_true",
+                        help="evaluate only the --gold files, skipping the synthetic and reddit sets")
     parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
     parser.add_argument("--max-tokens", type=int, default=300)
     parser.add_argument("--judge-max-tokens", type=int, default=500)
     parser.add_argument("--consistency-sample", type=int, default=15)
     parser.add_argument("--adapter-path", default=ADAPTER_PATH, help="adapter under test for the finetuned arms")
+    parser.add_argument("--base-model", default=BASE_MODEL_ID,
+                        help="base model for every arm and for the consistency rerun. A larger "
+                             "4-bit model fits at 36GB for inference even though training one "
+                             "does not, so this is the cheap capability lever.")
     parser.add_argument("--out", type=Path, default=Path("eval/eval_results.jsonl"))
     parser.add_argument("--report-out", type=Path, default=Path("eval/EVAL_REPORT.md"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--with-cards", action="store_true",
                         help="add {base,finetuned}_rag_cards arms using card-name lookup + rules retrieval")
-    parser.add_argument("--judge-model", default=BASE_MODEL_ID,
-                        help="model used as judge. Defaults to the base model — which is ALSO the "
+    parser.add_argument("--judge-model", default=None,
+                        help="model used as judge. Defaults to --base-model — which is ALSO the "
                              "'base' arm under test, so an independent judge is needed to rule out "
-                             "self-preference bias.")
+                             "self-preference bias (Section 9.9).")
     parser.add_argument("--rescore-from", type=Path, default=None,
                         help="re-judge stored answers from a previous results file instead of regenerating")
     args = parser.parse_args()
+
+    # --judge-model defaults to whatever base model is under test rather than to
+    # a hardcoded id, so pointing --base-model at something else doesn't leave
+    # the judge silently behind on the old model.
+    if args.judge_model is None:
+        args.judge_model = args.base_model
 
     if args.rescore_from:
         rescore(args)
@@ -413,21 +615,39 @@ def main() -> None:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
 
-    questions = load_questions(args.synthetic, args.reddit, args.synthetic_limit, args.reddit_limit)
-    print(f"{len(questions)} eval questions ({args.synthetic_limit} synthetic + up to {args.reddit_limit} reddit)")
+    if args.gold_only and not args.gold:
+        raise SystemExit("--gold-only needs at least one --gold file")
+
+    questions = []
+    if not args.gold_only:
+        questions = load_questions(args.synthetic, args.reddit, args.synthetic_limit, args.reddit_limit)
+        print(f"{len(questions)} prose-judged questions "
+              f"({args.synthetic_limit} synthetic + up to {args.reddit_limit} reddit)")
+    for path in args.gold:
+        gold = load_gold_questions(path, args.gold_limit, stratify=not args.no_gold_stratify)
+        questions.extend(gold)
+        by_cat = Counter(q["category"] for q in gold)
+        print(f"{len(gold)} rubric-judged questions from {path}")
+        print("    " + ", ".join(f"{c}: {n}" for c, n in sorted(by_cat.items())))
+    if not questions:
+        raise SystemExit("no eval questions loaded")
+
+    n_rubric = sum(1 for q in questions if q.get("key_points"))
+    print(f"{len(questions)} eval questions total ({n_rubric} with a rubric -> V3 judge)")
 
     valid_rule_ids = load_rule_ids(args.rules)
     print(f"loading {EMBED_MODEL_ID} for retrieval ...")
     embed_model = load_embedder(EMBED_MODEL_ID)
 
-    answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path, args.with_cards)
+    answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path,
+                                   args.with_cards, base_model_id=args.base_model)
     arm_names = list(answers.keys())
 
     # Consistency check: rerun a subset of finetuned_rag questions and see
     # how often the judge would even need to know — same generation config,
     # does the model give a stable answer.
-    print(f"loading {BASE_MODEL_ID} (adapter) for consistency rerun ...")
-    ft_model, ft_tokenizer = load_lm(BASE_MODEL_ID, adapter_path=args.adapter_path)
+    print(f"loading {args.base_model} (adapter) for consistency rerun ...")
+    ft_model, ft_tokenizer = load_lm(args.base_model, adapter_path=args.adapter_path)
     consistency_idx = list(range(min(args.consistency_sample, len(questions))))
     consistency_reruns = []
     for i in consistency_idx:
@@ -436,16 +656,22 @@ def main() -> None:
         consistency_reruns.append(lm_generate(ft_model, ft_tokenizer, prompt=prompt, max_tokens=args.max_tokens, verbose=False))
     del ft_model, ft_tokenizer
 
-    print(f"loading {BASE_MODEL_ID} (no adapter) as judge ...")
-    judge_model, judge_tokenizer = load_lm(BASE_MODEL_ID)
+    # This previously loaded BASE_MODEL_ID and ignored --judge-model entirely,
+    # so `eval.py --judge-model <other>` produced a run judged by the base model
+    # but labelled as if it had used the other one. Only the --rescore-from path
+    # (which reads args.judge_model at its own load site) was correct — and
+    # every published two-judge result went through rescore, so Section 9.9 and
+    # the Llama reports are unaffected. Fixed here so the flag means what it
+    # says on the generate-and-judge path too.
+    print(f"loading {args.judge_model} (no adapter) as judge ...")
+    judge_model, judge_tokenizer = load_lm(args.judge_model)
 
     judge_rng = random.Random(args.seed)
     results = []
     for i, q in enumerate(questions):
         candidates = {arm: answers[arm][i] for arm in arm_names}
-        judged = judge_batch_anonymized(
-            lm_generate, judge_model, judge_tokenizer, q["question"], q["reference"],
-            candidates, args.judge_max_tokens, judge_rng,
+        judged = score_one_question(
+            lm_generate, judge_model, judge_tokenizer, q, candidates, args.judge_max_tokens, judge_rng,
         )
 
         per_arm = {}
@@ -460,6 +686,13 @@ def main() -> None:
                 "judge_score": judge_result.get("correctness"),
                 "judge_note": judge_result.get("note"),
             }
+            if judge_result.get("scored_by") == "rubric":
+                per_arm[arm].update(
+                    scored_by="rubric",
+                    points_hit=judge_result.get("points_hit"),
+                    points_total=judge_result.get("points_total"),
+                    errors_made=judge_result.get("errors_made"),
+                )
 
         results.append(
             {
@@ -467,6 +700,12 @@ def main() -> None:
                 "category": q["category"],
                 "question": q["question"],
                 "reference": q["reference"],
+                # Carried so --rescore-from can re-run the rubric judge; without
+                # it a rescore would quietly downgrade these to prose scoring.
+                "key_points": q.get("key_points", []),
+                "common_errors": q.get("common_errors", []),
+                "gold_id": q.get("gold_id"),
+                "difficulty": q.get("difficulty"),
                 "arms": per_arm,
                 "consistency_rerun": consistency_reruns[i] if i in consistency_idx else None,
             }
@@ -498,7 +737,29 @@ def main() -> None:
     )
 
     lines = ["# Section 9 Evaluation Report\n"]
-    lines.append(f"{len(questions)} questions ({args.synthetic_limit} synthetic + {len(questions) - args.synthetic_limit} reddit)\n")
+    source_counts = Counter(q["source"].split(":")[0] for q in questions)
+    composition = ", ".join(f"{n} {s}" for s, n in source_counts.most_common())
+    lines.append(f"{len(questions)} questions ({composition})")
+    # Provenance in the report itself. Previously the only record of which judge
+    # scored a run was the filename someone chose for it, which is how
+    # EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md ended up carrying its most important
+    # variable in its name.
+    lines.append(
+        f"\n- base model: `{args.base_model}`\n"
+        f"- adapter under test: `{args.adapter_path}`\n"
+        f"- judge: `{args.judge_model}`"
+        + ("  (**same model as the `base` arm** — self-preference bias is not "
+           "ruled out; re-judge with --rescore-from and an independent judge, Section 9.9)"
+           if args.judge_model == args.base_model else "")
+    )
+    if n_rubric:
+        lines.append(
+            f"\n{n_rubric} scored against enumerated rubrics (V3 judge); "
+            f"{len(questions) - n_rubric} scored against a prose reference (V2 judge). "
+            "Rubric correctness is computed from key points hit, not assigned holistically.\n"
+        )
+    else:
+        lines.append("")
     lines.append("| Arm | Avg score (1-5) | N scored | Fabricated citation | Citation matches reference |")
     lines.append("| --- | --- | --- | --- | --- |")
     for arm in arm_names:

@@ -36,7 +36,9 @@ import re
 import sys
 from pathlib import Path
 
-CROSS_REF_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
+from common import CR_VERSION, load_rule_ids
+from common import RULE_ID_RE as CROSS_REF_RE
+
 # Labels vary across sources ("Question" vs "Question:"), and pasted text
 # picks up smart quotes from wherever it was copied, so both are optional
 # rather than assumed. A source that silently parses to zero entries is
@@ -100,7 +102,6 @@ def draft_rubric(answer: str) -> list[str]:
             points.append(cleaned)
     return points
 
-
 CARD_ITEM_RE = re.compile(r"""\s*(?:'([^']*)'|"([^"]*)"|([^,]+))\s*(?:,|$)""")
 
 
@@ -147,7 +148,7 @@ def main() -> None:
     parser.add_argument("--from", dest="sources", type=Path, nargs="+", required=True)
     parser.add_argument("--out", type=Path, default=Path("data/gold/gold_questions.jsonl"))
     parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
-    parser.add_argument("--cr-version", default="2026-08-07")
+    parser.add_argument("--cr-version", default=CR_VERSION)
     parser.add_argument("--source-label", default="rules-qa-paste")
     parser.add_argument("--category", default="interaction puzzle", help="default category; review per record")
     parser.add_argument("--difficulty", default="intermediate")
@@ -155,7 +156,7 @@ def main() -> None:
     parser.add_argument("--skip-cards", action="store_true")
     args = parser.parse_args()
 
-    valid_rule_ids = {json.loads(l)["rule_id"] for l in args.rules.open(encoding="utf-8")}
+    valid_rule_ids = load_rule_ids(args.rules)
 
     card_index = None
     if not args.skip_cards:
@@ -276,7 +277,6 @@ def main() -> None:
             print(f"  - {w}")
     print("\nNext: fill in key_points/common_errors, set category per record, then run:")
     print("  python scripts/validate_gold.py --to-eval")
-
 
 if __name__ == "__main__":
     main()

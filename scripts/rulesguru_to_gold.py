@@ -38,10 +38,11 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from common import CR_VERSION, load_rule_ids
+from common import RULE_ID_EXACT_RE as CROSS_REF_RE
+
 sys.path.insert(0, str(Path(__file__).parent))
 from ingest_qa_pastes import draft_rubric  # noqa: E402  (same rubric drafting as the paste path)
-
-CROSS_REF_RE = re.compile(r"^\d{3}\.\d+[a-z]?$")
 
 # Tag -> category, most diagnostic first: questions carry several tags and
 # the first match wins. "Layers" on a combat question still makes it a
@@ -112,7 +113,6 @@ def difficulty_for(level: str, complexity: str) -> str:
         difficulty = "intermediate"
     return difficulty
 
-
 PLAYER_NAME_RE = re.compile(r"\b[A-Z][a-z]+\b")
 
 
@@ -138,7 +138,7 @@ def main() -> None:
     parser.add_argument("--needs-work", type=Path, default=Path("data/gold/rulesguru/needs_work.jsonl"))
     parser.add_argument("--gold", type=Path, default=Path("data/gold/gold_questions.jsonl"))
     parser.add_argument("--rules", type=Path, default=Path("data/processed/rules.jsonl"))
-    parser.add_argument("--cr-version", default="2026-08-07")
+    parser.add_argument("--cr-version", default=CR_VERSION)
     parser.add_argument("--min-key-points", type=int, default=2, help="validator requires 2+ to score a rubric")
     parser.add_argument("--promote", type=int, nargs="+", default=[], help="RulesGuru ids to append to the gold set")
     parser.add_argument("--skip-cards", action="store_true")
@@ -151,7 +151,7 @@ def main() -> None:
         questions = [json.loads(line) for line in f if line.strip()]
     print(f"{len(questions)} questions in the snapshot")
 
-    valid_rule_ids = {json.loads(l)["rule_id"] for l in args.rules.open(encoding="utf-8")}
+    valid_rule_ids = load_rule_ids(args.rules)
 
     card_index = None
     if not args.skip_cards:
@@ -300,7 +300,6 @@ def main() -> None:
         print("\nNext:")
         print(f"  python scripts/validate_gold.py --gold {args.out} \\")
         print("      --to-eval --eval-out eval/rulesguru.eval.jsonl")
-
 
 if __name__ == "__main__":
     main()

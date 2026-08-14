@@ -28,7 +28,9 @@ This walkthrough covers everything from base model selection through ingesting t
 - [x] Settled the card question at n=100 (Section 13.5) — the +0.69 **did not replicate**: −0.01, CI [−0.33, +0.31], 25 better / 28 worse / 47 tied. It was small-sample noise, correctly flagged at the time as unestablished.
 - [x] Tested judge validity with an independent Llama-3.1-8B judge (Section 9.9) — **the two judges rank the arms in opposite order** on identical answers, and agree only r = +0.43 (37% exact, mean disagreement 1.18 points). The earlier ±0.16 "noise floor" measured within-judge reproducibility only; judge-choice uncertainty is far larger, so previously reported effects of +0.4 to +0.7 are provisional.
 - [x] Ingested 77,931 official WotC rulings covering 19,726 cards (Section 13.6) — the most authoritative corpus available, and the fix for eval references that currently cite a rule only 21% of the time.
-- [ ] **Next:** (a) build a human-labeled gold subset to establish which judge is closer to correct — no model-quality claim is safe until then; (b) use the rulings corpus for eval references and SFT targets; (c) rebuild the synthetic eval so it stops testing retrieval of its own source chunk.
+- [x] Built the gold set on RulesGuru's verified Q&A and measured what actually drives judge disagreement (Sections 14, 14.6) — **hand-authored rubrics lift inter-judge agreement from r = +0.30 to +0.62** on identical answers, resolving the Section 9.9 ranking inversion. Rubric quality does *not* reduce the sample size needed: per-question variance is unchanged, so ~100–150 questions are still required to resolve a 0.4-point effect.
+- [x] Built the Phase 3 gameplay scaffolding alongside the open Phase 1 work (Section 16) — position schema, action grammar and parser, position authoring in the console, and a gate-reporting eval that **reuses the V3 rubric judge unchanged**, because `common_errors` is the blunder list and `errors_made` was already being computed per question. Model choice is now a `--base-model` flag rather than a constant (Section 16.8), which also caught `--judge-model` being silently ignored on the generate-and-judge path. On 8 machine-drafted seed fixtures **all three gates fail**, which is the correct result for a pipeline whose fixtures are seeds: the closed arm lifts legality (88% vs 62%) but every arm blunders at exactly 75%, so the eval does not yet discriminate. See Section 16.11 — at n=8 with a single judge these numbers move substantially between runs, and a spot-check found the judge marking a false blunder.
+- [ ] **Next:** (a) **re-run the fine-tune at a full epoch** — the v2 adapter every Section 9 comparison scores trained for only **0.45 epochs** (Section 15.6), so "fine-tuning hurts" is confounded with under-training and that is the cheapest confound to remove; (b) author ~80 more rubrics to reach n≈100 and run the real comparison under both judges; (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk.
 
 **Phase 2 (Card Data):** started early, ahead of finishing Phase 1 — see Section 13. The Standard-only pool proved far too narrow (it covered just 4% of cards players actually ask about), so the corpus is now Scryfall's full Oracle set: 34,933 playable cards chunked and linked to the rules governing their keywords, with card names resolved by lookup at 99%.
 
@@ -123,22 +125,24 @@ Requires Python 3.10+ and a recent macOS. No CUDA toolkit, no driver juggling.
 
 ### 2.2 Repository layout
 
-```
+```text
 mtg-llm/
 ├── data/
 │   ├── raw/           # Original rules documents
 │   ├── processed/     # Cleaned, chunked rules + RAG index
 │   ├── datasets/      # Final training JSONL (train/valid)
-│   └── cards/         # Phase 2: Scryfall card pulls (Section 13)
-│       ├── raw/       # Format-scoped snapshots, e.g. standard_cards.jsonl
-│       └── processed/
+│   ├── cards/         # Phase 2: Scryfall card pulls (Section 13)
+│   │   ├── raw/       # oracle_cards.jsonl (full pool); format snapshots optional
+│   │   └── processed/
+│   └── gold/          # Human-reviewed eval set + RulesGuru corpus (Section 14)
 ├── scripts/
+│   ├── common.py       # Shared prompts, CR pinning, rule-id patterns, paths
 │   ├── ingest.py       # Rules → structured records
 │   ├── chunk.py        # Chunking + cross-refs
 │   ├── rag.py           # Embed chunks, retrieve at query time
 │   ├── build_sft.py    # Generate training examples via RAG-grounded synthesis
 │   ├── eval.py          # Rules comprehension eval
-│   └── fetch_cards.py  # Phase 2: pull a format's legal card pool from Scryfall
+│   └── fetch_cards.py  # Phase 2: Scryfall bulk/format card pulls
 ├── configs/
 │   └── phase1_lora.yaml   # mlx_lm.lora settings
 ├── models/            # Adapters / checkpoints
@@ -260,7 +264,7 @@ This is the highest-leverage part of Phase 1. The model's rules ability will onl
 Cover the full spectrum of rules understanding:
 
 - **Definition recall:** "What is the stack?" → concise, correct definition with rule citation.
-- **Turn-structure walkthroughs:** "List the steps of the combat phase in order." 
+- **Turn-structure walkthroughs:** "List the steps of the combat phase in order."
 - **Priority reasoning:** "After I cast a spell, who gets priority and when does it resolve?"
 - **Interaction puzzles:** "Player A does X, Player B responds with Y — what happens?"
 - **State-based actions:** "A creature has 0 toughness. What happens and when is it checked?"
@@ -608,3 +612,703 @@ Only 16 of 60 questions resolved a card. For the other 44 both arms receive byte
 **What the card result does and does not show.** +0.69 is over 4x the ±0.16 systematic noise floor, and the citation sub-score rises 3.25 → 4.00. But per-question variance is large — 7 questions better, 3 worse, 6 tied — giving a 95% CI of **[−0.17, +1.54]**, which crosses zero. So: *directionally positive with a meaningful effect size, not statistically established at n=16.* Confirming it needs a bigger card-referencing sample; ~28% of the 200-question reddit set names a card, and the source dataset has 12,834 pairs to draw more from.
 
 **Cards help the base model but not the fine-tuned one**, which is a coherent finding rather than noise. The v2 adapter was trained exclusively on `"Rules text: ..."`-shaped context and has never seen a `"Cards referenced:"` section — so card context is out-of-distribution for it. That is the *same* train/inference format mismatch diagnosed in Section 8.7, reappearing one level up: fixing the format made the adapter better at that format and more brittle outside it. If card retrieval becomes part of the architecture, card-formatted examples have to be in the training mix too.
+
+## 14. RulesGuru: a labeled, human-authored question corpus
+
+The gold set was being grown by hand-pasting questions from
+[RulesGuru](https://rulesguru.org), a curated database of MTG rules questions.
+RulesGuru publishes a [documented public API](https://rulesguru.org/api/documentation/),
+so `scripts/fetch_rulesguru.py` replaces the copy-paste round trip.
+
+This is the best-shaped source the project has found. Every question is
+human-written and cleared through a review queue before publication (~1,500
+finished against ~5,600 pending), and — critically — **labeled**: each carries a
+difficulty level, a complexity rating, and topic tags. 1,402 questions were
+pulled; **89% cite at least one CR rule inline**, against 21% for the reddit set.
+
+### 14.1 The snapshot is frozen, and that is a correctness requirement
+
+The API randomizes player names *and the cards themselves* per request. Fetching
+question #3518 twice returns the same ruling about different cards:
+
+```text
+Nickolas controls Trinisphere. Amiya casts Surgical Extraction ...
+Nikolas   controls Trinisphere. Alice casts Mental Misstep      ...
+```
+
+Question **ids** are stable; question **text** is not. So records are written once
+and never rewritten, and re-runs are strictly additive. If refetching overwrote,
+a rubric already authored against the stored wording would silently start
+describing a question that no longer exists — exactly the failure the gold set
+exists to prevent.
+
+Raw responses are archived under `data/gold/rulesguru/raw/` (gitignored); the
+tracked artifact is the slimmed `questions.jsonl`, which drops the embedded
+MTGJSON printing data because it duplicates the Oracle pool already in
+`data/cards/` (9.0MB → 4.1MB).
+
+The randomization has one useful side effect: it is a free source of *controlled*
+paraphrase. The same ruling under two card substitutions tests whether the model
+tracks the rule or the card name.
+
+### 14.2 Verified answers, unverified rubrics — kept in separate tiers
+
+The distinction that decides where this data may be used:
+
+- the **answer** is human-authored and rules-verified. Better ground truth than
+  anything here except the judge-authored records.
+- the **rubric is not.** `key_points` is drafted by sentence-splitting the answer
+  and `category` is inferred from topic tags — machine guesses at the two fields
+  the gold set exists to get right.
+
+So `scripts/rulesguru_to_gold.py` writes to
+`data/gold/rulesguru/gold_candidates.jsonl`, not to `gold_questions.jsonl`.
+Promotion is a human act: read the drafted rubric, fix it, then `--promote`.
+Bulk-importing 1,202 machine-rubriced records as gold would dissolve the one
+property that makes the gold set worth having.
+
+1,202 of 1,402 converted cleanly. The 200 held back split into 150 whose answer
+cites no CR rule that resolves against the pinned version, and 50 whose answer is
+a single sentence — the validator refuses a one-point rubric because one point
+cannot separate a partially correct answer from a wrong one.
+
+### 14.3 What it fixes
+
+**The turn-structure blind spot is gone at the candidate tier.** That category sat
+at 0 questions for the whole project; the tags `Turn structure`, `Turn-based
+actions`, and `Cleanup Step` yield 62. Every category now clears the 8-question
+target except `definition recall`:
+
+| Category | Candidates |
+| --- | --- |
+| priority reasoning | 265 |
+| interaction puzzle | 243 |
+| layer-system question | 236 |
+| templating/keyword meaning | 162 |
+| zone transition | 161 |
+| state-based actions | 73 |
+| turn-structure walkthrough | 62 |
+| definition recall | 0 |
+
+`definition recall` reads 0 because RulesGuru is a *scenario* database — questions
+are "Alice controls X, what happens?", never "what does X mean?". That is
+complementary rather than a gap: the existing eval is already 54% definition
+recall. Categories remain inferred and are marked `category_inferred: true`.
+
+**It gives the judge-validity question a real instrument.** Section 9.9 established
+that two reasonable LLM judges agree at only r = +0.43, which made every effect
+below ~0.5 unmeasurable and downgraded three previously reported results to
+provisional. Deciding *which judge tracks reality* needs human-authored answers at
+a scale the 19-record gold set cannot supply; 1,202 verified answers with
+citations can.
+
+### 14.4 Cross-linking, and what it caught
+
+Masking card names and player names produces a dedupe key stable across
+substitutions. Run against the hand-pasted gold records, it matched **18 of 19**
+back to their source ids at 0.98–1.00 similarity, with citation sets agreeing
+exactly. That confirmed the hand-pastes were faithful, supplied provenance
+(`rulesguru_id`, tags, level) for records that had none, and let the five newest
+records be categorized from their twins' tags rather than left at the ingest
+default.
+
+Three defects surfaced in the process:
+
+- The API writes multi-citations as `([603.3], [117.2a])`, a bracket form the
+  rubric stripper did not handle, leaving citation noise in 50 drafted key points.
+  Parenthesized groups are now dropped, but a bracketed rule id *inside* a
+  sentence is unbracketed instead of deleted — removing it turns "none of the
+  exceptions in [601.3] apply here" into "none of the exceptions in apply here".
+- Blank `Question: ""` templates left at the end of a collection file parsed into
+  a real record with an empty id. Now skipped and counted.
+- One record (Elesh Norn + Omnath) carries no citation upstream either. 603.2d
+  governs an ability that makes another trigger additional times; it was verified
+  against the pinned CR, supplied during curation, and flagged as such in `notes`
+  rather than presented as sourced.
+
+The gold set now stands at **19 records, 19/19 cited, validation passing**.
+
+### 14.5 The V3 judge: stop asking for a score, ask what the answer said
+
+Building the rubrics exposed that nothing was consuming them. `key_points` and
+`common_errors` rode along in the eval rows, but `scripts/eval.py` still scored
+every answer against the prose reference — so the fix designed in SCHEMA.md for
+the Section 9.6–9.9 judge problems had never actually been applied.
+
+Sections 9.6 and 9.7 treated judge disagreement as a prompt-wording problem and
+rewrote the rubric language. That helped the length bias but not the agreement
+rate, because the disagreement is structural: "how close is this to my one
+phrasing?" has no objective answer, so two competent judges legitimately land in
+different places.
+
+The V3 judge does not ask for a score. It asks two extraction questions with
+checkable answers — *which of these enumerated claims did the candidate assert,
+and which of these known misconceptions did it fall into* — and the 1–5 score is
+computed from the counts in Python:
+
+```text
+correctness = 1 + 4 × (points_hit / points_total)     # halved if any common error is asserted
+```
+
+Two judges can still disagree about whether a claim was asserted, but they can no
+longer disagree about the arithmetic. Scores land on fractions of the rubric size
+(3 points → 1.0, 2.33, 3.67, 5.0) rather than on whichever integer felt right.
+Mapping onto 1–5 keeps the numbers comparable with Sections 9.5–9.9 instead of
+starting a fresh, incomparable scale. Asserting a common error halves credit
+rather than zeroing it: an answer can state the right ruling and attach a wrong
+reason, which is worse than a clean answer but better than a wrong ruling.
+
+Routing is per question — anything carrying `key_points` goes to V3, everything
+else falls back to V2 — so the synthetic and reddit sets still work unchanged, and
+`--rescore-from` now carries the rubric forward so a rescore does not silently
+downgrade rubric questions to prose comparison.
+
+A 4-question smoke run shows the intended discrimination: on the Assassin's Trophy
+question both RAG arms hit all three key points (5.0) while both no-context arms
+hit only the verdict (2.33), despite writing *longer* answers. That is the length
+bias of Section 9.6 inverted — verbosity earns nothing when the score is a count
+of specific claims.
+
+**Caveat carried forward:** auto-drafted rubrics often make the bare verdict
+("Yes.", "Tapped.") key point 1, and any answer opening with the right verdict
+collects it for free — worth 1/n of the score. Hand-written rubrics should fold
+the verdict into a substantive claim, and this is one more reason promotion out of
+the candidate tier stays a human act.
+
+Not yet run at scale. n=4 establishes that the mechanism works, nothing about
+which judge tracks reality.
+
+### 14.6 Two noise sources, and only one of them is fixable
+
+A 45-question pilot (stratified 6–7 per category, both judges) tested the V3
+design. **It failed at what it was built for, and the failure was instructive.**
+
+| | Prose (V2) judges | V3 rubric judges |
+| --- | --- | --- |
+| Inter-judge correlation | +0.43 | +0.39 |
+| Exact agreement | 37% | 45% |
+| Mean disagreement | 1.18 pts | 1.11 pts |
+| SD of paired per-question difference | 1.48 | 1.53 |
+
+The premise was that "which enumerated claims did this answer assert" is an
+extraction question with a checkable answer, so judges could not disagree about
+it. They can: the two judges produced **identical `points_hit` sets only 37% of
+the time**, with Qwen systematically crediting fewer points. The subjectivity
+survived being moved from "what score" to "did it say this".
+
+**The diagnosis was rubric quality, not judge design.** The auto-drafted points
+are compound ("...and applying the Mark of the Oni's effect would not change how
+the Steal Enchantment's effect is applied, so..."), point 1 is usually a bare
+verdict that 26% of answers scored on alone, and `common_errors` was empty
+everywhere, so half the V3 mechanism had never executed.
+
+That predicted a clean A/B: hold the questions, the stored answers, and both
+judges fixed; change only the rubric. Twenty pilot questions were re-rubriced by
+hand and re-judged — no regeneration, so nothing else could move.
+
+| | Machine-drafted | Hand-authored |
+| --- | --- | --- |
+| Inter-judge correlation | +0.30 | **+0.62** |
+| Mean disagreement | 1.26 pts | **0.80 pts** |
+| Exact agreement | 41% | 49% |
+| Identical `points_hit` sets | 36% | 48% |
+| Judge parse failures | 4 | 1 |
+| Key points per question | 3.5 | 2.5 |
+| `common_errors` total | 0 | 37 |
+
+**Rubric craft roughly doubles judge agreement.** The four rules that produced it
+are now recorded in `data/gold/SCHEMA.md`.
+
+**But sample-size requirements did not move** (SD 1.70 → 1.63). These are two
+independent noise sources, and Sections 9.6–9.9 conflated them:
+
+- *Per-question spread* — genuine variation in how much the arms differ from one
+  question to the next. No judge or rubric design touches it. It sets n, and
+  n ≈ 100–150 for a 0.4-point effect regardless.
+- *Judge-choice uncertainty* — the kind that makes conclusions invert between
+  judges. This is what rubric quality fixes.
+
+Scaling to n=200 before fixing rubrics would have bought precision on an
+instrument whose conclusions still flipped. The two investments are
+complementary, not substitutes.
+
+**The Section 9.9 inversion is resolved.** Under hand-authored rubrics both
+judges rank `base` above `base_rag` — the pair they previously disagreed about.
+Rules retrieval does not improve *correctness* on these card-heavy scenario
+questions. This does not overturn "retrieval works": the fabrication result
+(33/110 → 1/110) is a separate measurement and still stands. The claim sharpens
+to *retrieval suppresses fabrication without improving correctness here*, which
+fits Section 9.8's finding that the synthetic set flattered RAG.
+
+Twenty records were promoted into the gold set with their authored rubrics
+(19 → 39 records; turn-structure 0 → 3). Their `rubric_source` records that the
+answer is RulesGuru-verified while the rubric is a non-judge decomposition of it
+— this measured rubric *craft*, not rubric *authority*.
+
+Caveat worth carrying: with real `common_errors` present, 62/80 and 54/80
+arm-answers were charged with one. Spot-checking found the charges mostly
+legitimate — on the Kruphix question every arm genuinely claims the wrong player
+gains the mana — but one charge cited an error its own note did not describe.
+Error attribution carries noise; it is not systematic enough to cancel the
+agreement gain.
+
+## 15. Repository review: consistency pass over the scaffolding
+
+With the pipeline shape settled, a full read of the repository looking for
+inconsistencies. Two were live bugs; the rest were latent hazards created by
+copying values between scripts.
+
+### 15.1 The destructive default
+
+`chunk_cards.py` defaulted `--cards` to `standard_cards.jsonl` (4,887 cards) while
+defaulting `--out` to `card_chunks.jsonl` — the committed 34,933-chunk artifact
+derived from the full Oracle pool. The README's own quick start said:
+
+```text
+python scripts/fetch_cards.py --format standard
+python scripts/chunk_cards.py
+```
+
+So following the documented path **silently replaced the full card corpus with a
+Standard subset**, reverting the project to the 4% card coverage Section 13.5 was
+written to fix. It degrades quietly rather than failing: `card_lookup`,
+`retrieve_hybrid`, `ingest_qa_pastes`, `rulesguru_to_gold`, and `validate_gold`
+all resolve names against that file, so gold-set validation would simply start
+reporting cards that "did not resolve."
+
+Fixed three ways: the default is now the full Oracle pool; a missing input prints
+the command to fetch it rather than a traceback; and the writer refuses to shrink
+an existing corpus by more than half without `--force`. Verified — pointing it at
+the Standard file now stops with *"refusing to shrink card_chunks.jsonl from 34933
+to 4887 chunks."*
+
+`fetch_cards.py --bulk oracle_cards` was added at the same time, because the
+*recommended* corpus was the one path the README asked you to download by hand.
+`ingest_rulings.py` had its own near-identical copy of that downloader; it now
+imports the shared one.
+
+### 15.2 The stale adapter default
+
+`eval.py` had `ADAPTER_PATH = "models/mtg-rules-adapter-best"` — the **v1**
+adapter, long after v2 superseded it. Every documented invocation passes
+`--adapter-path` explicitly, so this only bites someone running `eval.py` bare,
+who would silently evaluate the wrong model and compare it against current
+numbers. Now points at `mtg-rules-adapter-v2-best`.
+
+### 15.3 Values that were copied instead of shared
+
+Three classes of constant were duplicated across the codebase, each one edit away
+from a silent inconsistency. They now live in `scripts/common.py`.
+
+| Constant | Copies | Why it matters |
+| --- | --- | --- |
+| `SYSTEM_PROMPT` / RAG variants | 4 | Section 8.7's fine-tune failure *was* a train/inference format mismatch. Nothing kept the copies in agreement except that nobody had edited one yet. |
+| `CROSS_REF_RE` | 8 | One name, **two incompatible meanings** — six used a search pattern to pull ids from prose, two used an anchored pattern to validate a whole string. Copying one into a file wanting the other changes behaviour silently. Now `RULE_ID_RE` and `RULE_ID_EXACT_RE`. |
+| CR version | 3 defaults + a filename + prose | A gold record claiming `cr_version: 2026-08-07` while validated against a different corpus is a silent correctness failure. |
+
+Verified after the refactor: every system prompt in `train.jsonl`, `valid.jsonl`,
+and both eval sets still matches the shared constants exactly — 0 mismatches
+across 3,080 records — so the training contract is unchanged.
+
+### 15.4 The RAG index could go stale undetected
+
+`build_index` stored `model_id` in the `.npz`; `retrieve` never read it. Nothing
+compared the index against the chunks either. Chunk ids are positional, so
+re-running `chunk.py` with different budgets leaves an index whose vectors still
+*resolve* — retrieval returns text that was never embedded, with no error.
+
+`retrieve` now refuses to run when the embedding model differs, and stores a
+content fingerprint of the chunk set to detect drift. Verified: mutating one
+chunk's text produces *"chunk_embeddings.npz is stale ... rebuild"*. Indexes built
+before this change keep working, since the check is skipped when the key is
+absent.
+
+### 15.5 Smaller things
+
+- `ingest_rulings.py --wotc-only` was `action="store_true"` with `default=True`,
+  so it could never be false — a flag that read like a toggle and did nothing.
+  Replaced with `--include-non-wotc`, which is the choice a caller would actually
+  make.
+- Documentation counts had drifted badly: the README advertised a **6**-record
+  gold set against an actual 39, and described card acquisition that no longer
+  matched the scripts.
+
+### 15.6 The v2 adapter trained for 0.45 epochs, not ~1
+
+`configs/phase1_lora_v2.yaml` documents its own reasoning in a comment block,
+and that block no longer described the file it sits in:
+
+> *"iters 600 -> 700. At batch size 4, one epoch is now ~662 iterations ... ~1
+> epoch is deliberately modest"*
+
+The actual values are `batch_size: 2` and `iters: 600`. The batch size was
+halved during the Section 8.7 crash fixes — correctly, since grounded examples
+had driven peak memory to 65GB on a 36GB machine — but `iters` was never raised
+to compensate, and the comment kept describing the pre-crash plan.
+
+At batch 2 over 2,644 training lines, one epoch is ~1,322 iterations. So:
+
+| | batch | iters | steps/epoch | epochs |
+| --- | --- | --- | --- | --- |
+| What the comment describes | 4 | 700 | 661 | 1.06 |
+| What actually ran | 2 | 600 | 1,322 | **0.45** |
+
+**The adapter every Section 9 comparison evaluates has seen less than half the
+training data once.** That matters beyond documentation hygiene: "fine-tuning
+currently hurts" has been attributed to a self-distillation ceiling (the SFT
+data was generated by base+RAG, so the student cannot exceed its teacher), and
+that explanation may well be right. But **under-training is now an equally live
+explanation**, and it is the cheaper one to rule out — raise `iters` to ~1,300
+and re-run.
+
+Until that is done, the honest statement is *"fine-tuning at 0.45 epochs does
+not beat retrieval"*, which is a weaker claim than the one the Status section
+currently makes.
+
+### 15.7 Left for a decision
+
+`data/cards/raw/standard_cards.jsonl` is tracked at ~26MB while the equivalent
+`oracle_cards.jsonl` is gitignored, and nothing depends on it now that
+`chunk_cards.py` defaults to the Oracle pool. Untracking it
+(`git rm --cached` plus a `.gitignore` entry) would make the raw-data policy
+consistent, but it changes what a fresh clone gets, so it is a repo-policy call
+rather than a fix.
+
+The `eval/` directory has also accumulated 8 result files and 9 reports under
+inconsistent names (`EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md`). They are the record
+of the experiments in Sections 9 and 13–14 and worth keeping, but a naming
+convention would help before the next run adds more.
+
+---
+
+## 16. Phase 3 Kickoff: from explaining rules to piloting a deck
+
+Phase 1 built a model that **explains** rules. The gameplay goal — hand it a
+deck, a board, a hand, and known information, and let it choose a play — is a
+different task with a different output shape and a different notion of correct.
+This section covers the scaffolding for it, built alongside the open Phase 1
+work rather than after it, because none of it depends on which checkpoint wins.
+
+### 16.1 The gap was game state, not rules knowledge
+
+Nothing in `scripts/` represented a game: no zones, no mana, no stack, no
+priority. A model that can quote 603.3 still cannot say whether it may cast a
+card right now. That is an engineering problem, and it is the whole of the gap.
+
+The corollary shapes the architecture: **the rules model is a component of the
+agent, not the agent itself.** The durable design is state tracker + legal-move
+generator + a model choosing among moves. Every step that moves work from the
+model to the environment makes the task more tractable — which matters more
+here than usual, because the hardware is fixed at 36GB for now.
+
+### 16.2 The existing judge already measures blunders
+
+The most useful discovery of this kickoff is that almost none of the evaluation
+apparatus needed rebuilding. `score_one_question` routes on `key_points`, and
+nothing below it is specific to rules Q&A — `judge_batch_rubric` takes a
+question string, key points, common errors, and candidate answers.
+
+So a board position is a gold record whose "question" is a board:
+
+| Gameplay concept | Existing gold-set field |
+| --- | --- |
+| the position | `question` (rendered from structured state) |
+| the correct line | `answer` |
+| what a correct line must say | `key_points` |
+| **the blunders** | **`common_errors`** |
+
+`rubric_correctness` already returns `errors_made`, so **blunder rate is the
+fraction of positions where `errors_made` is non-empty** — it was being
+computed per position all along and simply never aggregated. The rubric-craft
+result from Section 14.6 therefore transfers directly, and it transfers to the
+half that matters: `common_errors` is exactly where the inter-judge agreement
+gain came from.
+
+`scripts/gameplay/eval_positions.py` imports the judge from `eval.py` rather
+than reimplementing it. It is a separate script only because the rules eval is
+mid-measurement and its output must stay byte-identical.
+
+### 16.3 Positions are a separate file, on purpose
+
+`data/gold/positions.jsonl` is not `gold_questions.jsonl`, and the seven
+position categories are not in `label_store.CATEGORIES`. Both of those lists
+drive `stratified_sample` and `validate_gold`, and the n≈100 two-judge
+comparison depends on the gold set's composition. Mixing positions in would
+corrupt a measurement that is still running.
+
+The prompt is **rendered, never authored** (`common.render_position`). Storing
+rendered text would let a renderer improvement apply only to positions written
+after it — the same trap Section 8.7 hit when a prompt's shape lived in two
+files.
+
+### 16.4 The action grammar, and a parser bug worth recording
+
+A play has to be compared mechanically, so the model is given a grammar
+(`PLAY`, `CAST`, `ACTIVATE`, `ATTACK`, `BLOCK`, `ORDER TRIGGERS`, `MULLIGAN`,
+`KEEP`, `PASS`). Two properties earn their keep:
+
+- **Liberal on input.** Real output arrives in markdown bullets, numbered
+  lists, bold, and code fences. Rejecting that would measure formatting
+  compliance rather than play quality.
+- **Never silently drop a line.** Every line is an action, a parse failure, or
+  ignored prose. A line that opens with a known verb and then fails to parse is
+  a real failure; a line that never claimed to be an action is narration.
+  Collapsing those two would either punish models for explaining themselves or
+  hide malformed actions in the "prose" bucket.
+
+The first implementation matched verbs with `startswith`, which matched the
+present participles models narrate with. `"Attacking with Swiftspear is
+correct"` parsed as an ATTACK on a creature named `"ing with Swiftspear is
+correct"`, and — worse — `"Blocking the Bears with Elves would be bad"` parsed
+as a BLOCK **with its operands inverted**. Phantom actions manufactured out of
+prose inflate the action count and sink the legality rate, so this would have
+surfaced as a capability finding rather than the parser bug it was. Verbs must
+be whole words; the cases are asserted in `test_actions.py`.
+
+`BLOCK` is also the one place where two natural phrasings mean opposite things
+if read positionally — `BLOCK <blocker> -> <attacker>` versus `BLOCK <attacker>
+with <blocker>`. Both are matched explicitly and neither falls back to the
+other, because getting it backwards would silently invert every blocking
+position in the set.
+
+A second bug the schema caught: attacking creatures were first modelled as
+`stack` entries. An attacking creature is a battlefield permanent with the
+attacking status (506.3), not a stack object, and the Oracle name check
+rejected `"Serra Angel is attacking you"` as a card that does not exist.
+
+### 16.5 The gates
+
+Three, in order, each able to end the avenue cheaply:
+
+1. **Protocol works** — ≥90% of outputs parse, and ≥95% of closed-arm actions
+   come from the enumerated list. Measurable at n≈8.
+2. **The eval discriminates** — arms must separate. If every arm blunders at
+   the same rate the positions are not measuring play quality, and more
+   positions will not fix that. The most likely silent failure.
+3. **Blunder rate ≤25%** on basic+intermediate positions, holding under both
+   judges (Section 9.9's protocol).
+
+**Sizing is n≈40, not the n≈100 the rules comparison needs.** Blunder rate is a
+proportion and the expected effects are large: separating 60% from 30% needs
+~42 per group unpaired, and this design is paired. That matters because a
+position costs far more to author than a rubric — a whole board must be written
+out — so 40 is 8–12 hours of authoring.
+
+Gates 1 and 2 do not wait for 40. They run on the seed fixtures.
+
+### 16.6 Seed fixtures are not gate evidence
+
+`data/gold/positions_seed.jsonl` holds 8 machine-drafted positions that verify
+the renderer, parser, validator and eval path end to end. They are in their own
+file and are labelled `seed_note` in every record, because Section 14.6
+measured machine-drafted rubrics scoring materially worse than hand-authored
+ones (inter-judge r +0.30 → +0.62). The position report prints a warning
+whenever seeds are present. **Gate 3 needs judge-authored positions.**
+
+### 16.7 Working within 36GB
+
+The constraint is asymmetric, and the asymmetry is the opportunity.
+
+**Training is where it bites.** `max_seq_length: 2048` was set alongside
+`batch_size: 2` after grounded examples drove peak memory to 65GB. A rendered
+board is only ~350 characters, but board + ~8 card texts + rules chunks lands
+close to the window. Retrieval for positions therefore uses `k=2` rules chunks
+instead of 3, and cards are resolved **by name** rather than by embedding —
+the position already states exactly which cards are in play, so there is
+nothing to guess. That is a strictly better setup than the rules-question case
+in Section 13.5, where only 16 of 60 questions named a card at all.
+
+**Inference has room.** Qwen2.5-7B-4bit is ~4.5GB of weights; a 13–14B 4-bit
+model is ~8GB. A larger base model for gameplay inference fits at 36GB today —
+it is training an adapter for one that does not. Section 16.8 makes that a flag.
+
+**The biggest lever is not the model.** Letting the environment enumerate legal
+actions turns generation into ranking. That buys more on constrained hardware
+than any parameter count, and it is why Forge and EDHplay are attractive later.
+
+### 16.8 Model choice is now a late binding (and a flag that did nothing)
+
+`BASE_MODEL_ID` was a module constant in `eval.py` read at five sites. Adopting
+a new checkpoint or trying a larger base model meant editing code — the same
+bug class as the stale `ADAPTER_PATH` default in Section 15.2.
+
+While threading `--base-model` through, one of those five sites turned out to
+be a live bug: the judge was loaded from `BASE_MODEL_ID` and **`--judge-model`
+was ignored entirely** on the generate-and-judge path. `eval.py --judge-model
+<other>` produced a run judged by the base model and labelled as if it had used
+the other one. Only the `--rescore-from` path read the flag correctly.
+
+**The published two-judge results are unaffected**: Section 9.9 and both Llama
+reports were produced by re-scoring stored answers, which is the correct design
+anyway and is the path that worked. Reports now also record the base model,
+adapter and judge in the body — previously the only record of which judge
+scored a run was the filename someone chose for it
+(`EVAL_REPORT_CARDS_N100_LLAMAJUDGE.md`), which put the most important variable
+of a two-judge study outside the document.
+
+### 16.9 Predictions, registered before the first run
+
+1. **The adapter will underperform base on positions.** A board state is
+   maximally out of distribution for something trained only on
+   `"Rules text: ..."` — the same effect Section 13.5 measured for card context.
+   Read a poor finetuned score as evidence about the training data, not the
+   method.
+2. **The closed arm will beat the open arm substantially** — most early failure
+   should be generation, not judgment.
+3. **Card retrieval will help here where it did not in Section 13.5**, because
+   every position names cards by construction.
+
+### 16.10 Substrate: now and later
+
+Play starts as a **human text match** — the board is typed into the console,
+the model answers. It reuses the existing plumbing and is the same input path
+the position eval uses.
+
+| Option | Read | Write | Note |
+| --- | --- | --- | --- |
+| **EDHplay** | spike | spike | Supports all play types despite the Commander branding, so Standard 1v1 vs. bot is available. Even browser-only with no API it pays off: play there, type the state in, execute the model's line. That is the advisory architecture against a live opponent with zero integration. |
+| **Forge / XMage** | yes | yes | Open-source engines that **enumerate legal actions** — they hand over the closed arm for free and give an automated opponent for thousands of games. Strongest long-term substrate; a real Java integration spike. |
+| **MTG Arena** | yes | **no** | Reading `Player.log` is established practice (17Lands, Untapped). **Sending input is bot play and violates WotC's ToS** — account-ban risk. Arena's viable form is read-only advisory. |
+
+The Arena split is worth designing around now: if the agent's interface is
+*state in, recommended line out*, the advisory product and the autonomous
+player are the same code, and only the substrate decides who executes.
+
+### 16.11 First run: three gate failures, and why that is the right answer
+
+Run on the 8 seed fixtures, four arms, single judge:
+
+| Arm | Blunder | Correctness | Parsed ok | All legal |
+| --- | --- | --- | --- | --- |
+| `base_open` | 75% | 2.21 | 100% | 62% |
+| `base_closed` | 75% | 2.33 | 100% | **88%** |
+| `base_cards_open` | 75% | 2.08 | 100% | 62% |
+| `ft_cards_open` | 75% | 2.46 | 100% | 38% |
+
+**Gate 1 fails** on closed-arm legality (88%, needs ≥95%), though parse rate is
+100% everywhere. **Gate 2 fails** outright: every arm blunders at exactly 75%,
+so the set does not separate them. **Gate 3 fails** at 83%.
+
+That is the correct outcome for machine-drafted fixtures, and Gate 2 is doing
+precisely the job it was added for — flagging that this set is not yet
+measuring play quality, so authoring 32 more like it would not help.
+
+**The one result that held across both runs**: the closed arm improves legality
+and does *nothing* for blunder rate. Enumerating the legal actions fixes what
+the model knows is **possible** without touching what it knows is **good**.
+That is a useful split, and it argues for the environment enumerating moves in
+the product while treating judgment as the open research problem.
+
+#### The run is not stable at n=8
+
+Two runs differing only in prompt wording and parser tolerance:
+
+| | run 1 | run 2 |
+| --- | --- | --- |
+| `base_open` legality | 38% | 62% |
+| `base_closed` legality | 100% | 88% |
+| `ft_cards_open` blunder | 100% | 75% |
+| `ft_cards_open` correctness | 2.00 | 2.46 |
+| Gate 2 | pass (25% spread) | fail (0% spread) |
+
+Some of that is the fixes working (the bracket repair is what lifted open-arm
+legality). But `ft_cards_open` went from emitting `PASS` 190 times to producing
+the *best* correctness of any arm, on a prompt edit as small as "End with a
+single PASS." **A run whose conclusions flip on prompt wording is not evidence
+about a model.** Prediction 1 — that the adapter would collapse on
+out-of-distribution board states — looked dramatically confirmed in run 1 and
+is unsupported in run 2; it stays open.
+
+#### Blunder rate is currently measuring the judge
+
+Spot-checking `pos-seed-0001`: the model answered `CAST Lightning Strike TARGET
+Grizzly Bears` and the judge recorded error 2 — *"casts Lightning Strike at the
+opponent's face instead of removing the blocker."* It removed the blocker. That
+is a false positive on the one metric the gate is built from.
+
+With every arm pinned at 75% and a confirmed judge error in the sample, the
+honest reading is that blunder rate is currently reporting more about the judge
+than about the models. Section 9.9's protocol is the fix and the report now
+prints the warning whenever judge and base arm are the same model.
+
+**What this means for sequencing.** The scaffolding is verified end to end —
+render, parse, validate, score, report, all four arms, gates computed. What is
+not verified is that the *measurement* works, and that cannot be settled with
+machine-drafted positions or a single judge. The next two steps are
+judge-authored positions and a second judge, in that order.
+
+### 16.12 A second judge, and the gate verdict reverses
+
+Section 9.9's protocol applied to positions: the same stored answers, re-judged
+by `mlx-community/Meta-Llama-3.1-8B-Instruct-4bit`, changing nothing else.
+`eval_positions.py --rescore-from` exists for exactly this, because a second
+judge run that regenerates the answers measures two things at once and settles
+neither.
+
+**The verdict is not robust to the judge.**
+
+| | Qwen judge | Llama judge |
+| --- | --- | --- |
+| blunder rate, best arm | 75% | 25% |
+| Gate 2 (discriminates) | **FAIL** — 0% spread | **PASS** — 38% spread |
+| Gate 3 (≤25%) | **FAIL** — 83% | **PASS** — 17% |
+
+Two of the three gates flip on identical answers. Any statement of the form
+"the model blunders X% of the time" is currently a statement about the judge.
+
+**Agreement is moderate, and comparable to the rules eval at its best:**
+Cohen's kappa **+0.48** on the binary blunder call (75% raw, 52% by chance),
+correctness r **+0.69**. Kappa rather than raw agreement because the call is
+skewed — two judges each blundering 60% of the time agree half the time by
+chance alone. For reference, Section 9.9 measured r = +0.43 between these same
+two judges on rules questions, and hand-authored rubrics reached +0.62.
+
+#### The judge is deterministic, which makes every difference real
+
+Re-judging with the *same* judge over the same answers and the same rubrics
+reproduced **24/24 blunder calls exactly, with 0.00 mean correctness drift**.
+So there is no sampling noise to hide behind: every number here is exactly
+reproducible, and the run-to-run shifts in Section 16.11 were caused by the
+prompt and parser fixes changing the answers, not by variance.
+
+#### Disagreement is concentrated in the positions, not the phrasing
+
+Six of the eight disputed calls fall on two of the eight positions. Both had a
+`common_errors` line whose leading clause was also true of the correct line —
+the correct play *is* to cast Lightning Strike, and the error read "**Casts
+Lightning Strike** at the opponent's face instead of…", so a judge extracting
+claims can match the opening before reaching the qualifier that makes it wrong.
+
+Rewriting those three lines to lead with what makes them wrong ("**Leaves
+Grizzly Bears alive**, pointing Lightning Strike at the opponent instead"),
+holding answers and judges fixed:
+
+| | before | after |
+| --- | --- | --- |
+| judge blunder-rate gap | 75% vs 47% (**28 points**) | 62% vs 56% (**6 points**) |
+| disputed calls | 9 | 8 |
+| kappa | +0.45 | +0.48 |
+
+**It fixed the systematic bias and not the per-call disagreement.** The gap in
+*level* — the thing a gate threshold actually reads — closed by a factor of
+four, because the rewrite stopped one judge over-firing. But the judges still
+disagree on nearly as many individual calls; they simply now disagree in both
+directions rather than one. So leading-clause overlap is a real defect worth
+avoiding, and it is not the whole story: those two positions are genuinely
+harder to adjudicate than the six that drew no dispute at all.
+
+#### What this changes about the plan
+
+**Do not author 40 positions against a single judge.** The gate was specified
+as "≤25% blunder rate holding under both judges," and this run shows why the
+second half of that sentence is the load-bearing part. Concretely:
+
+1. Run both judges from the first authored position, not at the end.
+2. Treat a position where the two judges disagree as a **position that needs
+   rewriting**, the same way Section 14.6 treated a machine-drafted rubric —
+   disagreement localizes to specific positions, so it is fixable.
+3. Avoid `common_errors` whose opening clause is also true of the correct line.
+   Lead with the thing that makes the play wrong.
+
+That is a rule worth having before eight to twelve hours go into authoring, and
+it cost one rescore to learn.

@@ -26,7 +26,9 @@ Usage:
 """
 
 import argparse
+import gzip
 import json
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,9 +36,40 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 API_ROOT = "https://api.scryfall.com"
+BULK_URL = f"{API_ROOT}/bulk-data"
 USER_AGENT = "MagicLLM-Phase2/0.1 (hobby research project)"
+HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 REQUEST_DELAY_SECONDS = 0.15  # comfortably under Scryfall's 10 req/s guidance
 RATE_LIMIT_BACKOFF_SECONDS = 30  # Scryfall's documented cooldown after a 429
+
+
+def download_bulk(bulk_type: str, dest: Path) -> str:
+    """Download one of Scryfall's bulk files, e.g. `oracle_cards`, `rulings`.
+
+    The search endpoint above is right for a single format's legal pool, but
+    the full Oracle pool is a ~200MB download that Scryfall explicitly asks
+    you to take from bulk data rather than by paginating search. This used to
+    be a manual "download this file yourself" step in the README, which meant
+    the *recommended* card path was the only unscripted one.
+
+    Returns the upstream `updated_at` so callers can record provenance.
+    """
+    meta = json.loads(urlopen(Request(BULK_URL, headers=HEADERS)).read())
+    entry = next((d for d in meta["data"] if d["type"] == bulk_type), None)
+    if entry is None:
+        available = ", ".join(sorted(d["type"] for d in meta["data"]))
+        raise SystemExit(f"unknown bulk type {bulk_type!r}; Scryfall offers: {available}")
+
+    print(f"downloading {bulk_type} bulk data (updated {entry['updated_at']}) ...")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    gz = dest.with_suffix(".jsonl.gz")
+    with urlopen(Request(entry["jsonl_download_uri"], headers=HEADERS)) as r, gz.open("wb") as f:
+        shutil.copyfileobj(r, f)
+    with gzip.open(gz, "rt", encoding="utf-8") as fin, dest.open("w", encoding="utf-8") as fout:
+        for line in fin:
+            fout.write(line)
+    gz.unlink()
+    return entry["updated_at"]
 
 
 def fetch_page(url: str, retries: int = 3) -> dict:
@@ -71,8 +104,29 @@ def fetch_format(format_name: str) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--format", default="standard", help="Scryfall format name, e.g. standard, pioneer, modern")
+    parser.add_argument("--bulk", default=None, metavar="TYPE",
+                        help="download a Scryfall bulk file instead of searching a format "
+                             "(oracle_cards is the full pool chunk_cards.py expects)")
     parser.add_argument("--out-dir", type=Path, default=Path("data/cards/raw"))
     args = parser.parse_args()
+
+    if args.bulk:
+        out_path = args.out_dir / f"{args.bulk}.jsonl"
+        updated_at = download_bulk(args.bulk, out_path)
+        count = sum(1 for _ in out_path.open(encoding="utf-8"))
+        (args.out_dir / f"{args.bulk}_MANIFEST.md").write_text(
+            f"# Scryfall `{args.bulk}` bulk snapshot\n\n"
+            f"- Source: {BULK_URL} (type `{args.bulk}`)\n"
+            f"- Upstream updated: {updated_at}\n"
+            f"- Downloaded: {datetime.now(timezone.utc).isoformat()}\n"
+            f"- Entries: {count}\n"
+            f"- Card data courtesy of Scryfall (https://scryfall.com); card text and "
+            f"templating are Wizards of the Coast IP.\n",
+            encoding="utf-8",
+        )
+        print(f"\n{count} entries -> {out_path}")
+        print("Next: python scripts/chunk_cards.py")
+        return
 
     print(f"fetching cards legal in {args.format}...")
     cards = fetch_format(args.format)
