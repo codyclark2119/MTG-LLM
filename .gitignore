@@ -29,3 +29,10 @@ data/gold/rulesguru/raw/
 # Local orientation doc — regenerate or edit freely; deliberately untracked so
 # it never becomes another file that has to be kept in sync at review time.
 REPO_MAP.md
+
+# Rubric authoring round-trip. Both regenerable, neither needed publicly:
+# tasks.json is rebuilt by `author_rubrics.py --export-tasks`, and the
+# submissions log is an audit trail whose content lands in the gold set on
+# import — where `rubric_source` already records who wrote each rubric.
+data/gold/worksheets/tasks.json
+data/submissions.jsonl

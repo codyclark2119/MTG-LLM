@@ -1,0 +1,13 @@
+# Deliberately three lines.
+#
+# The repo's own requirements.txt is a full `pip freeze` — 73 pins including
+# mlx, numpy, datasets and torch. None of that belongs on a public host: the
+# rubric server imports fastapi, uvicorn and `scripts/common.py`, and
+# common.py is pure stdlib. Installing the repo's requirements here would ship
+# the model stack to a web form for no reason and blow the image size.
+#
+# If this file ever needs a fourth line, check whether the thing being added
+# actually belongs on the public side of the boundary.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4

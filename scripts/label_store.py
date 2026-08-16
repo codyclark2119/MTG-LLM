@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CR_VERSION, GOLD_CANDIDATES_PATH, GOLD_PATH, RULES_PATH, read_jsonl, write_jsonl_atomic
+from common import (CR_VERSION, GOLD_CANDIDATES_PATH, GOLD_PATH, RULES_PATH,
+                    is_hand_authored, read_jsonl, write_jsonl_atomic)
 
 CANDIDATES_PATH = GOLD_CANDIDATES_PATH
 REJECTED_PATH = Path("data/gold/rejected.jsonl")
@@ -65,9 +66,7 @@ class Store:
         self.by_id = {r["id"]: r for r in self.gold}
         self.cand_by_id = {c["id"]: c for c in self.candidates}
 
-    @staticmethod
-    def _authored(rec: dict) -> bool:
-        return bool(rec.get("rubric_source"))
+    _authored = staticmethod(is_hand_authored)  # one definition, in common.py
 
     def queue(self) -> list[dict]:
         """Ordered work list: stale gold rubrics first, then thin categories."""

@@ -8,8 +8,19 @@ because `--draft-rubric` splits the answer into sentences and sentences
 are compound, verdict-padded, and full of scaffolding.
 
 So the rubrics have to be written by a person — and nobody should write
-them by editing JSONL. This emits a plain-text worksheet, one block per
-question, and reads the completed file back:
+them by editing JSONL. There are two round-trips out to a human and back.
+
+**The web form** (preferred). `scripts/rubric_server.py` serves the same
+questions as a structured form: key points and errors are separate fields,
+the draft is shown read-only, and nothing can be malformed on the way back.
+Contributors need no software.
+
+    python scripts/author_rubrics.py --export-tasks           # -> tasks.json
+    #   ... deploy the server with it, contributors author ...
+    python scripts/author_rubrics.py --ingest-submissions submissions.jsonl --dry-run
+    python scripts/author_rubrics.py --ingest-submissions submissions.jsonl
+
+**The text worksheet** (offline fallback, and what to use for yourself).
 
     python scripts/author_rubrics.py --emit 20            # thinnest categories first
     python scripts/author_rubrics.py --emit 10 --category "turn-structure walkthrough"
@@ -19,6 +30,11 @@ question, and reads the completed file back:
 Selection defaults to whichever categories are furthest below target, so
 coverage evens out without anyone tracking it by hand.
 
+**The server never touches the gold set.** It reads an exported task file and
+appends submissions to its own store; promoting them is a local step that runs
+the same validation as a worksheet ingest. That keeps "gold means someone
+reviewed it" true even when authoring happens on a public host.
+
 See data/gold/SCHEMA.md for the four rules a good rubric follows.
 """
 
@@ -27,15 +43,27 @@ import json
 import re
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import GOLD_CANDIDATES_PATH, GOLD_PATH, read_jsonl
+from common import (GOLD_CANDIDATES_PATH, GOLD_PATH, WORKSHEETS_DIR,
+                    is_hand_authored, lint_common_errors, read_jsonl,
+                    stray_names)
 
 CANDIDATES_PATH = GOLD_CANDIDATES_PATH
-WORKSHEET_DIR = Path("data/gold/worksheets")
+WORKSHEET_DIR = WORKSHEETS_DIR
 
 BLOCK_RE = re.compile(r"^###\s+(?P<id>\S+)", re.M)
+# A worksheet round-trips through email, Word, Google Docs and TextEdit before
+# it comes back, and every one of those rewrites the bullet the template ships
+# with. Measured: of seven ways a person plausibly writes a list, only a plain
+# ASCII hyphen survived — the other six parsed to ZERO key points, and a block
+# with no key points is silently skipped. That is the worst possible failure
+# for contributed work: someone spends two hours and it vanishes without an
+# error. Accept every bullet, and a bare line too: the KEY POINTS / COMMON
+# ERRORS delimiters already establish that anything between them is content.
+BULLET_RE = re.compile(r"^\s*(?:[-*+•·▪●–—]+|\d+[.)])\s*")
 SECTION_RE = re.compile(
     r"^KEY POINTS:\s*$(?P<kp>.*?)^COMMON ERRORS:\s*$(?P<ce>.*?)(?=^###|\Z)",
     re.M | re.S,
@@ -93,7 +121,7 @@ load_jsonl = read_jsonl  # one definition, in common.py
 
 def needs_authoring(record: dict) -> bool:
     """True when a gold record's rubric is still a machine draft."""
-    return not record.get("rubric_source")
+    return not is_hand_authored(record)
 
 
 def pick_candidates(candidates: list[dict], gold: list[dict], n: int,
@@ -127,6 +155,68 @@ def pick_candidates(candidates: list[dict], gold: list[dict], n: int,
         _, cat = deficits[0]
         picked.append(by_cat[cat].pop(0))
     return picked
+
+
+def export_tasks(records: list[dict], out_path: Path) -> None:
+    """Write the self-contained task file the rubric server reads.
+
+    Self-contained on purpose. The server gets questions, verified answers and
+    machine drafts — and nothing else. It has no gold set, no candidate file,
+    no rules corpus and no card index, so a host running it cannot leak or
+    corrupt any of them. Everything a contributor needs to see is here; nothing
+    they must not reach is.
+    """
+    tasks = [
+        {
+            "id": r["id"],
+            "category": r["category"],
+            "difficulty": r["difficulty"],
+            "question": r["question"],
+            "answer": r["answer"],
+            # Shown read-only. It is a sentence-split of the answer and exists
+            # to be argued with, not edited — Section 14.6 measured drafts of
+            # exactly this kind scoring r = +0.30 against hand-written +0.62.
+            "draft": r.get("key_points") or [],
+            "url": r.get("rulesguru_url", ""),
+            "in_gold": bool(r.get("cr_version")),
+        }
+        for r in records
+    ]
+    payload = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "count": len(tasks), "tasks": tasks}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    by_cat = Counter(t["category"] for t in tasks)
+    print(f"{len(tasks)} tasks -> {out_path}")
+    for cat, n in sorted(by_cat.items()):
+        print(f"  {cat}: {n}")
+    print(f"\nServe locally:  python scripts/rubric_server.py --tasks {out_path}")
+    print(f"Deploy:         see deploy/README.md")
+
+
+def read_submissions(path: Path) -> dict[str, dict]:
+    """Collapse a submissions log into {id: latest rubric}.
+
+    The server appends rather than rewrites, so a contributor revisiting a
+    question leaves two rows. Last write wins, which matches what they saw in
+    the form. Keeping the earlier rows means the log stays an audit trail.
+    """
+    latest: dict[str, dict] = {}
+    for row in read_jsonl(path, missing_ok=False):
+        rid = row.get("id")
+        if not rid:
+            continue
+        kp = [s.strip() for s in row.get("key_points") or [] if s.strip()]
+        if not kp:
+            continue  # an explicit skip, same meaning as a blank worksheet block
+        latest[rid] = {
+            "key_points": kp,
+            "common_errors": [s.strip() for s in row.get("common_errors") or [] if s.strip()],
+            "author": (row.get("author") or "").strip(),
+            "submitted": row.get("submitted", ""),
+        }
+    return latest
 
 
 def emit(records: list[dict], out_path: Path) -> None:
@@ -167,14 +257,14 @@ def parse_worksheet(text: str) -> dict[str, dict]:
                 line = line.strip()
                 # The block separator is a run of dashes, which looks exactly
                 # like a bullet to a naive `startswith("-")` and got imported
-                # as a key point on the first test.
-                if not line or set(line) <= {"-"}:
+                # as a key point on the first test. Same for underscores and
+                # equals signs, which people use as separators too.
+                if not line or set(line) <= {"-", "_", "=", "–", "—", "*"}:
                     continue
-                if line.startswith("-"):
-                    v = line[1:].strip()
-                    # Skip the empty "-" placeholders the template ships with.
-                    if v:
-                        items.append(v)
+                v = BULLET_RE.sub("", line, count=1).strip()
+                # Skip the empty "-" placeholders the template ships with.
+                if v:
+                    items.append(v)
             return items
 
         kp = bullets(m.group("kp"))
@@ -196,6 +286,18 @@ def main() -> None:
     parser.add_argument("--gold", type=Path, default=GOLD_PATH)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--author", default="", help="recorded in rubric_source, e.g. 'judge:LX'")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="with --ingest/--ingest-submissions, print what would be imported "
+                             "and change nothing. Use this on everything that comes back from "
+                             "someone else.")
+    parser.add_argument("--export-tasks", action="store_true",
+                        help="write the task file rubric_server.py serves")
+    parser.add_argument("--include-new", type=int, default=0, metavar="N",
+                        help="with --export-tasks, also include N unused candidates so "
+                             "contributors can grow the set, not only repair it")
+    parser.add_argument("--ingest-submissions", type=Path, default=None, metavar="submissions.jsonl",
+                        help="import what the rubric server collected. Attribution comes from "
+                             "each submission, so one file can hold several authors.")
     args = parser.parse_args()
 
     gold = load_jsonl(args.gold)
@@ -205,7 +307,19 @@ def main() -> None:
         if not stale:
             print("every gold record already has a hand-authored rubric")
             return
-        out = args.out or WORKSHEET_DIR / "fix_gold.txt"
+        # --category splits the stale set so two people can work at once
+        # without being handed the same records. Ingesting overwrites by id,
+        # so overlapping worksheets mean whoever is ingested last silently
+        # wins and the other person's work is discarded without a warning.
+        name = "fix_gold.txt"
+        if args.category:
+            stale = [r for r in stale if r["category"] == args.category]
+            if not stale:
+                raise SystemExit(
+                    f"no stale rubrics in category {args.category!r}. Present: "
+                    + ", ".join(sorted({r['category'] for r in gold if needs_authoring(r)})))
+            name = f"fix_gold_{args.category.replace('/', '-').replace(' ', '_')}.txt"
+        out = args.out or WORKSHEET_DIR / name
         emit(stale, out)
         print("\nThese are already IN the gold set with machine-drafted rubrics —\n"
               "rewriting them raises the quality of the set you already have.")
@@ -222,15 +336,85 @@ def main() -> None:
         emit(picked, args.out or WORKSHEET_DIR / name)
         return
 
-    if args.ingest:
-        authored = parse_worksheet(args.ingest.read_text(encoding="utf-8"))
-        if not authored:
-            raise SystemExit("no completed blocks found — did you fill in KEY POINTS?")
+    if args.export_tasks:
+        pool = [r for r in gold if needs_authoring(r)]
+        seen = {r["id"] for r in pool}
+        if args.include_new:
+            candidates = load_jsonl(args.candidates)
+            if not candidates:
+                raise SystemExit(f"{args.candidates} not found — run rulesguru_to_gold.py first")
+            pool += [c for c in pick_candidates(candidates, gold, args.include_new,
+                                                args.category, args.target)
+                     if c["id"] not in seen]
+        if args.category:
+            pool = [r for r in pool if r["category"] == args.category]
+        if not pool:
+            raise SystemExit("nothing to export — every gold rubric is hand-authored "
+                             "and --include-new was not given")
+        export_tasks(pool, args.out or WORKSHEETS_DIR / "tasks.json")
+        return
+
+    if args.ingest or args.ingest_submissions:
+        if args.ingest_submissions:
+            subs = read_submissions(args.ingest_submissions)
+            authored = {rid: {"key_points": s["key_points"],
+                              "common_errors": s["common_errors"]}
+                        for rid, s in subs.items()}
+            # Attribution comes from the submission, not the command line: a
+            # single file holds work from several people, and crediting them
+            # all to whoever ran the import would make the per-author
+            # agreement breakdown in `eval.py --compare` meaningless.
+            authors = {rid: s["author"] for rid, s in subs.items() if s["author"]}
+            if not authored:
+                raise SystemExit(f"no usable submissions in {args.ingest_submissions}")
+            print(f"{len(authored)} submission(s) from "
+                  f"{len(set(authors.values())) or 'unknown'} author(s)")
+        else:
+            authored = parse_worksheet(args.ingest.read_text(encoding="utf-8"))
+            authors = {}
+            if not authored:
+                raise SystemExit("no completed blocks found — did you fill in KEY POINTS?")
 
         by_id = {r["id"]: r for r in gold}
         candidates = {c["id"]: c for c in load_jsonl(args.candidates)}
-        source = f"hand-authored ({args.author})" if args.author else "hand-authored"
-        source += "; decomposed from the source's verified answer, not judge-reviewed"
+        def source_for(rid: str) -> str:
+            who = authors.get(rid) or args.author
+            s = f"hand-authored ({who})" if who else "hand-authored"
+            return s + "; decomposed from the source's verified answer, not judge-reviewed"
+
+        if args.dry_run:
+            # Contributed worksheets come back from people who cannot check
+            # the result themselves, so look before writing to the gold set.
+            # `--ingest` overwrites rubrics in place and there is no undo.
+            print(f"DRY RUN — {args.gold} will not be modified\n")
+            for rid, rub in authored.items():
+                where = ("rewrite" if rid in {r["id"] for r in gold}
+                         else "promote" if rid in {c["id"] for c in load_jsonl(args.candidates)}
+                         else "UNKNOWN ID")
+                who = authors.get(rid) or args.author or "unattributed"
+                print(f"### {rid}  [{where}]  by {who}")
+                for kp in rub["key_points"]:
+                    print(f"    KP  {kp}")
+                for ce in rub["common_errors"]:
+                    print(f"    CE  {ce}")
+                if len(rub["key_points"]) < 2:
+                    print("    ^^ only 1 key point — the validator needs 2+, this would be skipped")
+                if not rub["common_errors"]:
+                    print("    ^^ no COMMON ERRORS — half the rubric's power is missing")
+                # The wording defect Section 16.12 measured. Warn, never block:
+                # the check is deliberately conservative and a clean result
+                # means "no obvious defect", not "good rubric".
+                ref = (by_id.get(rid) or candidates.get(rid) or {})
+                for w in lint_common_errors({"answer": ref.get("answer", ""), **rub}):
+                    print(f"    !!  {w}")
+                stray = stray_names(ref.get("question", ""), ref.get("answer", ""),
+                                    rub["key_points"] + rub["common_errors"])
+                if stray:
+                    print(f"    !!  {', '.join(stray)} — not in the question or its "
+                          f"answer; check the player name is the right one")
+                print()
+            print(f"{len(authored)} block(s) parsed. Re-run without --dry-run to apply.")
+            return
 
         updated = added = skipped = 0
         problems: list[str] = []
@@ -241,12 +425,13 @@ def main() -> None:
                 continue
             if rid in by_id:
                 by_id[rid].update(key_points=rub["key_points"], common_errors=rub["common_errors"],
-                                  rubric_source=source, needs_rubric_review=False)
+                                  rubric_source=source_for(rid), needs_rubric_review=False)
                 updated += 1
             elif rid in candidates:
                 rec = dict(candidates[rid])
                 rec.update(key_points=rub["key_points"], common_errors=rub["common_errors"],
-                           rubric_source=source, needs_rubric_review=False, needs_review=True)
+                           rubric_source=source_for(rid), needs_rubric_review=False,
+                           needs_review=True)
                 gold.append(rec)
                 added += 1
             else:

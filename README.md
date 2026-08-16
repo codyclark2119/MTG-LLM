@@ -153,6 +153,28 @@ python scripts/webui.py --lan --author "judge:CC"   # prints laptop/phone/Bonjou
 
 Four views: `#/label`, `#/new`, `#/position`, `#/scripts`. Off loopback a token is generated and required. The script runner is an **allowlist** — the client names an action id and values for its declared args, and the command line is assembled server-side, never accepted from the client.
 
+**This console is LAN-only and must never be deployed.** Its runner executes training and evaluation on the host and its store writes the gold set directly.
+
+## Rubric form (deployable)
+
+For contributors who know Magic, aren't on your network, and shouldn't have to install anything:
+
+```bash
+python scripts/author_rubrics.py --export-tasks      # -> tasks.json
+python scripts/rubric_server.py --tasks data/gold/worksheets/tasks.json
+```
+
+A separate program with a deliberately small surface — it reads one exported task file, appends to one submissions log, and has no access to the gold set, the corpora, or any model. Dependencies are `fastapi` + `uvicorn`, so the container is small enough for a free tier. Category dropdown, per-author progress, read-only machine draft, and live rubric checks as you type.
+
+Promotion into the gold set stays a local, reviewed step, which is what keeps *gold* meaning **a person reviewed this**:
+
+```bash
+curl -H "x-token: $RUBRIC_TOKEN" https://<app>/api/export > submissions.jsonl
+python scripts/author_rubrics.py --ingest-submissions submissions.jsonl --dry-run
+```
+
+Deploying to fly.io: [deploy/README.md](deploy/README.md). Contributor guide to hand out: [data/gold/CONTRIBUTING.md](data/gold/CONTRIBUTING.md).
+
 ## Honest results
 
 Measured on 110 questions (70 synthetic + 40 Reddit), four system arms, LLM-judged. Full detail in [DEVELOPMENT_PLAN.md §9](DEVELOPMENT_PLAN.md).

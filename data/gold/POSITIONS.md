@@ -87,6 +87,13 @@ is parsed and a malformed one is rejected, because the closed arm matches model
 output against this list — an entry that cannot parse can never be matched, so
 every answer naming it would be scored illegal.
 
+**Do not list `PASS`.** It is always accepted, listed or not. The system prompt
+mandates a trailing `PASS` on every answer, so it is a protocol terminator
+rather than a play you are offering — and scoring it as a play failed Gate 1 on
+the one position where passing priority is not a legal game action at all, a
+mulligan decision (Section 16.13). List only the plays that are genuinely
+available.
+
 Supplying them is optional but worth it: the closed arm is the measurement of
 whether the model's problem is *not knowing what is possible* or *not knowing
 what is good*. So far it is the second.

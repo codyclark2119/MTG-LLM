@@ -100,6 +100,12 @@ GOLD_PATH = REPO_ROOT / "data/gold/gold_questions.jsonl"
 POSITIONS_PATH = REPO_ROOT / "data/gold/positions.jsonl"
 RULESGURU_SNAPSHOT = REPO_ROOT / "data/gold/rulesguru/questions.jsonl"
 GOLD_CANDIDATES_PATH = REPO_ROOT / "data/gold/rulesguru/gold_candidates.jsonl"
+# Anchored like the rest. `author_rubrics.py` had this as a bare relative
+# Path, which Section 17.2's repo-root pass missed: run from anywhere else it
+# wrote the worksheet under the *current* directory while printing the
+# in-repo path, so a contributor's completed file could sit somewhere the
+# ingest never looks.
+WORKSHEETS_DIR = REPO_ROOT / "data/gold/worksheets"
 
 PROCESSED_DIR = REPO_ROOT / "data/processed"
 DATASETS_DIR = REPO_ROOT / "data/datasets"
@@ -336,6 +342,97 @@ def build_position_messages(pos: dict, context: str | None = None,
     ]
 
 
+def pearson_r(pairs: list[tuple[float, float]]) -> float:
+    """Correlation over (judge A, judge B) score pairs. NaN under 3 pairs.
+
+    One definition: `eval.py --compare` and `eval_positions.compare_judges`
+    both report inter-judge correlation, and this is the number Section 14.6's
+    +0.30 -> +0.62 result is stated in. Two copies of it would be the
+    duplicated-helper trap on the project's headline statistic.
+    """
+    if len(pairs) < 3:
+        return float("nan")
+    xs, ys = zip(*pairs)
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    num = sum((x - mx) * (y - my) for x, y in pairs)
+    den = (sum((x - mx) ** 2 for x in xs) * sum((y - my) ** 2 for y in ys)) ** 0.5
+    return num / den if den else float("nan")
+
+
+HAND_AUTHORED_PREFIX = "hand-authored"
+
+
+# Verbs a PLAYER does. A capitalized word immediately in front of one of these
+# is a player; a capitalized word anywhere else is Magic vocabulary — a card,
+# a creature type, a keyword — and none of our business.
+_PLAYER_VERBS = (
+    "controls control casts cast has have had plays play played attacks attack "
+    "blocks block targets target draws draw discards discard sacrifices sacrifice "
+    "activates activate taps tap owns own gains gain loses lose wants want "
+    "responds respond chooses choose declares declare puts put moves move "
+    "exiles exile destroys destroy counters counter reveals reveal wins win"
+).split()
+_PLAYER_NAME = re.compile(
+    r"\b([A-Z][a-z]{2,})\s+(?:" + "|".join(_PLAYER_VERBS) + r")\b")
+
+
+def stray_names(question: str, answer: str, lines: list[str]) -> list[str]:
+    """Player names a rubric uses that its question never introduces.
+
+    RulesGuru re-randomizes player names per request, which is why the
+    snapshot is frozen — and it means the names in any one question are
+    arbitrary. Writing a rubric against them is easy to get subtly wrong:
+    two named players, and the rubric attributes the action to the other one,
+    or to a name carried over from the question before it.
+
+    Matching on capitalization alone does NOT work, and two attempts proved
+    it in both directions. Magic capitalizes ordinary vocabulary, so checking
+    against the question flagged "Swamps" on a correct rubric; widening the
+    reference to include the verified answer fixed that but then flagged
+    "Elemental" on a rubric whose only sin was naming the token's creature
+    type — which is exactly the added precision a good rubric is supposed to
+    have. A check that punishes sharper writing is worse than no check.
+
+    So this matches on GRAMMAR instead: a capitalized word directly in front
+    of a verb only a player performs. "Bianca controls no Swamps" matches;
+    "One 1/1 red Elemental creature token is created" does not, because
+    Elemental is followed by a noun.
+
+    Reported, never blocked. Missing a stray name phrased some other way is
+    the acceptable failure; nagging about correct card vocabulary is not.
+    """
+    known = set(_PLAYER_NAME.findall(f"{question or ''} {answer or ''}"))
+    seen: list[str] = []
+    for line in lines or []:
+        for name in _PLAYER_NAME.findall(line or ""):
+            if name not in known and name not in seen:
+                seen.append(name)
+    return seen
+
+
+def is_hand_authored(record: dict) -> bool:
+    """True only when a person wrote this rubric.
+
+    `rubric_source` is prose, and the predicate used to be `bool(...)` — is
+    the field set at all. That silently counted 20 of 39 gold records as
+    finished whose provenance string reads, in full, *"assistant-authored
+    from the RulesGuru-verified answer; not judge-reviewed"*. Non-empty was
+    standing in for hand-written, and the two agree only until something
+    machine-generated starts filling the field in — which is exactly what
+    `rulesguru_to_gold.py` does.
+
+    The cost was invisible rather than loud: `--fix-gold` and the console's
+    work queue both skipped those records, so the highest-leverage work in
+    the project (Section 14.6: hand rubrics take inter-judge agreement from
+    r = +0.30 to +0.62) was hidden from the two tools whose job is to surface
+    it. Both callers now use this one definition.
+
+    Writers of the field: `label_store` (two paths), `webui`, and
+    `author_rubrics --ingest` all prefix "hand-authored".
+    """
+    return str(record.get("rubric_source") or "").startswith(HAND_AUTHORED_PREFIX)
+
+
 def read_jsonl(path: Path, missing_ok: bool = True) -> list[dict]:
     """Read a .jsonl file, skipping blank lines.
 
@@ -381,3 +478,89 @@ def load_rule_ids(rules_path: Path = RULES_PATH) -> set[str]:
     inline set comprehensions that would raise on a trailing newline.
     """
     return {r["rule_id"] for r in read_jsonl(rules_path, missing_ok=False)}
+
+
+# --- "lead with the mistake" lint -------------------------------------------
+# Lives here because it applies to BOTH kinds of hand-authored rubric: a board
+# position (where common_errors is the blunder list) and a rules question. The
+# defect it catches is a property of the wording, not of the record type, and
+# the rubric server needs it without importing the gameplay package.
+
+_STOP = {"a", "an", "the", "at", "to", "of", "on", "in", "with", "for", "and", "or",
+         "it", "its", "is", "as", "by", "into", "then", "your", "their", "you",
+         "instead", "rather", "than", "this", "that", "here", "which", "but"}
+
+
+def _stem(word: str) -> str:
+    """Crude suffix strip so 'casts' and 'cast' compare equal."""
+    w = re.sub(r"[^a-z0-9/+-]", "", word.lower())
+    for suffix in ("ing", "es", "ed", "s"):
+        if len(w) > 4 and w.endswith(suffix):
+            return w[: -len(suffix)]
+    return w
+
+
+def _content(text: str, limit: int | None = None) -> list[str]:
+    words = [_stem(w) for w in text.split()]
+    words = [w for w in words if w and w not in _STOP]
+    return words[:limit] if limit else words
+
+
+def lint_common_errors(pos: dict) -> list[str]:
+    """Warn when a blunder's opening clause is also true of the correct line.
+
+    Measured, not guessed (Section 16.12). Six of eight disputed judge calls on
+    the seed set sat on two positions, and both had a `common_errors` line whose
+    leading clause restated the correct play — the right line *is* to cast
+    Lightning Strike, and the error read "Casts Lightning Strike at the
+    opponent's face instead of...". A judge extracting claims can match the
+    opening before it reaches the qualifier that makes the play wrong.
+
+    Rewriting three such lines closed the two judges' blunder-rate gap from 28
+    points to 6. It did not fix per-call disagreement, so this is a warning
+    about a known bias, not a correctness check — the form shows it and still
+    lets the position be saved.
+    """
+    # Deliberately CONSERVATIVE: it fires only when the error's opening words
+    # appear as a contiguous run in the correct line, i.e. a verbatim restatement.
+    #
+    # A looser "do these words appear anywhere in the reference" version was
+    # tried first and was wrong in both directions on the seed set — it missed
+    # "Casts Lightning Strike at the opponent's face" (the case it was built
+    # for, because the cap let non-matching words like "face" veto it) and fired
+    # on "Plays Island" and "Attacks with Centaur Courser", neither of which the
+    # judges ever disputed. A warning that is wrong both ways gets ignored, so
+    # this one only claims the clearest form and stays silent otherwise.
+    references = [_content(pos.get("answer", ""))]
+    references += [_content(kp) for kp in (pos.get("key_points") or [])]
+    references = [r for r in references if r]
+    if not references:
+        return []
+
+    def restates(words: list[str]) -> bool:
+        return any(
+            any(ref[i:i + len(words)] == words for i in range(len(ref) - len(words) + 1))
+            for ref in references
+        )
+
+    warnings = []
+    for err in pos.get("common_errors") or []:
+        lead = err.split(",")[0]
+        words = _content(lead)
+        raw = [w for w in lead.split() if _stem(w) in words]  # original spellings
+        # Try the longest opening first, down to a two-word minimum — one word
+        # ("blocks", "casts") is far too common to mean anything. The span must
+        # also carry two real words: "takes 4" matched a correct line that
+        # mentioned taking 4 damage, and that position drew no judge dispute.
+        for n in range(min(4, len(words)), 1, -1):
+            span = words[:n]
+            if sum(1 for w in span if not w.isdigit()) < 2:
+                continue
+            if restates(span):
+                shown = " ".join(raw[:n]) or " ".join(span)
+                warnings.append(
+                    f'"{shown}" restates the correct line, so a judge can match this '
+                    f"error before reaching what makes the play wrong. Lead with the "
+                    f"mistake instead — {err[:55]}...")
+                break
+    return warnings

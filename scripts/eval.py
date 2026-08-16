@@ -43,11 +43,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
     CARDS_RAG_SYSTEM_PROMPT,
+    GOLD_CANDIDATES_PATH,
+    GOLD_PATH,
     REPO_ROOT,
     RAG_SYSTEM_PROMPT,
     RULES_PATH,
     SYSTEM_PROMPT,
+    is_hand_authored,
     load_rule_ids,
+    pearson_r,
+    read_jsonl,
 )
 from common import RULE_ID_RE as CROSS_REF_RE
 from rag import MODEL_ID as EMBED_MODEL_ID
@@ -459,6 +464,115 @@ def judge_batch_anonymized(
     return out
 
 
+def rubric_provenance(gold_path: Path, candidates_path: Path) -> dict[str, str]:
+    """{question id -> 'hand-authored (judge:XX)' | 'machine-drafted'}.
+
+    Resolved at REPORT time by joining on `gold_id`, not threaded through the
+    eval rows. Two reasons. Runs already written can be segmented — including
+    the Section 14.6 pilot — and a rubric rewritten after a run was scored is
+    reflected the next time the comparison is run, instead of being frozen
+    into the row as whatever it was on the day.
+    """
+    prov: dict[str, str] = {}
+    for path in (candidates_path, gold_path):  # gold wins on overlap
+        for rec in read_jsonl(path):
+            src = str(rec.get("rubric_source") or "")
+            prov[rec["id"]] = src if is_hand_authored(rec) else "machine-drafted"
+    return prov
+
+
+def compare_judges(path_a: Path, path_b: Path, report_out: Path,
+                   gold_path: Path, candidates_path: Path) -> None:
+    """Inter-judge agreement on identical stored answers, split by rubric source.
+
+    Section 14.6 established that rubric craft is what drives judge agreement
+    (r +0.30 -> +0.62 hand vs machine, on the same questions and answers). That
+    was a one-off analysis; this makes it a standing readout, because it is
+    also the acceptance test for contributed rubrics. A rubric two judges score
+    the same way is doing its job; one they split on needs rewriting, and
+    Section 16.12 showed disagreement localizes hard enough for that to be
+    actionable — six of eight disputes sat on two of eight items.
+
+    Both files must be the SAME answers judged twice (`--rescore-from`).
+    Comparing two independent generations measures two things at once and
+    settles neither.
+    """
+    def load(p: Path) -> dict:
+        return {r["gold_id"]: r for r in read_jsonl(p, missing_ok=False) if r.get("gold_id")}
+
+    a, b = load(path_a), load(path_b)
+    shared = sorted(set(a) & set(b))
+    if not shared:
+        raise SystemExit(f"{path_a} and {path_b} share no gold_id — are both from --rescore-from?")
+    prov = rubric_provenance(gold_path, candidates_path)
+    arms = [x for x in a[shared[0]]["arms"] if x in b[shared[0]]["arms"]]
+
+    # group -> list of (score_a, score_b, points_hit_a, points_hit_b, id, arm)
+    groups: dict[str, list] = {}
+    for qid in shared:
+        label = "hand-authored" if prov.get(qid, "machine-drafted") != "machine-drafted" else "machine-drafted"
+        for arm in arms:
+            xa, xb = a[qid]["arms"][arm], b[qid]["arms"][arm]
+            ca, cb = xa.get("correctness"), xb.get("correctness")
+            if ca is None or cb is None:
+                continue
+            row = (ca, cb, xa.get("points_hit"), xb.get("points_hit"), qid, arm)
+            groups.setdefault(label, []).append(row)
+            groups.setdefault("ALL", []).append(row)
+
+    def stats(rows: list) -> dict:
+        pairs = [(r[0], r[1]) for r in rows]
+        n = len(pairs)
+        if not n:
+            return {}
+        exact = sum(1 for x, y in pairs if x == y) / n
+        mean_gap = sum(abs(x - y) for x, y in pairs) / n
+        ph = [(r[2], r[3]) for r in rows if r[2] is not None and r[3] is not None]
+        same_ph = (sum(1 for x, y in ph if sorted(x) == sorted(y)) / len(ph)) if ph else float("nan")
+        return {"n": n, "r": pearson_r(pairs), "exact": exact,
+                "gap": mean_gap, "same_points": same_ph,
+                "n_questions": len({r[4] for r in rows})}
+
+    order = [g for g in ("ALL", "hand-authored", "machine-drafted") if g in groups]
+    lines = [f"# Inter-judge agreement: `{path_a.name}` vs `{path_b.name}`", "",
+             f"{len(shared)} questions x {len(arms)} arms, identical stored answers.",
+             "Segmented by who wrote the rubric — the variable Section 14.6 found "
+             "dominates agreement.", "",
+             "| Rubric source | Questions | Pairs | Pearson r | Exact | Mean gap | Same points_hit |",
+             "| --- | --- | --- | --- | --- | --- | --- |"]
+    for g in order:
+        s = stats(groups[g])
+        name = f"**{g}**" if g == "ALL" else g
+        lines.append(f"| {name} | {s['n_questions']} | {s['n']} | {s['r']:+.2f} | "
+                     f"{s['exact']:.0%} | {s['gap']:.2f} | {s['same_points']:.0%} |")
+
+    both = {"hand-authored", "machine-drafted"} <= set(groups)
+    lines += ["", "Reference: Section 14.6 measured r **+0.30** machine-drafted vs "
+              "**+0.62** hand-authored on 20 questions.", ""]
+    if not both:
+        only = order[-1]
+        lines.append(f"> Only **{only}** rubrics are present, so there is no contrast to read "
+                     f"here — the row is a baseline for when the other kind arrives.")
+    lines += ["", "## Questions the judges disagree on most", "",
+              "Rewrite these rubrics before adding more (Section 16.12: disagreement "
+              "localizes, so a handful of items carries most of it).", "",
+              "| Gold id | Arm | Judge A | Judge B | Gap | Rubric |",
+              "| --- | --- | --- | --- | --- | --- |"]
+    worst = sorted(groups.get("ALL", []), key=lambda r: -abs(r[0] - r[1]))[:12]
+    for ca, cb, _, _, qid, arm in worst:
+        if ca == cb:
+            break
+        lines.append(f"| `{qid}` | {arm} | {ca:.1f} | {cb:.1f} | {abs(ca - cb):.1f} | "
+                     f"{'hand' if prov.get(qid, 'machine-drafted') != 'machine-drafted' else 'machine'} |")
+
+    report_out.parent.mkdir(parents=True, exist_ok=True)
+    report_out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    for g in order:
+        s = stats(groups[g])
+        print(f"  {g:16s} n={s['n']:>4}  r={s['r']:+.2f}  exact={s['exact']:.0%}  gap={s['gap']:.2f}")
+    print(f"\n-> {report_out}")
+
+
 def rescore(args) -> None:
     """Re-judge stored answers with the recalibrated judge.
 
@@ -574,6 +688,14 @@ def main() -> None:
                              "overwrite a published experiment")
     parser.add_argument("--report-out", type=Path, default=REPO_ROOT / "eval/reports/latest.md")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--compare", type=Path, nargs=2, default=None,
+                        metavar=("A.jsonl", "B.jsonl"),
+                        help="report inter-judge agreement between two runs of the SAME "
+                             "answers, segmented by who wrote each rubric. This is the "
+                             "acceptance test for contributed rubrics (Section 14.6).")
+    parser.add_argument("--gold-set", type=Path, default=GOLD_PATH,
+                        help="--compare joins on gold_id against this to find who wrote each rubric")
+    parser.add_argument("--candidates", type=Path, default=GOLD_CANDIDATES_PATH)
     parser.add_argument("--with-cards", action="store_true",
                         help="add {base,finetuned}_rag_cards arms using card-name lookup + rules retrieval")
     parser.add_argument("--judge-model", default=None,
@@ -589,6 +711,11 @@ def main() -> None:
     # the judge silently behind on the old model.
     if args.judge_model is None:
         args.judge_model = args.base_model
+
+    if args.compare:
+        compare_judges(args.compare[0], args.compare[1], args.report_out,
+                       args.gold_set, args.candidates)
+        return
 
     if args.rescore_from:
         rescore(args)

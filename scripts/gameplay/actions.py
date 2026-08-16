@@ -267,8 +267,24 @@ def match_to_legal(action: Action, legal_actions: list[str]) -> str | None:
     Both sides go through the same parser, so `ATTACK a, b` matches
     `ATTACK b, a` and `BLOCK x -> y` matches `BLOCK y with x`. Comparing raw
     strings instead would make the closed arm measure phrasing.
+
+    PASS always matches, whether or not the position enumerates it — see
+    Section 16.13. `GAMEPLAY_SYSTEM_PROMPT` ends with "End with a single PASS",
+    so every well-formed answer contains one; scoring it against
+    `legal_actions` made the protocol terminator compete with the game action
+    of the same name. It cost Gate 1: `pos-seed-0006` is a mulligan decision,
+    which happens before any player has priority (103.4), so its
+    `legal_actions` are exactly ["MULLIGAN", "KEEP"] — correctly, since there
+    is no priority to pass. The model answered `KEEP` / `PASS`, doing precisely
+    what it was told, and the mandated terminator scored illegal.
+
+    Declining to act is also always available in the game sense, so this is not
+    merely a protocol escape hatch. An all-PASS dodge is still caught, by the
+    gate that matters: it hits no key points and scores as a blunder.
     """
     want = action.key().casefold()
+    if want == "pass":
+        return "PASS"
     for legal in legal_actions:
         parsed = parse_line(legal)
         if isinstance(parsed, Action) and parsed.key().casefold() == want:

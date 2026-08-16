@@ -34,6 +34,7 @@ from common import (  # noqa: E402
     POSITIONS_PATH,
     REPO_ROOT,
     build_position_messages,
+    pearson_r,
     render_position,
 )
 from positions import load_positions, position_card_names  # noqa: E402
@@ -144,13 +145,7 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
     pe = pa1 * pb1 + (1 - pa1) * (1 - pb1)
     kappa = (po - pe) / (1 - pe) if pe < 1 else float("nan")
 
-    r = float("nan")
-    if len(corr_pairs) > 2:
-        xs, ys = zip(*corr_pairs)
-        mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
-        num = sum((x - mx) * (y - my) for x, y in corr_pairs)
-        den = (sum((x - mx) ** 2 for x in xs) * sum((y - my) ** 2 for y in ys)) ** 0.5
-        r = num / den if den else float("nan")
+    r = pearson_r(corr_pairs)  # one definition, in common.py
 
     lines = ["# Position Judge Agreement\n",
              f"`{path_a.name}` vs `{path_b.name}` — identical stored answers, judge varied.\n",

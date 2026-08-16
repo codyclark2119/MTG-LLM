@@ -150,6 +150,31 @@ never accepted from the client. This server binds to the LAN, so a generic
 script means adding an entry to `ACTIONS` — never a passthrough. Jobs run one
 at a time because several write the same files.
 
+**`webui.py` is LAN-only and must never be deployed.** That runner plus a store
+that writes the gold set directly are fine behind a LAN token and are remote
+code execution on a public URL.
+
+## The rubric form (`scripts/rubric_server.py`)
+
+The *deployable* half, and a separate program on purpose. It reads one
+self-contained `tasks.json` (from `author_rubrics.py --export-tasks`), appends
+to one `submissions.jsonl`, and reaches nothing else — no gold set, no
+candidates, no corpora, no model. Its only project import is
+`common.lint_common_errors`, which is why `common.py` must stay pure stdlib.
+
+Two invariants worth keeping:
+
+- **Promotion is local and reviewed.** The server never writes the gold set;
+  `--ingest-submissions` does, after `--dry-run`. That is what keeps "gold"
+  meaning *a person reviewed this*.
+- **Attribution rides on each submission**, not on the import command, so one
+  file holds several authors and `eval.py --compare` can break agreement down
+  per author.
+
+`deploy/` holds the Dockerfile, `fly.toml` and the three-line requirements. If
+the Dockerfile's COPY list ever grows, that is the moment to ask whether the
+new thing belongs on the public side.
+
 ## Traps this repo has already fallen into
 
 Each cost real time. They recur in new code, so they are worth knowing.
@@ -170,7 +195,11 @@ Each cost real time. They recur in new code, so they are worth knowing.
   "Blocking the Bears with Elves" into a BLOCK *with inverted operands*.
 - **One name, two meanings.** `CROSS_REF_RE` meant both "find ids in prose" and
   "validate a whole string"; `JUDGE_SYSTEM_PROMPT` meant both "grade this
-  answer" and "classify this comment".
+  answer" and "classify this comment"; `PASS` meant both "the protocol
+  terminator every answer must end with" and "the game action of passing
+  priority", which failed Gate 1 on a mulligan — the one position where the two
+  readings come apart (Section 16.13). The two meanings always agree until they
+  suddenly don't, so the bug ships looking correct.
 - **A helper duplicated with a guard in only some copies.** Five jsonl readers,
   three of which crashed on a trailing blank line.
 

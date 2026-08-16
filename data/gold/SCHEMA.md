@@ -159,12 +159,35 @@ actually write. Two things to preserve here:
 
 ## Collecting from judges
 
-Judges should not hand-write JSONL. Have them fill a spreadsheet or a
-plain markdown table with these columns and convert it — one column per
+Judges should not hand-write JSONL. There are two round-trips, and they do
+different jobs:
+
+**Rubrics for questions that already exist** — `scripts/author_rubrics.py`
+emits a plain-text worksheet, one block per question, and reads it back.
+Nothing to install, works offline, and blocks left blank are skipped. Send
+[CONTRIBUTING.md](CONTRIBUTING.md) with it; that is the contributor-facing
+guide. Split by `--category` so two people never get the same records —
+ingest is last-write-wins and would silently discard the loser. Preview
+anything that comes back with `--ingest --dry-run` before it touches the set.
+
+**New questions** — a spreadsheet or plain markdown table with one column per
 field above, `key_points` / `common_errors` / `rule_citations` as
-semicolon-separated lists. `scripts/validate_gold.py` reports exactly
-which rows fail and why, so the round-trip with a non-technical
-contributor stays short.
+semicolon-separated lists; or `#/new` in the console. `scripts/validate_gold.py`
+reports exactly which rows fail and why, so the round-trip stays short.
+
+### Whether a contributed rubric is any good
+
+Do not settle this by reading it. Run the eval under two judges and compare:
+
+```bash
+python scripts/eval.py --compare eval/runs/<run>.jsonl eval/runs/<run>_judge2.jsonl
+```
+
+The report segments agreement by who wrote each rubric and lists the questions
+the judges split on hardest. A rubric two judges score the same way is doing
+its job; one they split on needs rewriting. Disagreement localizes — Section
+16.12 found six of eight disputes sitting on two of eight items — so this
+turns "review 38 rubrics" into "rewrite the four that light up."
 
 ## Coverage targets
 

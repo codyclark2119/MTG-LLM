@@ -1,7 +1,7 @@
 # Rubric authoring worksheet
 
 Fill in KEY POINTS and COMMON ERRORS under each question, then run:
-    python scripts/author_rubrics.py --ingest data/gold/worksheets/fix_gold.txt
+    python scripts/author_rubrics.py --ingest /Users/codyclark/Documents/code/magic-llm/data/gold/worksheets/fix_gold.txt
 
 The four rules (data/gold/SCHEMA.md):
   1. Fold the verdict into a substantive claim — never a bare "Yes"/"No".
@@ -17,30 +17,6 @@ Answers come from RulesGuru and are rules-verified; you are decomposing an
 answer you can trust, not adjudicating the ruling.
 
 ================================================================================
-
-### qa-amy-casts-assassin-s-trophy-targeting-ni   [priority reasoning / intermediate]
-https://rulesguru.org/?1156
-
-QUESTION:
-Amy casts Assassin's Trophy targeting Nihil Spellbomb. Nico searches for a Snow-Covered Swamp and wants to tap it to pay for the triggered ability of Nihil Spellbomb. Can they do this?
-
-ANSWER:
-Yes. Assassin's Trophy will resolve completely before Nihil Spellbomb's trigger is placed onto the stack (603.3,117.2a). The payment of {b} is made as the trigger resolves. (603.5)
-
-DRAFT (machine-generated — rewrite, do not keep):
-  - Yes
-  - Assassin's Trophy will resolve completely before Nihil Spellbomb's trigger is placed onto the stack
-  - The payment of {b} is made as the trigger resolves
-
-KEY POINTS:
--
--
-
-COMMON ERRORS:
--
--
-
---------------------------------------------------------------------------------
 
 ### qa-adaline-casts-seasoned-pyromancer-and-ha   [zone transition / intermediate]
 https://rulesguru.org/?1182
@@ -461,6 +437,481 @@ DRAFT (machine-generated — rewrite, do not keep):
   - 3 Colorless and 2 life
   - While casting Surgical Extraction, Amiya chooses whether to pay life or mana for each Phyrexian mana symbol in the cost
   - Trinisphere is applied afterwards and increases the cost up to the minimum of 3 mana
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-2   [interaction puzzle / intermediate]
+https://rulesguru.org/?2
+
+QUESTION:
+Natalee controls a Kruphix, God of Horizons and has 3 red mana and 2 colorless mana in their mana pool. Autumn casts a Drain Power, targeting Natalee. After it resolves, what mana does each player have in their mana pool?
+
+ANSWER:
+Drain Power causes all mana to empty from Natalee's mana pool and that much mana to be added to Autumn's mana pool. (106.13) Kruphix, God of Horizons causes the mana to turn into colorless mana instead of emptying, so no mana is added to Autumn's mana pool. The final result is that Autumn has no mana and Natalee has 5 colorless mana.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Natalee ends with 5 colorless mana in their mana pool
+  - Autumn gains no mana at all from Drain Power
+  - Kruphix replaces the emptying of Natalee's pool with turning that mana colorless, so the mana never empties
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-7   [layer-system question / advanced]
+https://rulesguru.org/?7
+
+QUESTION:
+Nico controls Angelina's Sir Shandlar of Eberyn enchanted with their Mark of the Oni. Angelina casts their own Steal Enchantment, targeting Nico's Mark of the Oni. After it resolves, who controls the Sir Shandlar of Eberyn? Who controls the Mark of the Oni?
+
+ANSWER:
+Angelina controls both permanents. Out of the two auras, Mark of the Oni has the earlier timestamp (613.7a, 613.7e), and would normally be applied first. (613.7) However, the effects from both auras apply in the same layer (613.1b), applying the Steal Enchantment's effect would change how the Mark of the Oni's effect is applied, and applying the Mark of the Oni's effect would not change how the Steal Enchantment's effect is applied, so the Mark of the Oni's effect is dependent on the Steal Enchantment's effect. (613.8a) The Steal Enchantment's effect applies first (613.8b), giving Angelina control of Mark of the Oni, and then the Mark of the Oni's effect applies, giving Angelina control of Sir Shandlar of Eberyn.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Angelina ends up controlling both Mark of the Oni and Sir Shandlar of Eberyn
+  - Mark of the Oni's effect is dependent on Steal Enchantment's effect
+  - dependency overrides timestamp order, so Steal Enchantment applies first despite its later timestamp
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-19   [priority reasoning / intermediate]
+https://rulesguru.org/?19
+
+QUESTION:
+Avery controls Possibility Storm and casts a Whetwheel for its morph cost. Avery will exile cards from the top of their library until they exile a card of what type?
+
+ANSWER:
+Creature. Whetwheel is exiled face up (406.3), and is not a creature in exile. However, Possibility Storm cares about the card type of the spell on the stack (608.2h), which was a creature. (702.37a)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Avery exiles cards until exiling a creature card
+  - Possibility Storm uses the card type of the spell on the stack, which was a creature spell even though it was face down
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-8   [state-based actions / intermediate]
+https://rulesguru.org/?8
+
+QUESTION:
+Ally controls a 2/2 green Bear Creature token. They cast Cloudshift, targeting the token. What happens to the token when it resolves?
+
+ANSWER:
+The token is exiled. When it tries to return to the battlefield, it can't. (111.8) It will Cease to exist when state-based actions are checked after the spell resolves. (704.5d)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - the token is exiled and cannot return to the battlefield
+  - the token ceases to exist as a state-based action once the spell finishes resolving
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-4   [templating/keyword meaning / intermediate]
+https://rulesguru.org/?4
+
+QUESTION:
+Axton attacks with Wild Beastmaster and Hyena Pack. Nico casts Jace's Scrutiny, targeting the Wild Beastmaster. What happens to the Hyena Pack when the Wild Beastmaster trigger resolves?
+
+ANSWER:
+Wild Beastmaster has a negative power when the trigger resolves, but the game treats it as 0 for the purpose of modifying the power and toughness of Hyena Pack. (107.1b) Hyena Pack gets +0/+0, and nothing happens to it.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Hyena Pack is unaffected and gets +0/+0
+  - Wild Beastmaster's negative power is treated as 0 when it modifies power and toughness
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-6   [turn-structure walkthrough / intermediate]
+https://rulesguru.org/?6
+
+QUESTION:
+Ari controls a Falkenrath Gorger and has 8 cards in their hand. During their cleanup step, they discard Soul Collector. Can they cast it for its morph cost?
+
+ANSWER:
+No. Morph gives the card an alternative cost that allows the player to cast it for its morph cost. (702.37a) Madness also gives the card an alternative cost that allows it to be cast for its madness cost. (702.35a) Only one alternative cost can be chosen to cast a given spell. (118.9a) There is no restriction on casting spells as part of the resolution of a spell or ability during the cleanup step. (514.3)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Ari cannot cast Soul Collector for its morph cost
+  - morph and madness are both alternative costs, and only one alternative cost may be applied to a single spell
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-31   [zone transition / intermediate]
+https://rulesguru.org/?31
+
+QUESTION:
+Amirah controls Kess, Dissident Mage and has cast a spell with it this turn. They casts Flicker, targeting the Kess, Dissident Mage. After it resolves, can they cast another card from their graveyard?
+
+ANSWER:
+Yes. Kess, Dissident Mage's effect allows Amirah to cast one spell with that effect. If the Kess, Dissident Mage leaves the battlefield and then returns, it is a completely new object, generating a new effect. (400.7) That effect counts no cards cast with it yet this turn.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Amirah can cast another card from their graveyard
+  - Kess returns as a new object generating a new effect, which has counted no casts this turn
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-80   [interaction puzzle / intermediate]
+https://rulesguru.org/?80
+
+QUESTION:
+Natalia controls an Everlasting Torment. Ariel casts Invigorate for its alternative cost, targeting their Jedit Ojanen. What happens?
+
+ANSWER:
+This can't happen as described. Natalia can't gain life, so Ariel can't pay the alternative cost of Invigorate. (118.3)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - the play is illegal as described — Ariel cannot pay Invigorate's alternative cost
+  - the alternative cost requires an opponent to gain 3 life, and Everlasting Torment prevents Natalia from gaining life
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-67   [layer-system question / advanced]
+https://rulesguru.org/?67
+
+QUESTION:
+Aydan controls a Krark-Clan Ironworks, a Mycosynth Lattice, and a Krovikan Whispers that took control of a Boris Devilboon from Nayeli. Aydan begins activating the ability of Boris Devilboon and sacrifices Krovikan Whispers to help pay the cost. Is this legal? If so, who will control the ability?
+
+ANSWER:
+Yes, this is legal, and Aydan will control the ability. The process for activating an ability is the same as the process for casting a spell. (602.2b) The first step of activating an ability is to put it onto the stack. (601.2) Mana abilities are activated in a later step. (601.2g) The ability is already on the stack at this point (controlled by Aydan), so the Boris Devilboon changing controllers won't change who controls the ability. After activating mana abilities, Aydan must pay the activation cost. (601.2h) {T} means "tap this permanent" (107.5), so Aydan can pay the cost regardless of who controls the Boris Devilboon at that time.
+
+Legality is checked before mana abilities are activated (601.5, 601.2e), so it won't matter that Boris Devilboon gets summoning sickness when it changes controllers. (602.5a/302.6)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - the activation is legal and Aydan controls the ability
+  - the ability is put on the stack before mana abilities are activated and costs are paid, so a later change of control does not move it
+  - legality is checked before mana abilities, so the summoning sickness Boris Devilboon gains on changing control does not matter
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-30   [priority reasoning / intermediate]
+https://rulesguru.org/?30
+
+QUESTION:
+Augustus controls Mina and Denn, Wildborn and has played 2 lands this turn. They casts Flicker, targeting the Mina and Denn, Wildborn. After it resolves, can they play a 3rd land?
+
+ANSWER:
+No. Augustus has 1 land play this turn by default, which Mina and Denn, Wildborn increase to 2. Augustus has already played 2 lands this turn, so no more lands can be played. (305.2a)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Augustus cannot play a third land
+  - the returned Mina and Denn is a new object but still grants only one additional land play, for two total
+  - lands already played this turn are tracked for the player and are not reset
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-22   [state-based actions / intermediate]
+https://rulesguru.org/?22
+
+QUESTION:
+Ashley controls an animated Lavaclaw Reaches with a -1/-1 counter on it. On their next turn, they cast Earthen Arms, to put 2 +1/+1 counters on the Lavaclaw Reaches. After the spell has resolved and state-based actions have been checked, what counters does the Lavaclaw Reaches have?
+
+ANSWER:
+A single +1/+1 counter. +1/+1 and -1/-1 counters "cancel out" whenever state-based actions are checked. (704.5q). It doesn't matter what permanent type they are on.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - the Lavaclaw Reaches ends with a single +1/+1 counter
+  - +1/+1 and -1/-1 counters annihilate in pairs as a state-based action
+  - this happens regardless of whether the permanent is currently a creature
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-17   [templating/keyword meaning / intermediate]
+https://rulesguru.org/?17
+
+QUESTION:
+Alfred has to choose a card name for Council of the Absolute. Can they choose Rune-Tail's Essence?
+
+ANSWER:
+Yes. The flipped characteristics of a flip card are used to determine the characteristics of its alternative name. (201.4c)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Rune-Tail's Essence is a legal choice
+  - a flip card's flipped name is a legal card name, and its flipped characteristics are used to evaluate it
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-86   [turn-structure walkthrough / basic]
+https://rulesguru.org/?86
+
+QUESTION:
+Augustus attacks Nia with a Daggerback Basilisk, which is their only creature. Nia blocks with their Lagac Lizard and Eager Cadet. Will both blockers die, or just one? If there's a choice, who makes it, and when?
+
+ANSWER:
+Augustus can choose to have either blocking creature die, or to have both of them die. They make this choice as damage is assigned in the combat damage step. (510.1c, 702.2c)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Augustus, the attacking player, makes the choice
+  - the choice is made when combat damage is assigned during the combat damage step
+  - deathtouch makes 1 damage lethal, so Augustus may kill either one blocker or both
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-51   [zone transition / intermediate]
+https://rulesguru.org/?51
+
+QUESTION:
+Alonso attacks with a manifested Legacy Weapon and Noor blocks with Balduvian Bears. After combat damage is dealt, what zone does the Legacy Weapon move to?
+
+ANSWER:
+The graveyard. Replacement effects must exist before the event they're modifying in order to apply to it. (614.4) Immediately before the Legacy Weapon died it had no abilities, so the replacement effect didn't exist.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - the Legacy Weapon goes to the graveyard
+  - a replacement effect must already exist to modify an event, and the face-down creature had no abilities immediately before it died
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-172   [interaction puzzle / intermediate]
+https://rulesguru.org/?172
+
+QUESTION:
+Allen controls Leovold, Emissary of Trest and Notion Thief. Nataly casts Brainstorm. What happens?
+
+ANSWER:
+Allen draws 3 cards, then Nataly puts 2 cards from their hand on top of their library. Cards are drawn one at a time. (121.2) The first card draw from Brainstorm is the first card that Nataly would draw this turn, so Leovold, Emissary of Trest doesn't affect it and Notion Thief causes Allen to draw a card instead. Nataly still hasn't drawn a card this turn, so the same process is repeated with the next two draws. Then Nataly finishes resolving Brainstorm.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Allen draws 3 cards and Nataly draws none
+  - Nataly then puts 2 cards from their hand on top of their library
+  - each draw is evaluated separately, and because Nataly never actually draws a card, Leovold's once-per-turn clause never applies
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-76   [layer-system question / intermediate]
+https://rulesguru.org/?76
+
+QUESTION:
+Alex controls a Great Furnace that has been animated with Skilled Animator's ability. Nehemiah plays an Alpine Moon naming Great Furnace. After the Alpine Moon resolves, what characteristics does the Great Furnace have?
+
+ANSWER:
+It's a 5/5 artifact land creature named Great Furnace with "{T}: Add one mana of any color." and no other abilities. Alpine Moon removes land subtypes (Great Furnace has none) and abilities. It does not change any of its types or other characteristics. (205.1a) Great Furnace is still a land because Skilled Animator doesn't remove its other types when making it an artifact creature. (205.1b)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - it is a 5/5 artifact land creature named Great Furnace
+  - its only remaining ability is the mana ability Alpine Moon grants
+  - it is still a land, because animating it added types rather than replacing them
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-47   [priority reasoning / intermediate]
+https://rulesguru.org/?47
+
+QUESTION:
+Nick controls Dryad Militant. Audrina casts Hanabi Blast. Does it return to their hand?
+
+ANSWER:
+Yes. Resolving spells do not leave the stack until they finish resolving. (608.2n) Returning the Hanabi Blast to its owner's hand is part of its resolution, so it is never put into exile.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Hanabi Blast does return to its owner's hand
+  - a resolving spell stays on the stack until it finishes resolving, so it is never in the graveyard for Dryad Militant to replace
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-45   [state-based actions / advanced]
+https://rulesguru.org/?45
+
+QUESTION:
+Ashley controls a Blood Tyrant that they took control of from Braylen using Traitorous Instinct. Ashley has 1 life. Collins casts Char targeting Ashley. After it resolves and Ashley loses the game, will Blood Tyrant get the +1/+1 counters?
+
+ANSWER:
+No. As Ashley loses the game, the effect granting them control of Blood Tyrant ends, and it returns to Braylen. (800.4a) "Loses the game" triggers use the game state immediately before they triggered to determine how that trigger is handled. (603.10, 603.10f) Since Ashley controlled Blood Tyrant right before losing the game, the trigger would be placed onto the stack under their control. However Ashley is no longer in the game when the trigger would be placed onto the stack, so it never is. (800.4d)
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Blood Tyrant does not get the +1/+1 counters
+  - control of Blood Tyrant reverts to Braylen as Ashley leaves the game
+  - the trigger would be controlled by Ashley, who is no longer in the game, so it is never put onto the stack
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-68   [templating/keyword meaning / intermediate]
+https://rulesguru.org/?68
+
+QUESTION:
+Abraham casts a Tempting Wurm. As the trigger resolves, Nathalia chooses to put a Venarian Gold onto the battlefield, attached to the Tempting Wurm. What happens?
+
+ANSWER:
+The value of X as Nathalia cast Venarian Gold is undefined, so Nathalia puts no sleep counters on Tempting Wurm. (107.2) Nathalia will tap the Tempting Wurm, but it will untap normally during its controller's future untap steps.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - no sleep counters are put on Tempting Wurm, because X is 0 for a permanent that was never cast
+  - Tempting Wurm is still tapped by Venarian Gold's effect
+  - Tempting Wurm untaps normally during its controller's future untap steps
+
+KEY POINTS:
+-
+-
+
+COMMON ERRORS:
+-
+-
+
+--------------------------------------------------------------------------------
+
+### rg-102   [turn-structure walkthrough / basic]
+https://rulesguru.org/?102
+
+QUESTION:
+Addison and Nina each control a Death's Shadow. Addison has 6 life and Nina has 9. Addison attacks with their Death's Shadow, and Nina blocks it with theirs. Addison casts Temur Battle Rage targeting their Death's Shadow. If Nina is dealt as much damage as possible during combat, what is their resulting life total?
+
+ANSWER:
+1. In the first combat damage step, Addison can assign 6 damage to Nina's Death's Shadow and 1 damage to Nina. (702.19b) Nina's Death's Shadow will die before the second combat damage step (510.3, 704.3, 510.4), at which point Nina will be dealt another 7 damage. (702.19d)
+
+Assigning any other amount of damage to Death's Shadow in the first combat damage step would result in less total damage dealt to Nina. In particular, assigning any less than 6 damage to Nina's Death's Shadow in the first combat damage step will result in it surviving and being able to block more damage in the second combat damage step.
+
+DRAFT (machine-generated — rewrite, do not keep):
+  - Nina ends at 1 life
+  - in the first-strike damage step Addison assigns 6 damage to the blocking Death's Shadow and 1 to Nina
+  - the blocker dies before the regular combat damage step, so all 7 damage is dealt to Nina then
 
 KEY POINTS:
 -

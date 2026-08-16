@@ -724,7 +724,9 @@ async function viewPosition(){
     '<div class="row"><div><label for="pmana">Mana available</label><input type="text" id="pmana" class="mono" placeholder="{R}{R}{G}"></div>'+
     '<div><label for="pdeck">Deck note</label><input type="text" id="pdeck" placeholder="mono-red aggro"></div></div>'+
     '<label for="pknown">Known information — one per line</label><textarea id="pknown" rows="2" placeholder="opp revealed Negate to a turn-3 Duress"></textarea>'+
-    '<label for="plegal">Legal actions — one per line</label><textarea id="plegal" rows="4" class="mono" placeholder="PLAY Mountain&#10;CAST Lightning Strike TARGET Grizzly Bears&#10;PASS"></textarea>'+
+    # PASS is deliberately absent from the placeholder: it is always accepted
+    # and listing it as a play is what failed Gate 1 on a mulligan (§16.13).
+    '<label for="plegal">Legal actions — one per line, omit PASS</label><textarea id="plegal" rows="4" class="mono" placeholder="PLAY Mountain&#10;CAST Lightning Strike TARGET Grizzly Bears"></textarea>'+
     '<div class="hint" id="pgram"></div>'+
     '<label for="pans">The correct line</label><textarea id="pans" rows="2"></textarea>'+
     '<label for="pkp">Key points — one per line</label><textarea id="pkp" rows="4"></textarea>'+

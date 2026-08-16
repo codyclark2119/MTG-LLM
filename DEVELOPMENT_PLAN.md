@@ -968,6 +968,62 @@ Until that is done, the honest statement is *"fine-tuning at 0.45 epochs does
 not beat retrieval"*, which is a weaker claim than the one the Status section
 currently makes.
 
+**v2's validation curve was never recorded** (noticed 2026-08-14, while the v3
+run was in flight). No training log was kept and there is no v2 loss table
+anywhere in this document — the 1.159 / 1.631 figures that `phase1_lora_v3.yaml`
+attributed to v2 are **run 1's**, from Section 8.6, on a different dataset at a
+different batch size. So the check the v3 config specified for itself, "the
+first 600 iterations should reproduce v2's loss curve", had no reference data.
+
+Compare the **weights** instead, which needs nothing that was not saved:
+`models/mtg-rules-adapter-v2/0000600_adapters.safetensors` against v3's, mean
+absolute difference over the 23,068,672 LoRA parameters. For scale, 100
+iterations of real training moves them by 8.1e-4 (measured, v2's own 0000500 vs
+0000600). That is a stronger check than matching a summary statistic, since two
+different runs can share a loss value without being the same run.
+
+**Result: every shared checkpoint is bit-identical.**
+
+| ckpt | 100 | 200 | 300 | 400 | 500 | 600 |
+| --- | --- | --- | --- | --- | --- | --- |
+| mean abs diff | 0 | 0 | 0 | 0 | 0 | 0 |
+
+Not "within tolerance" — exactly zero, on all 224 tensors at all six
+checkpoints. mlx-lm training is fully deterministic given the same seed, data
+and batch size, so v3 is a **strict superset** of v2 in the literal sense: it
+re-derives v2's weights step for step and then continues.
+
+**Which recovers the lost curve rather than working around it.** Identical
+weights on an identical validation set under a deterministic evaluation give
+identical losses, so v3's log *is* v2's log for the first 600 iterations:
+
+| Iter | 1 | 150 | 300 | 450 | 600 |
+| --- | --- | --- | --- | --- | --- |
+| Val loss | 1.986 | 1.231 | 0.990 | 0.966 | 0.975 |
+
+Read that table with Section 18.2's error bars attached: the drop from 1.99 to
+~0.97 over iterations 1–450 is roughly four times the sampling noise and is
+real, but the difference between 0.966 and 0.975 is a third of it and is not.
+**v2 did not overfit** — run 1 climbed from 1.16 at iteration 200 to 1.63 by
+600, and nothing here goes up by anything approaching that. Beyond "it fell and
+then stopped falling", this curve does not support a finer reading, and an
+earlier draft of this section gave it one.
+
+The prediction that v3's val loss would get *worse* was imported from run 1 and
+is wrong for this dataset: run 1 bottomed out at 1.41 epochs, having cycled its
+569 examples more than once, while iteration 600 here is 0.454 epochs and
+nothing has been seen twice. Overfitting needs repetition.
+
+It also sharpens Section 15.6's own claim. v2 did not stop mid-descent — it
+stopped at the plateau. So "0.45 epochs" understates v2 less than feared on the
+val-loss axis, and whether the remaining 0.55 epochs buys anything is exactly
+what iterations 600–1322 are for.
+
+The lesson is cheap and general: **redirect the training log to a file.** v3
+writes to `models/mtg-rules-adapter-v3/train.log`. The recovery worked only
+because the checkpoints happened to be kept; `save_every: 100` paid for itself
+a second time.
+
 ### 15.7 Left for a decision
 
 `data/cards/raw/standard_cards.jsonl` is tracked at ~26MB while the equivalent
@@ -1192,6 +1248,11 @@ Run on the 8 seed fixtures, four arms, single judge:
 100% everywhere. **Gate 2 fails** outright: every arm blunders at exactly 75%,
 so the set does not separate them. **Gate 3 fails** at 83%.
 
+> **Superseded — see Section 16.13.** The Gate 1 failure was a harness bug, not
+> a model failure: the mandated trailing `PASS` was scored against a mulligan
+> position that correctly does not list it. Closed-arm legality is 100% and
+> Gate 1 passes. Gates 2 and 3 stand as written.
+
 That is the correct outcome for machine-drafted fixtures, and Gate 2 is doing
 precisely the job it was added for — flagging that this set is not yet
 measuring play quality, so authoring 32 more like it would not help.
@@ -1332,6 +1393,83 @@ Evidence files: `eval/runs/positions_seed.jsonl` and `_judge2` are the current
 run under both judges, `_v0rubrics_judge2` is the pre-rewrite Llama run behind
 the 28-point figure.
 
+### 16.13 Gate 1 was failing on an obedient answer
+
+Gate 1's single failure was ours, not the model's.
+
+`GAMEPLAY_SYSTEM_PROMPT` ends with *"End with a single PASS"*, so every
+well-formed answer contains a `PASS`. `match_to_legal` then scored that `PASS`
+against the position's `legal_actions`. Seven of eight seed fixtures list
+`PASS`, so it matched and nothing looked wrong.
+
+`pos-seed-0006` is a mulligan decision. It happens before the game begins, when
+no player has priority (103.4), so its legal set is exactly
+`["MULLIGAN", "KEEP"]` — **correctly**, because there is no priority to pass.
+The model answered:
+
+```
+KEEP
+PASS
+```
+
+which is precisely what it was instructed to do, and the mandated terminator
+scored illegal. Closed-arm legality read 88% against a ≥95% bar, and Gate 1
+failed.
+
+This is the **one name, two meanings** trap, the same shape as `CROSS_REF_RE`
+and `JUDGE_SYSTEM_PROMPT` in Section 17.3. `PASS` was simultaneously a protocol
+terminator ("I am done listing actions", mandated on every answer) and a game
+action ("pass priority", legal only when priority exists). The two readings
+agree everywhere except the one position where they don't — and that position
+is not exotic, it is the entire `mulligan` category.
+
+The fix is in `match_to_legal`: `PASS` always matches, listed or not.
+Enumerating it is now optional and the seed fixtures were left as they are.
+Declining to act is genuinely always available, so this is not just a protocol
+escape hatch, and it does not open a dodge — an all-`PASS` answer hits no key
+points and scores as a blunder, which is the gate that matters.
+
+Recomputed from the stored answers, changing nothing else:
+
+| Arm | All legal, before | after |
+| --- | --- | --- |
+| `base_open` | 62% | 62% |
+| `base_closed` | 88% | **100%** |
+| `base_cards_open` | 62% | 75% |
+| `ft_cards_open` | 38% | 38% |
+
+**Gate 1 now passes**: 100% parse against a ≥90% bar, 100% closed-arm legality
+against ≥95%. Gates 2 and 3 are untouched — legality is computed from the
+stored answers and never enters the blunder call, and both judge files produce
+identical legality numbers, which is the check that it is judge-independent.
+
+The stored `positions_seed*.jsonl` runs still carry the pre-fix `all_legal`
+field. They are the record of what was measured at the time and are left
+alone; this section is the correction.
+
+#### The open arm's 62% is real
+
+Worth separating, because "illegal" means different things in the two arms. In
+the closed arm the model is shown the list, so an off-list action is a failure
+to follow it. In the open arm there is no list, so an off-list action might
+just as easily mean our enumeration was incomplete.
+
+It doesn't. All three open-arm misses are genuine:
+
+| Position | Proposed | Why it is wrong |
+| --- | --- | --- |
+| `pos-seed-0004` | `CAST Counterspell TARGET Mountain` | Counterspell is not in hand, and it targets spells, not lands |
+| `pos-seed-0005` | `CAST Lightning Strike TARGET Grizzly Bears, Elite Vanguard` | one Lightning Strike, two targets |
+| `pos-seed-0006` | `PLAY Mountain`, `CAST Lightning Strike` | taking turn actions during a mulligan decision |
+
+A hallucinated card, a targeting-rules error, and a phase-confusion error. So
+the open/closed split is now clean — 62% versus 100% on identical positions,
+with the harness artifact removed from both. That is **prediction 2**
+("`closed` will beat `open` substantially, because most early failure is
+generation, not judgment") confirmed, and it is the strongest argument yet for
+having the environment enumerate moves rather than asking the model to invent
+them.
+
 ---
 
 ## 17. Repository review: the same consolidation failure, one level up
@@ -1462,3 +1600,79 @@ and a stale map is worse than none.
 
 `data/cards/raw/standard_cards.jsonl` is still tracked at ~26MB with nothing
 depending on it (Section 15.7). Still a repo-policy call.
+
+---
+
+## 18. Run 3: the full epoch, and an instrument that could not read it
+
+### 18.1 The run
+
+`configs/phase1_lora_v3.yaml`, launched 2026-08-14. 1,322 iterations at batch 2
+over 2,644 training lines — **exactly 1.00 epochs**, against v2's 0.454. Only
+`iters` differs from v2. 6h27m wall clock, peak memory 10.17GB of 36, clean
+exit, 13 checkpoints plus final weights.
+
+**The one-variable claim is verified, not assumed.** Every checkpoint v2 and v3
+share is *bit-identical* — mean absolute difference exactly 0.0 across all 224
+tensors at iterations 100 through 600 (Section 15.6). mlx-lm is deterministic
+given the same seed, data and batch size, so v3 re-derives v2 step for step and
+then continues. Whatever this run shows, it is not confounded by a second
+change.
+
+| Iter | 1 | 150 | 300 | 450 | 600 | 750 | 900 | 1050 | 1200 | 1322 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Val loss | 1.986 | 1.231 | 0.990 | 0.966 | 0.975 | 0.673 | 0.665 | 0.770 | 0.723 | 0.657 |
+
+### 18.2 Most of that curve is sampling noise
+
+The curve invites a story — fell, plateaued around 450–600, dropped sharply
+past v2's stopping point, wobbled, finished low. Three separate readings of it
+were written into this document and the config header before anyone asked what
+the number is computed on.
+
+It is computed on **16 of the 327 validation examples**. `val_batches: 8` at
+`batch_size: 2` is 8 batches, and worse, mlx-lm's `iterate_batches` **sorts the
+dataset by length** before batching and `evaluate` calls it **with no seed** —
+so `np.random.permutation` runs off the global numpy RNG state, which the
+training loop keeps advancing. Every validation pass scores a *different* 16
+examples, drawn from different length strata.
+
+Measured directly, at checkpoint 1300 with the **weights frozen**, so every bit
+of spread is sampling and nothing else:
+
+| | |
+| --- | --- |
+| 8 draws of 16 examples | 0.818, 0.562, 0.581, 0.657, 0.569, 0.672, 0.678, 0.634 |
+| range / SD | **0.256** / 0.084 |
+| full 327-example set | **0.690** |
+| logged at iteration 1322 | 0.657 |
+
+**The noise band at a single frozen checkpoint is 0.256. The entire training
+curve from iteration 600 onward spans 0.113.** Every value from iteration 750 to
+the end falls inside the scatter a stationary model produces, so that half of
+the curve carries no signal at all.
+
+What survives: iterations 1–450 fall by ~1.0, about four times the noise band.
+The model genuinely learned in the first third of an epoch. Beyond "it fell and
+then stopped falling," this instrument cannot resolve anything.
+
+Note also that the 8 draws average 0.646 against a full-set 0.690 — the draws
+are biased low, not merely noisy, because sampling 8 of 163 *length-sorted*
+batches is not sampling examples uniformly.
+
+**This does not settle the under-training question either way.** It removes the
+evidence, leaving Section 15.6's hypothesis exactly where it was: open, and
+answerable only by the judge eval. Val loss here measures agreement with a set
+generated *by* base+RAG, so even a clean reading would measure teacher
+imitation rather than answer quality.
+
+**For run 4:** `val_batches: -1` (score all 327), and a fixed validation seed so
+the sample is at least stable across iterations. v3's config is left alone —
+editing it would break the reproducibility property just confirmed.
+
+The general shape is one this repo keeps finding: **a number that looks like a
+measurement of the model, and is partly a measurement of its own sampling.**
+`--judge-model` accepted and silently ignored, `ADAPTER_PATH` pointing at v1,
+the double `"Rules text:"` header — same family. The tell is the same each time:
+the parameter that controls it reads like a thoroughness knob (`val_batches:
+8`) rather than a term in the result.

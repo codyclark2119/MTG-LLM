@@ -71,7 +71,16 @@ FAILURES = [
 ]
 
 
+CHECKS_RUN = 0
+
+
 def check(label: str, got, want) -> bool:
+    # Counts itself. The total was `len(CASES) + len(FAILURES) + 29`, and the
+    # 29 was a hand-maintained magic number — adding a check left the reported
+    # count silently wrong, which is the wrong failure mode for the file whose
+    # job is to notice when something silently changed.
+    global CHECKS_RUN
+    CHECKS_RUN += 1
     if got == want:
         return True
     print(f"  FAIL {label}\n       got  {got!r}\n       want {want!r}")
@@ -183,6 +192,22 @@ That should be lethal next turn.
                         (2, 1, False))
     failed += not check("illegal listed", lg["illegal"], ["CAST Shock TARGET Grizzly Bears"])
 
+    # The trailing PASS is a protocol terminator, not a candidate play, and the
+    # system prompt mandates it on every answer. A mulligan decision happens
+    # before anyone has priority, so its legal set correctly omits PASS — and
+    # scoring the mandated terminator against that set failed Gate 1 on a
+    # perfectly obedient answer (Section 16.13).
+    mull = ["MULLIGAN", "KEEP"]
+    failed += not check("PASS legal though unlisted",
+                        match_to_legal(parse_line("PASS"), mull), "PASS")
+    failed += not check(
+        "obedient mulligan answer is fully legal",
+        legality(parse_output("KEEP\nPASS"), mull)["all_legal"], True)
+    failed += not check(
+        "PASS leniency does not extend to other unlisted actions",
+        legality(parse_output("KEEP\nPLAY Mountain\nPASS"), mull)["illegal"],
+        ["PLAY Mountain"])
+
     # --- The grammar the model is TOLD matches the one that is PARSED -----
     # ACTION_GRAMMAR lives in common.py (it is a prompt) and the parser lives
     # here. A verb added to one and not the other is an action the model is
@@ -207,11 +232,10 @@ That should be lethal next turn.
     failed += not check("every grammar line names a known verb", unmatched, [])
     failed += not check("every parser verb is documented", set(VERBS) - documented, set())
 
-    total = len(CASES) + len(FAILURES) + 29
     if failed:
         print(f"\n{failed} check(s) FAILED")
         raise SystemExit(1)
-    print(f"all checks passed ({total} assertions)")
+    print(f"all checks passed ({CHECKS_RUN} assertions)")
 
 
 if __name__ == "__main__":
