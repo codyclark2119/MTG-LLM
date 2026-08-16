@@ -359,6 +359,39 @@ def pearson_r(pairs: list[tuple[float, float]]) -> float:
     return num / den if den else float("nan")
 
 
+# --- Card slots -------------------------------------------------------------
+#
+# RulesGuru returns the same ruling instantiated on different cards each time an
+# id is fetched. A rubric that names its cards is therefore tied to one
+# instantiation, when the ruling it encodes is not. Storing card names as slots
+# lets one rubric score every version of its question — which turns "does the
+# model know this rule" into a question that can actually be asked, separately
+# from "has the model memorised this card".
+#
+# NOT braces. Magic writes mana costs as {b}, {2}, {G}, and a gold rubric
+# already reads "The payment of {b} is made as ...". Braces would collide, and
+# `str.format` on such a string raises KeyError('b').
+SLOT_RE = re.compile(r"\[\[(card\d+)\]\]")
+
+
+def templatize(text: str, slots: dict[str, str]) -> str:
+    """Card names -> [[cardN]]. Longest name first, so a card whose name
+    contains another card's name cannot be half-replaced."""
+    if not text or not slots:
+        return text
+    for slot, name in sorted(slots.items(), key=lambda kv: len(kv[1]), reverse=True):
+        text = re.sub(r"\b" + re.escape(name) + r"\b", f"[[{slot}]]", text)
+    return text
+
+
+def untemplatize(text: str, slots: dict[str, str]) -> str:
+    """[[cardN]] -> card names. An unknown slot is left as-is rather than
+    blanked, so a typo stays visible instead of silently deleting a claim."""
+    if not text:
+        return text
+    return SLOT_RE.sub(lambda m: (slots or {}).get(m.group(1), m.group(0)), text)
+
+
 HAND_AUTHORED_PREFIX = "hand-authored"
 
 

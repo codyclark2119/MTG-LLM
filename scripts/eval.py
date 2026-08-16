@@ -49,6 +49,7 @@ from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
     RAG_SYSTEM_PROMPT,
     RULES_PATH,
     SYSTEM_PROMPT,
+    build_rag_messages,
     is_hand_authored,
     load_rule_ids,
     pearson_r,

@@ -44,6 +44,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import secrets
 import sys
 import threading
@@ -51,7 +52,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import lint_common_errors, stray_names  # the ONLY project import — pure python
+# The only project imports, all pure python — see the module docstring.
+from common import (lint_common_errors, stray_names, templatize, untemplatize)
 
 # One writer at a time. Submissions append, and two contributors finishing a
 # question in the same instant would otherwise interleave a line.
@@ -139,7 +141,17 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
             return JSONResponse({"error": "unknown id"}, 404)
         prior = [s for s in read_submissions(submissions_path)
                  if s["id"] == tid and s.get("author") == author]
-        return {**t, "prior": prior[-1] if prior else None}
+        last = prior[-1] if prior else None
+        if last:
+            # Stored as [[card1]], shown as the card's name. An author writes
+            # about cards, not about slots; the slot is a storage detail and
+            # showing it would be asking them to maintain the encoding by hand.
+            slots = t.get("card_slots") or {}
+            last = {**last,
+                    "key_points": [untemplatize(x, slots) for x in last.get("key_points") or []],
+                    "common_errors": [untemplatize(x, slots)
+                                      for x in last.get("common_errors") or []]}
+        return {**t, "prior": last}
 
     @app.post("/api/check")
     async def api_check(request: Request):
@@ -166,7 +178,12 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
                 f"{', '.join(stray)} — not mentioned in the question or its answer. "
                 f"Player names differ from question to question, so check you have "
                 f"the right one and that the action is attributed to them.")
-        return {"notes": notes, "warnings": warnings, "can_save": len(kp) >= 2}
+        slots = t.get("card_slots") or {}
+        matched = sorted({name for name in slots.values()
+                          for line in kp + ce
+                          if re.search(r"\b" + re.escape(name) + r"\b", line)})
+        return {"notes": notes, "warnings": warnings, "can_save": len(kp) >= 2,
+                "cards_detected": matched}
 
     @app.post("/api/submit")
     async def api_submit(request: Request):
@@ -178,10 +195,16 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
         if len(kp) < 2:
             return JSONResponse({"error": "at least 2 key points are needed"}, 400)
         author = (body.get("author") or "").strip()[:60]
+        ce = [s.strip() for s in body.get("common_errors") or [] if s.strip()]
+        # Card names go in as slots. The author wrote "Castle Locthwain"; what
+        # is stored is "[[card2]]", so this one rubric also scores the versions
+        # of this question that RulesGuru builds on other cards. The form shows
+        # what was detected, so the substitution is visible rather than silent.
+        slots = by_id[tid].get("card_slots") or {}
         row = {
             "id": tid,
-            "key_points": kp,
-            "common_errors": [s.strip() for s in body.get("common_errors") or [] if s.strip()],
+            "key_points": [templatize(x, slots) for x in kp],
+            "common_errors": [templatize(x, slots) for x in ce],
             "author": author,
             "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
@@ -292,6 +315,14 @@ h2{font-family:var(--serif);font-size:1.22rem;margin:.1rem 0 .1rem;font-weight:6
  text-underline-offset:2px}
 .flags.warn{color:var(--warn);font-weight:600}
 .flags:empty{display:none}
+/* Card chips. An author writes card names, not slots — these are a typing
+   aid, and the caption explains what storage does with them. */
+.chips{display:flex;flex-wrap:wrap;gap:.35rem;margin:.1rem 0 .5rem}
+.chip{background:var(--accent-bg);border:1px solid var(--rule);border-radius:12px;
+ padding:.16rem .6rem;font-size:.82rem;cursor:pointer;color:var(--accent);white-space:nowrap}
+.chip:hover{border-color:var(--accent)}
+.chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.caption{font-size:.78rem;color:var(--faint);margin:-.2rem 0 .6rem}
 .rules{font-size:.83rem;color:var(--soft)}
 .rules li{margin-bottom:.2rem}
 .empty{color:var(--faint);text-align:center;padding:4rem 1rem;font-size:.95rem}
@@ -346,12 +377,15 @@ function renderList(){
 function esc(s){ return (s||'').replace(/[&<>"]/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
+let LAST = null;   // the textarea a chip should insert into
+
 function fieldRow(val){
   const d = document.createElement('div');
   d.className = 'fieldrow';
   const ta = document.createElement('textarea');
   ta.rows = 2; ta.value = val || '';
   ta.oninput = () => { DIRTY = true; check(); };
+  ta.onfocus = () => { LAST = ta; };
   const b = document.createElement('button');
   b.type = 'button'; b.textContent = '×'; b.title = 'remove';
   b.onclick = () => { d.remove(); DIRTY = true; check(); };
@@ -384,6 +418,13 @@ async function open(id){
         'compound points, bare verdicts, no errors at all.</span>' +
         t.draft.map(d => '• ' + esc(d)).join('\n') + '</div></div>'
       : '') +
+    ((t.card_slots && Object.keys(t.card_slots).length)
+      ? '<div class="card"><h3>Cards in this question</h3>' +
+        '<div class="chips" id="chips"></div>' +
+        '<div class="caption">Click to insert a name. Write card names normally &mdash; ' +
+        'they are stored as slots so this rubric also scores the other versions of ' +
+        'this question, which RulesGuru builds on different cards.</div></div>'
+      : '') +
     '<div class="card"><h3>Key points</h3>' +
       '<div class="hint">The claims a correct answer must make. One checkable ' +
       'assertion each; 2–4 sharp points beat 5–8 soft ones. Never a bare ' +
@@ -410,8 +451,43 @@ async function open(id){
   $('#addkp').onclick = () => { $('#kp').append(fieldRow('')); };
   $('#addce').onclick = () => { $('#ce').append(fieldRow('')); };
   $('#save').onclick = submit;
+
+  const chips = $('#chips');
+  if (chips){
+    SLOTS = t.card_slots || {};
+    Object.keys(SLOTS).sort().forEach(slot => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.dataset.name = SLOTS[slot];
+      b.textContent = SLOTS[slot];
+      b.title = 'stored as [[' + slot + ']]';
+      b.onclick = () => insertCard(SLOTS[slot]);
+      chips.append(b);
+    });
+  }
+  LAST = null;
   renderList();
   check();
+}
+
+let SLOTS = {};
+
+function insertCard(name){
+  // Into the field last focused, at the caret. Falls back to the first empty
+  // key point, then the first key point, so a click before touching anything
+  // still lands somewhere sensible rather than doing nothing.
+  let ta = LAST;
+  if (!ta || !document.body.contains(ta)){
+    const all = [...document.querySelectorAll('#kp textarea')];
+    ta = all.find(x => !x.value.trim()) || all[0];
+  }
+  if (!ta) return;
+  const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
+  const before = ta.value.slice(0, s), after = ta.value.slice(e);
+  const pad = (before && !/\s$/.test(before)) ? ' ' : '';
+  ta.value = before + pad + name + after;
+  const caret = (before + pad + name).length;
+  ta.focus(); ta.setSelectionRange(caret, caret);
+  LAST = ta; DIRTY = true; check();
 }
 
 let checkTimer = null;
@@ -430,6 +506,11 @@ function check(){
     f.textContent = n ? n + (n === 1 ? ' note' : ' notes') : '';
     f.className = 'flags' + (d.warnings.length ? ' warn' : '');
     f.onclick = () => $('#notes').scrollIntoView({behavior: 'smooth', block: 'end'});
+    // Light up the cards actually found in the text, so the substitution that
+    // happens on save is visible while writing rather than a surprise after.
+    const found = new Set(d.cards_detected || []);
+    document.querySelectorAll('.chip').forEach(c =>
+      c.classList.toggle('on', found.has(c.dataset.name)));
   }, 250);
 }
 

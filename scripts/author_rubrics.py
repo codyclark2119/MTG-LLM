@@ -49,7 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (GOLD_CANDIDATES_PATH, GOLD_PATH, WORKSHEETS_DIR,
                     is_hand_authored, lint_common_errors, read_jsonl,
-                    stray_names)
+                    stray_names, templatize, untemplatize)
 
 CANDIDATES_PATH = GOLD_CANDIDATES_PATH
 WORKSHEET_DIR = WORKSHEETS_DIR
@@ -176,9 +176,15 @@ def export_tasks(records: list[dict], out_path: Path) -> None:
             # Shown read-only. It is a sentence-split of the answer and exists
             # to be argued with, not edited — Section 14.6 measured drafts of
             # exactly this kind scoring r = +0.30 against hand-written +0.62.
-            "draft": r.get("key_points") or [],
+            "draft": [untemplatize(x, r.get("card_slots") or {})
+                      for x in r.get("key_points") or []],
             "url": r.get("rulesguru_url", ""),
             "in_gold": bool(r.get("cr_version")),
+            # The form needs the mapping in both directions: to show which card
+            # occupies which slot, and to turn the names an author types back
+            # into slots on save. Without it a fresh task file would render
+            # "[[card1]]" as literal text.
+            "card_slots": r.get("card_slots") or {},
         }
         for r in records
     ]
@@ -392,10 +398,21 @@ def main() -> None:
                          else "promote" if rid in {c["id"] for c in load_jsonl(args.candidates)}
                          else "UNKNOWN ID")
                 who = authors.get(rid) or args.author or "unattributed"
+                ref = (by_id.get(rid) or candidates.get(rid) or {})
+                # Expand [[cardN]] before showing OR linting. The answer keeps
+                # real card names, so a templated rubric silently defeats
+                # `lint_common_errors`: the Section 16.12 defect "Casts
+                # [[card1]] at the opponent's face" no longer restates "Cast
+                # Lightning Strike on ..." because the two are written in
+                # different alphabets. Measured — the plain form warns, the
+                # templated form does not.
+                slots = ref.get("card_slots") or {}
+                shown = {f: [untemplatize(x, slots) for x in rub[f]]
+                         for f in ("key_points", "common_errors")}
                 print(f"### {rid}  [{where}]  by {who}")
-                for kp in rub["key_points"]:
+                for kp in shown["key_points"]:
                     print(f"    KP  {kp}")
-                for ce in rub["common_errors"]:
+                for ce in shown["common_errors"]:
                     print(f"    CE  {ce}")
                 if len(rub["key_points"]) < 2:
                     print("    ^^ only 1 key point — the validator needs 2+, this would be skipped")
@@ -404,11 +421,10 @@ def main() -> None:
                 # The wording defect Section 16.12 measured. Warn, never block:
                 # the check is deliberately conservative and a clean result
                 # means "no obvious defect", not "good rubric".
-                ref = (by_id.get(rid) or candidates.get(rid) or {})
-                for w in lint_common_errors({"answer": ref.get("answer", ""), **rub}):
+                for w in lint_common_errors({"answer": ref.get("answer", ""), **shown}):
                     print(f"    !!  {w}")
                 stray = stray_names(ref.get("question", ""), ref.get("answer", ""),
-                                    rub["key_points"] + rub["common_errors"])
+                                    shown["key_points"] + shown["common_errors"])
                 if stray:
                     print(f"    !!  {', '.join(stray)} — not in the question or its "
                           f"answer; check the player name is the right one")

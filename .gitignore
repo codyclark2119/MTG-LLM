@@ -36,3 +36,4 @@ REPO_MAP.md
 # import — where `rubric_source` already records who wrote each rubric.
 data/gold/worksheets/tasks.json
 data/submissions.jsonl
+data/submissions.pre-migration.jsonl
