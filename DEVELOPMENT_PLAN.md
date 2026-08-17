@@ -30,7 +30,9 @@ This walkthrough covers everything from base model selection through ingesting t
 - [x] Ingested 77,918 official WotC rulings covering 19,726 cards (Section 13.6) — the most authoritative corpus available, and the fix for eval references that currently cite a rule only 21% of the time.
 - [x] Built the gold set on RulesGuru's verified Q&A and measured what actually drives judge disagreement (Sections 14, 14.6) — **hand-authored rubrics lift inter-judge agreement from r = +0.30 to +0.62** on identical answers, resolving the Section 9.9 ranking inversion. Rubric quality does *not* reduce the sample size needed: per-question variance is unchanged, so ~100–150 questions are still required to resolve a 0.4-point effect.
 - [x] Built the Phase 3 gameplay scaffolding alongside the open Phase 1 work (Section 16) — position schema, action grammar and parser, position authoring in the console, and a gate-reporting eval that **reuses the V3 rubric judge unchanged**, because `common_errors` is the blunder list and `errors_made` was already being computed per question. Model choice is now a `--base-model` flag rather than a constant (Section 16.8), which also caught `--judge-model` being silently ignored on the generate-and-judge path. On 8 machine-drafted seed fixtures **all three gates fail**, which is the correct result for a pipeline whose fixtures are seeds: the closed arm lifts legality (88% vs 62%) but every arm blunders at exactly 75%, so the eval does not yet discriminate. See Section 16.11 — at n=8 with a single judge these numbers move substantially between runs, and a spot-check found the judge marking a false blunder.
-- [ ] **Next:** (a) **re-run the fine-tune at a full epoch** — the v2 adapter every Section 9 comparison scores trained for only **0.45 epochs** (Section 15.6), so "fine-tuning hurts" is confounded with under-training and that is the cheapest confound to remove; (b) author ~80 more rubrics to reach n≈100 and run the real comparison under both judges; (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk.
+- [x] Re-ran the fine-tune at a **full epoch** and evaluated it under both judges (Sections 18.1, 18.3) — the under-training confound is removed and **the verdict does not move**: `finetuned_rag` gains +0.04 under Qwen (CI [−0.26, +0.33]) and +0.02 under Llama (CI [−0.33, +0.37]), while the two control arms — byte-identical answers that cannot have changed — moved up to 0.23 on judge variance alone. Both judges now produce the same arm ranking (r = +0.60). Section 9.4's rule stands: fix the SFT data, not the hyperparameters.
+- [x] Gold set finished to n=39, **39/39 hand-authored** with card slots and normalized player names. Caught before it mattered: templated rubrics were reaching the judge as literal `[[card2]]` text on 35 of 39 eval rows (Section 18.5).
+- [ ] **Next:** (a) grow the gold set past n=39 toward n≈100 via `--emit` against the 1,202 RulesGuru candidates, then run the real comparison under both judges — `definition recall` has 1 record and needs judge-authored entries; (b) author ~40 positions for Gate 3, since Gate 2 cannot be settled on machine-drafted seeds (Section 18.4); (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk.
 
 **Phase 2 (Card Data):** started early, ahead of finishing Phase 1 — see Section 13. The Standard-only pool proved far too narrow (it covered just 4% of cards players actually ask about), so the corpus is now Scryfall's full Oracle set: 34,933 playable cards chunked and linked to the rules governing their keywords, with card names resolved by lookup at 99%.
 
@@ -1676,3 +1678,142 @@ measurement of the model, and is partly a measurement of its own sampling.**
 the double `"Rules text:"` header — same family. The tell is the same each time:
 the parameter that controls it reads like a thoroughness knob (`val_batches:
 8`) rather than a term in the result.
+
+### 18.3 The judge eval: a full epoch changes nothing, under either judge
+
+Section 18.2 left the under-training question open and answerable only by the
+judge eval. It is now answered. Checkpoint 1322 was run through the standard
+Section 9 harness — same 110 questions (70 synthetic + 40 reddit), same four
+arms, same V2 anonymized judge — and then every stored answer was re-scored by
+`Meta-Llama-3.1-8B-Instruct-4bit`, which is the two-judge protocol Section 9.9
+made mandatory.
+
+| Arm | v2 Qwen | v3 Qwen | Δ | v2 Llama | v3 Llama | Δ | |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| base | 3.04 | 3.21 | +0.17 | 2.94 | 2.93 | −0.01 | **control** |
+| base_rag | 3.75 | 3.65 | −0.10 | 3.71 | 3.94 | +0.23 | **control** |
+| finetuned | 2.37 | 2.40 | +0.03 | 2.06 | 2.20 | +0.15 | treated |
+| finetuned_rag | 3.22 | **3.25** | **+0.04** | 3.29 | **3.32** | **+0.02** | treated |
+
+Paired over all 110 questions: **+0.04, 95% CI [−0.26, +0.33]** under Qwen and
+**+0.02, CI [−0.33, +0.37]** under Llama.
+
+**The control is the argument, not the CI.** `base` and `base_rag` never touch
+the adapter; their answers are byte-identical between the two runs, verified
+110/110 on all four arms. Those arms moved by up to 0.23 anyway — that is the
+judge re-scoring the same text. The treated arm moved *less than that*, in both
+judges. Doubling the training epoch is not merely a small effect here; it is
+smaller than re-reading the same answers.
+
+**What this settles.** Section 15.6 hypothesized that "fine-tuning does not beat
+retrieval" was confounded with training for 0.45 of an epoch. It was not. The
+confound is removed and the verdict is unchanged, so Section 9.4's decision rule
+stands where it has stood since run 1: **fix the SFT data, not the
+hyperparameters.** More gradient steps over the same 2,644 examples is not the
+missing ingredient.
+
+**The checkpoint sweep is already two-thirds done.** `models/mtg-rules-adapter-v2-best`
+and `models/mtg-rules-adapter-v3-ckpt600` are bit-identical — 224 tensors, max
+absolute difference exactly 0.0 — because v3 re-derives v2 step for step
+(Section 18.1). So the v2 column above *is* the iteration-600 evaluation, and
+iteration 900 sits between two endpoints that a two-judge comparison cannot tell
+apart. It was not run, and the ~1.5 GPU-hours went to the second judge instead,
+which is the caveat that could actually have changed the answer.
+
+**Two judges agree here, which is new.** Inter-judge Pearson on the 436 scored
+answers is **r = +0.60** (44% exact, 74% within one point, mean disagreement
+0.97), against the **+0.43** Section 9.9 measured — and for the first time both
+judges produce the *identical* arm ranking, `base_rag > finetuned_rag > base >
+finetuned`, with the `base_rag` → `finetuned_rag` gap excluding zero under each
+(Qwen +0.40 [+0.09, +0.71], Llama +0.61 [+0.21, +1.02]). Section 9.9's ranking
+inversion was measured on a different set (the n=100 reddit card questions), so
+this does not overturn it; it does mean the run-3 conclusion does not depend on
+which judge is asked, which is the only thing being claimed.
+
+**One movement not to over-read:** fabricated citations from `finetuned_rag`
+fell 6/110 → 2/110. At these counts that is not distinguishable from chance, and
+it is recorded as an observation rather than a result.
+
+### 18.4 Gate 1 passes; Gate 2 still depends on which judge is asked
+
+The `PASS`-matching fix from Section 16.13 was re-run against the stored seed
+answers, changing only the parser — no regeneration, and the judge is
+deterministic, so the correctness numbers reproduce exactly and any movement is
+attributable to the fix alone.
+
+| Arm | all-legal before | after |
+| --- | --- | --- |
+| base_open | 62% | 62% |
+| **base_closed** | **88%** | **100%** |
+| base_cards_open | 62% | 75% |
+| ft_cards_open | 38% | 38% |
+
+**Gate 1 now PASSES** — worst-arm parse rate 100%, closed-arm legality 100%
+against a ≥95% bar. The gate had been failing on obedient answers.
+
+**Gate 2 still splits between judges**, exactly as Section 16.12 found: Qwen
+reports a blunder-rate spread of 0% (FAIL), Llama 50% (PASS). What the
+per-position calls add is *why*, and it is sharper than a spread number:
+
+| | positions where all four arms get the same blunder verdict |
+| --- | --- |
+| Qwen judge | **8 of 8** |
+| Llama judge | 4 of 8 |
+
+Under Qwen the blunder call is fully determined by the position and not at all
+by the answer — including for the fine-tuned arm, whose answers differ
+substantially from base. A judge that returns the same verdict for four
+different answers is not grading answers. That is a rubric problem on
+machine-drafted seeds, which is what Section 14.6 predicts (hand-authored
+rubrics took inter-judge agreement from r +0.30 to +0.62), and it is why Gate 2
+cannot be settled on the seed set no matter how many seeds are added.
+
+Cohen's kappa on the blunder call is **+0.48** and correctness correlation
+r = +0.69, both unchanged from the pre-fix run, confirming the parser fix touched
+legality and nothing else.
+
+**One signal worth carrying forward:** `ft_cards_open` has the *worst* legality
+of any arm at 38%, against 100% for `base_closed`. Small n, but it points the
+same direction as pre-registered prediction 1 — a board state is out of
+distribution for an adapter trained on `"Rules text: ..."` — and it is the
+cheapest evidence yet that the closed protocol is the lever, not the checkpoint.
+
+### 18.5 A templated rubric would have reached the judge as literal text
+
+Found while preparing the n≈100 comparison, not by a failing run.
+
+The gold set stores rubrics templated — `"[[card2]] enters tapped"` — so one
+rubric scores every instantiation RulesGuru builds of the same ruling
+(Section 14). `validate_gold.py --to-eval` copied that through verbatim, and
+nothing downstream expanded it. The judge would have been asked which of these
+claims the answer made, against a claim naming `[[card2]]` while the answer
+says "Urborg, Tomb of Yawgmoth". **35 of 39 eval rows carried a slot in
+`key_points`, 28 of 39 in `common_errors`, and 0 of 39 carried the `card_slots`
+needed to resolve them.**
+
+Nothing would have crashed. Every affected record would simply have lost the key
+points that named a card, deflating scores on precisely the hand-authored
+rubrics the comparison exists to evaluate.
+
+This is the `[TARGET <x>]` failure a third time: meta-syntax placed in front of
+a model that reads it as literal text. It was already fixed once for
+`--ingest-submissions`, where templating had blinded `lint_common_errors`. The
+eval path was missed because a templated rubric is still valid JSON and still
+produces a score — just a lower one.
+
+`to_eval_records` now expands slots and carries `card_slots` onto the eval row
+so a future variant run can re-template against a different instantiation's
+cards. Validation gained a check for the failure hiding underneath: a rubric
+referencing `[[card3]]` when `card_slots` has no `card3` survives expansion and
+reaches the judge as literal text, so that is now an error rather than a silent
+lost point. Regeneration was diffed field by field — only `key_points`,
+`common_errors` and `card_slots` changed, and `messages` is byte-identical, so
+generation is unaffected.
+
+The mana-symbol hazard shows up plainly in the output, vindicating brackets over
+braces:
+
+```diff
+- The payment of {b} is made as [[card2]]'s trigger resolves
++ The payment of {b} is made as Nihil Spellbomb's trigger resolves
+```

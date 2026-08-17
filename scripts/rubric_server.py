@@ -125,8 +125,16 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
         rubric is useful rather than wasted.
         """
         subs = read_submissions(submissions_path)
-        mine = {s["id"] for s in subs if s.get("author") == author and s.get("key_points")}
-        anyone = {s["id"] for s in subs if s.get("key_points")}
+        # Intersect with the CURRENT task list. The submissions log is
+        # append-only and outlives any one export, so after an ingest the
+        # questions it covers are promoted out of tasks.json while their rows
+        # remain. Counting the raw log reported "10 / 28 done" against a task
+        # list those ten had already left — phantom progress, and worst in
+        # exactly the ingest -> re-export -> restart loop this is used in.
+        live = {t["id"] for t in tasks}
+        mine = {s["id"] for s in subs
+                if s.get("author") == author and s.get("key_points")} & live
+        anyone = {s["id"] for s in subs if s.get("key_points")} & live
         rows = [{"id": t["id"], "category": t["category"], "difficulty": t["difficulty"],
                  "question": t["question"][:110],
                  "done_by_me": t["id"] in mine,

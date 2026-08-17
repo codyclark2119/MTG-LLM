@@ -24,7 +24,8 @@ import json
 import sys
 from pathlib import Path
 
-from common import GOLD_PATH, REPO_ROOT, RULES_PATH, SYSTEM_PROMPT, load_rule_ids
+from common import (GOLD_PATH, REPO_ROOT, RULES_PATH, SLOT_RE, SYSTEM_PROMPT,
+                    load_rule_ids, untemplatize)
 from common import RULE_ID_EXACT_RE as CROSS_REF_RE
 
 CATEGORIES = {
@@ -116,12 +117,46 @@ def validate(records: list[dict], valid_rule_ids: set[str], card_index) -> list[
         if kp and len(kp) < 2:
             problems.append(f"[{rid}] only {len(kp)} key_point — rubric scoring needs at least 2 to be meaningful")
 
+        # A slot with no entry in card_slots survives expansion and reaches the
+        # judge as literal "[[card2]]", which no answer can ever match. That
+        # silently costs the record a key point rather than failing loudly, so
+        # it is caught here instead.
+        slots = r.get("card_slots") or {}
+        dangling = {m for line in kp + (r.get("common_errors") or [])
+                    for m in SLOT_RE.findall(line)} - set(slots)
+        if dangling:
+            problems.append(f"[{rid}] rubric references {sorted(dangling)} with no card_slots entry "
+                            "— it would reach the judge as literal text")
+
     return problems
 
 
 def to_eval_records(records: list[dict]) -> list[dict]:
+    """Gold records in the shape scripts/eval.py consumes.
+
+    **Slots are expanded here.** The gold set stores rubrics templated —
+    `"[[card2]] enters tapped"` — so one rubric can score every instantiation
+    RulesGuru builds of the same ruling. The judge is a different audience: it
+    is asked which of these claims the answer made, and an answer says "Urborg,
+    Tomb of Yawgmoth enters tapped". A claim naming `[[card2]]` matches nothing
+    an answer can contain, so leaving the template in deflates the score of a
+    correct answer — silently, and only on the 35 of 39 records that carry a
+    slot.
+
+    This is the `[TARGET <x>]` failure again (Section 16.x): meta-syntax handed
+    to a model that reads it as literal text. `--ingest-submissions` was fixed
+    for the same reason; this path was missed because a templated rubric is
+    still valid JSON and still scores — just lower.
+
+    `card_slots` rides along on the eval row so a future variant run can
+    re-template against a *different* instantiation's cards, which is the whole
+    point of storing slots rather than names.
+    """
     out = []
     for r in records:
+        slots = r.get("card_slots") or {}
+        key_points = [untemplatize(x, slots) for x in r.get("key_points") or []]
+        common_errors = [untemplatize(x, slots) for x in r.get("common_errors") or []]
         # Each paraphrase becomes its own eval row sharing the rubric, so
         # wording robustness is measured without re-authoring judgement.
         for variant, q in enumerate([r["question"], *(r.get("paraphrases") or [])]):
@@ -137,8 +172,9 @@ def to_eval_records(records: list[dict]) -> list[dict]:
                     "variant": "canonical" if variant == 0 else f"paraphrase-{variant}",
                     "category": r["category"],
                     "difficulty": r["difficulty"],
-                    "key_points": r.get("key_points", []),
-                    "common_errors": r.get("common_errors", []),
+                    "key_points": key_points,
+                    "common_errors": common_errors,
+                    "card_slots": slots,
                     "supporting_rule_ids": r.get("rule_citations", []),
                     "cited_rule_ids": r.get("rule_citations", []),
                     "retrieved_rule_ids": [],
