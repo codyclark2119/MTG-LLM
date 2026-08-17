@@ -34,7 +34,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (CARD_CHUNKS_PATH, GLOSSARY_PATH, ORACLE_CARDS_PATH, RULES_PATH,
-                    guard_shrink, iter_jsonl, read_jsonl, write_jsonl_atomic)
+                    guard_shrink, iter_jsonl, read_jsonl, verify_cr_pin,
+                    write_jsonl_atomic)
 from common import RULE_ID_RE as CROSS_REF_RE
 
 KEYWORD_RULE_RE = re.compile(r"70[12]\.\d+")
@@ -158,6 +159,10 @@ def main() -> None:
             f"  Or point at a format subset:     python scripts/chunk_cards.py --cards <file>"
         )
 
+    # Same reason as chunk.py: read structurally, so the pin check that lives
+    # in load_rule_ids never runs here. The keyword -> rule mapping below is
+    # only as good as the parse it comes from.
+    verify_cr_pin(args.rules, args.glossary)
     keyword_rules = build_keyword_rule_map(args.rules, args.glossary)
     print(f"{len(keyword_rules)} keyword -> rule mappings available")
 

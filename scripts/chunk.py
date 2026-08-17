@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (CHUNKS_PATH, GLOSSARY_PATH, RULES_PATH, guard_shrink,  # noqa: E402
-                    read_jsonl, write_jsonl_atomic)
+                    read_jsonl, verify_cr_pin, write_jsonl_atomic)
 
 
 def estimate_tokens(text: str) -> int:
@@ -150,6 +150,12 @@ def main() -> None:
     parser.add_argument("--max-refs", type=int, default=5)
     parser.add_argument("--glossary-budget-tokens", type=int, default=200)
     args = parser.parse_args()
+
+    # This script reads rules.jsonl structurally rather than for ids, so it
+    # never reaches load_rule_ids where the pin is normally checked. Chunking a
+    # corpus that is not the pinned parse would produce an index whose text no
+    # published retrieval number describes.
+    verify_cr_pin(args.rules, args.glossary)
 
     rules = load_jsonl(args.rules)
     glossary = load_jsonl(args.glossary)

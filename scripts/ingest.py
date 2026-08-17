@@ -15,7 +15,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CR_TEXT_PATH, PROCESSED_DIR, guard_shrink, write_jsonl_atomic
+from common import (CR_PIN, CR_TEXT_PATH, CR_VERSION, GLOSSARY_PATH, PROCESSED_DIR,
+                    RULES_PATH, file_sha256, guard_shrink, write_jsonl_atomic)
 from common import RULE_ID_RE as CROSS_REF_RE
 
 SECTION_RE = re.compile(r"^([1-9])\.\s+(.+)$")
@@ -184,6 +185,47 @@ def validate(rules: list[dict], glossary: list[dict], sections: set[str]) -> lis
     return problems
 
 
+def update_pin(rules_path: Path, glossary_path: Path, n_rules: int, n_glossary: int) -> None:
+    """Rewrite `common.CR_PIN` in place to match the parse just written.
+
+    A command rather than a hand-edited hex string, because the value has to be
+    exactly right to be worth anything and a typo would be indistinguishable
+    from a corrupted corpus. It prints what changed: re-pinning means every
+    number already published was computed against a different parse, and that
+    should be a conscious moment, not a formality.
+    """
+    common_py = Path(__file__).parent / "common.py"
+    src = common_py.read_text(encoding="utf-8")
+    new = {"rules_sha256": file_sha256(rules_path),
+           "glossary_sha256": file_sha256(glossary_path),
+           "n_rules": n_rules, "n_glossary": n_glossary}
+
+    changed = {k: (CR_PIN.get(k), v) for k, v in new.items() if CR_PIN.get(k) != v}
+    if not changed:
+        print("\nCR_PIN already matches this parse — nothing to update.")
+        return
+
+    block = ("CR_PIN = {\n"
+             f'    "rules_sha256": "{new["rules_sha256"]}",\n'
+             f'    "glossary_sha256": "{new["glossary_sha256"]}",\n'
+             f'    "n_rules": {new["n_rules"]},\n'
+             f'    "n_glossary": {new["n_glossary"]},\n'
+             "}")
+    start = src.index("CR_PIN = {")
+    end = src.index("}", start) + 1
+    common_py.write_text(src[:start] + block + src[end:], encoding="utf-8")
+
+    print(f"\nCR_PIN updated in {common_py} for CR {CR_VERSION}:")
+    for k, (was, now) in changed.items():
+        fmt = (lambda v: f"{v[:16]}..." if isinstance(v, str) and len(v) > 16 else str(v))
+        print(f"  {k}: {fmt(was) or '(unset)'} -> {fmt(now)}")
+    if rules_path.resolve() != RULES_PATH.resolve():
+        print(f"  !! pinned against {rules_path}, which is NOT the canonical "
+              f"{RULES_PATH} — the pin will not match a canonical rebuild.")
+    print("  Everything computed against the previous parse now describes a "
+          "different corpus. Re-run what depends on it.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -199,6 +241,11 @@ def main() -> None:
     parser.add_argument(
         "--force", action="store_true",
         help="write even if the parse produced fewer rules than the existing corpus",
+    )
+    parser.add_argument(
+        "--update-pin", action="store_true",
+        help="rewrite common.CR_PIN to match this parse. Deliberate: every published "
+             "number was computed against the old one.",
     )
     args = parser.parse_args()
 
@@ -237,6 +284,9 @@ def main() -> None:
 
     print(f"parsed {len(rules)} rules across {len(sections)} sections -> {rules_path}")
     print(f"parsed {len(glossary)} glossary entries -> {glossary_path}")
+
+    if args.update_pin:
+        update_pin(rules_path, glossary_path, len(rules), len(glossary))
     if problems:
         print("\nvalidation issues:", file=sys.stderr)
         for p in problems:

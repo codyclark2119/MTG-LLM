@@ -211,11 +211,18 @@ Each cost real time. They recur in new code, so they are worth knowing.
   hand-authored data with `common.write_jsonl_atomic`.
 - Destructive rebuilds refuse to shrink an existing corpus without `--force`,
   via `common.guard_shrink` — never a re-implementation. `min_ratio` is 1.0 for
-  `rules.jsonl` (the CR is pinned, so any shrink is a parse regression and
-  nothing downstream checksums it) and 0.5 for derived corpora, where the known
-  failure is an order-of-magnitude subset. They write with
+  `rules.jsonl` (any shrink is a parse regression) and 0.5 for derived corpora,
+  where the known failure is an order-of-magnitude subset. They write with
   `write_jsonl_atomic`, so a crash mid-write cannot leave a truncated corpus
   that reads as valid.
+- **`rules.jsonl` and `glossary.jsonl` are content-pinned** in `common.CR_PIN`,
+  checked by `common.verify_cr_pin` from `load_rule_ids` (the chokepoint seven
+  of nine readers reach) and directly from `chunk.py`/`chunk_cards.py`, which
+  read structurally. This catches what `guard_shrink` and `git` cannot: a parse
+  that keeps the rule count and changes the text. Only the *canonical* paths
+  are checked — `--rules somewhere_else` is a deliberate act and is allowed.
+  Re-pin with `python scripts/ingest.py --update-pin`, and treat needing to as
+  a signal that every number downstream now describes a different corpus.
 - Snapshots of external APIs are **frozen and additive** — RulesGuru
   re-randomizes card and player names per request, so re-fetching a record
   would silently change it.

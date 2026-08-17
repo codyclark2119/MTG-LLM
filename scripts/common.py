@@ -27,6 +27,7 @@ their own directory is already on `sys.path`:
     from common import SYSTEM_PROMPT, CR_VERSION, RULE_ID_RE
 """
 
+import hashlib
 import json
 import os
 import re
@@ -53,6 +54,30 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # gold record refers to this value.
 CR_VERSION = "2026-08-07"
 CR_TEXT_PATH = REPO_ROOT / f"data/raw/MagicCompRules_{CR_VERSION.replace('-', '')}.txt"
+
+# The exact parse of that release. Pinned as a committed constant rather than
+# written to a stamp file by ingest.py: a bad parse that regenerates the corpus
+# AND its stamp together would pass a self-issued check and prove nothing. A
+# constant fails for whoever ran it, and moving it is a one-line diff sitting
+# beside CR_VERSION in review.
+#
+# `guard_shrink` already refuses a short parse and git already shows a
+# committed corpus changing. This catches the two neither does:
+#
+#   * a parse that keeps the rule count and changes the text — a regex edit
+#     that mangles content parses the same 3,162 rules, and would silently move
+#     every citation-validity number in Section 9 without tripping anything;
+#   * a local rebuild that diverges, is never committed, and is then evaluated
+#     against.
+#
+# Re-pin deliberately with `python scripts/ingest.py --update-pin`. That should
+# almost never be needed — the parse is reproducible, verified byte-for-byte.
+CR_PIN = {
+    "rules_sha256": "bbb5ef03db73e51b8092046e79412cf11ca0b8e4510df02ed823049a97a29ead",
+    "glossary_sha256": "78cff7d85e6a26ae1ac89587fbf0c3f9c292f3608f7358ee24118419d598d75c",
+    "n_rules": 3162,
+    "n_glossary": 739,
+}
 
 # --- Rule-id patterns -------------------------------------------------------
 
@@ -677,12 +702,64 @@ def write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
     os.replace(tmp, path)
 
 
+def file_sha256(path: Path) -> str:
+    """Content digest of a file. ~0.8ms on the 1.4MB rules.jsonl."""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def verify_cr_pin(rules_path: Path = RULES_PATH,
+                  glossary_path: Path | None = None) -> None:
+    """Check a corpus against `CR_PIN`. Raises SystemExit on mismatch.
+
+    **Only the canonical paths are checked.** Passing `--rules somewhere_else`
+    is a deliberate act — building a test corpus, comparing two parses — and
+    pinning it would break exactly the workflow that needs to point elsewhere.
+    A local rebuild is still covered, because ingest.py writes to the canonical
+    path by default and that is the case this exists for.
+
+    Called from `load_rule_ids`, which is the chokepoint: seven of the nine
+    readers of rules.jsonl reach it, so one check covers them. `chunk.py` and
+    `chunk_cards.py` read structurally rather than for ids, so they call this
+    directly.
+    """
+    checks = [("rules", rules_path, RULES_PATH, CR_PIN["rules_sha256"], CR_PIN["n_rules"])]
+    if glossary_path is not None:
+        checks.append(("glossary", glossary_path, GLOSSARY_PATH,
+                       CR_PIN["glossary_sha256"], CR_PIN["n_glossary"]))
+
+    for label, path, canonical, expected, n_expected in checks:
+        if not expected or path.resolve() != canonical.resolve() or not path.exists():
+            continue
+        actual = file_sha256(path)
+        if actual == expected:
+            continue
+        n_actual = sum(1 for line in path.open(encoding="utf-8") if line.strip())
+        raise SystemExit(
+            f"{path} does not match the pinned CR {CR_VERSION} parse.\n"
+            f"  expected sha256 {expected[:16]}...  ({n_expected} {label})\n"
+            f"  actual   sha256 {actual[:16]}...  ({n_actual} {label})\n"
+            f"  Every published number was computed against the pinned parse, so this\n"
+            f"  corpus and those numbers do not describe the same rules. Either restore\n"
+            f"  it (`git checkout {path}`) or, if the new parse is intended, re-pin with\n"
+            f"  `python scripts/ingest.py --update-pin` and re-run what depends on it."
+        )
+
+
 def load_rule_ids(rules_path: Path = RULES_PATH) -> set[str]:
     """Every rule id in the pinned CR, for validating citations.
 
     Six callers each had their own copy of this — two as functions, four as
     inline set comprehensions that would raise on a trailing newline.
+
+    Also the pin chokepoint: `verify_cr_pin` runs here because seven of the
+    nine readers of rules.jsonl go through this function, so the corpus cannot
+    be silently swapped underneath a validation or an eval.
     """
+    verify_cr_pin(rules_path)
     return {r["rule_id"] for r in read_jsonl(rules_path, missing_ok=False)}
 
 
