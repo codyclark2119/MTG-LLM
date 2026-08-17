@@ -446,6 +446,29 @@ _PLAYER_NAME = re.compile(
     r"\b([A-Z][a-z]{2,})\s+(?:" + "|".join(PLAYER_VERBS) + r")\b")
 PLAYER_LABELS = [f"Player {c}" for c in "ABCDEFGH"]
 
+# Capitalized, in front of a player verb, and NOT a name. A sentence-initial
+# pronoun satisfies the grammar test perfectly: "Ally controls a token. They
+# cast Cloudshift" made "They" a second player, so normalization rewrote it as
+# "Player B cast Cloudshift" — inventing an opponent and handing them the
+# spell. A one-player scenario silently became a two-player one, and the answer
+# it is scored against still describes the original.
+#
+# Measured over all 1,202 candidates before adding this: exactly four words in
+# this list ever match — They (121), Who (7), Then (1), The (1) — and every one
+# of the other 500 detections is a person's name. The rest of the list is a
+# closed class, so it costs nothing and covers a future fetch.
+_NOT_A_NAME = {
+    "They", "There", "Their", "Them", "This", "That", "These", "Those",
+    "Who", "Whom", "Which", "What", "When", "Where", "Whether", "While",
+    "Both", "Each", "Either", "Neither", "Every", "Some", "Any", "All",
+    "One", "Two", "Three", "Four", "Five", "Nobody", "Someone", "Everyone",
+    "The", "And", "But", "For", "Nor", "Yet", "Then", "Than", "Thus",
+    "If", "After", "Before", "Since", "Because", "However", "Instead",
+    "Also", "Now", "Once", "Only", "Both", "Player", "Players",
+    "Opponent", "Opponents", "Creature", "Creatures", "Permanent",
+    "Permanents", "Card", "Cards", "Token", "Tokens",
+}
+
 
 def stray_names(question: str, answer: str, lines: list[str]) -> list[str]:
     """Player names a rubric uses that its question never introduces.
@@ -472,7 +495,7 @@ def stray_names(question: str, answer: str, lines: list[str]) -> list[str]:
     Reported, never blocked. Missing a stray name phrased some other way is
     the acceptable failure; nagging about correct card vocabulary is not.
     """
-    known = set(_PLAYER_NAME.findall(f"{question or ''} {answer or ''}"))
+    known = set(_PLAYER_NAME.findall(f"{question or ''} {answer or ''}")) | _NOT_A_NAME
     seen: list[str] = []
     for line in lines or []:
         for name in _PLAYER_NAME.findall(line or ""):
@@ -521,7 +544,7 @@ def _card_words(cards: list[str]) -> set[str]:
 
 def find_players(question: str, answer: str, cards: list[str]) -> list[str]:
     """Player names, in order of first appearance in question then answer."""
-    banned = _card_words(cards)
+    banned = _card_words(cards) | _NOT_A_NAME
     order: list[str] = []
     for text in (question or "", answer or ""):
         for name in _PLAYER_NAME.findall(text):
