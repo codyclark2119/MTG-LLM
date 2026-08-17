@@ -55,7 +55,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import (GOLD_PATH, normalize_record, read_jsonl,
+from common import (GOLD_PATH, load_glossary_terms, normalize_record, read_jsonl,
                     write_jsonl_atomic)
 
 # The normalizer itself now lives in common.py — `migrate_record` was copied
@@ -74,10 +74,15 @@ def main() -> None:
     args = ap.parse_args()
 
     rows = read_jsonl(args.gold, missing_ok=False)
+    # Supplying the glossary switches on possessive and prepositional discovery
+    # ("Nyla's hand", "from Braylen"), which the verb test alone cannot see.
+    # The glossary is what keeps those loose patterns from renaming "to Devour"
+    # or "with Cascade" — see common.load_glossary_terms.
+    terms = load_glossary_terms()
     migrated, changed, skipped = [], 0, 0
     shown = 0
     for rec in rows:
-        new, notes = migrate_record(rec)
+        new, notes = migrate_record(rec, magic_terms=terms)
         migrated.append(new)
         if new != rec:
             changed += 1

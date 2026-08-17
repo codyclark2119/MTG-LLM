@@ -445,6 +445,7 @@ _PLAYER_VERBS = PLAYER_VERBS  # back-compat for readers of the private name
 _PLAYER_NAME = re.compile(
     r"\b([A-Z][a-z]{2,})\s+(?:" + "|".join(PLAYER_VERBS) + r")\b")
 PLAYER_LABELS = [f"Player {c}" for c in "ABCDEFGH"]
+_EXISTING_LABEL = re.compile(r"\bPlayer [A-H]\b")
 
 # Capitalized, in front of a player verb, and NOT a name. A sentence-initial
 # pronoun satisfies the grammar test perfectly: "Ally controls a token. They
@@ -542,14 +543,68 @@ def _card_words(cards: list[str]) -> set[str]:
     return out
 
 
-def find_players(question: str, answer: str, cards: list[str]) -> list[str]:
-    """Player names, in order of first appearance in question then answer."""
+# A player named only in the possessive ("Nyla's hand") or as the object of a
+# preposition ("from Braylen using...") never stands in front of a verb, so the
+# grammar test alone never finds them. Seven gold records ended up with a raw
+# name sitting next to Player A/B for exactly this reason.
+_PLAYER_POSSESSIVE = re.compile(r"\b([A-Z][a-z]{2,})'s\b")
+_PLAYER_PREP = re.compile(r"\b(?:from|to|by|with|against)\s+([A-Z][a-z]{2,})\b")
+
+
+def load_glossary_terms(path: Path | None = None) -> frozenset[str]:
+    """Capitalized tokens of every Comprehensive Rules glossary term.
+
+    The vocabulary gate for the two patterns above, and the reason they are
+    safe. Both are far looser than the verb test: "to Devour", "with Cascade"
+    and "refers to Sand Warriors" all look exactly like "from Braylen".
+
+    The glossary is the right source because it is precisely the list of words
+    Magic has defined — 739 of them. The obvious alternative, card-name tokens
+    from the Oracle pool, was measured and is unusable: 20,967 tokens that
+    include ordinary English, so it suppressed 26 real player names (Alex,
+    Nico, Nyla, Blake, Autumn, Clay...) to catch 5 game terms. Wrong trade.
+
+    Not loaded at import. `common.py` is copied into the rubric-form image
+    without any data files, and nothing on that path calls `find_players`.
+    """
+    terms: set[str] = set()
+    for entry in read_jsonl(path or GLOSSARY_PATH, missing_ok=True):
+        for tok in re.split(r"[^A-Za-z]+", entry.get("term", "")):
+            if tok:
+                terms.add(tok.capitalize())
+    return frozenset(terms)
+
+
+def find_players(question: str, answer: str, cards: list[str],
+                 magic_terms: frozenset[str] | None = None) -> list[str]:
+    """Player names, in order of first appearance in question then answer.
+
+    The possessive and prepositional patterns run **only** when `magic_terms`
+    is supplied, so a caller that cannot load the glossary gets the narrow,
+    proven grammar test rather than a loose one with its guard missing.
+    """
     banned = _card_words(cards) | _NOT_A_NAME
     order: list[str] = []
+
+    def is_term(word: str) -> bool:
+        # Plural too: the glossary defines "Aura", the text says "to Auras".
+        return (word.capitalize() in magic_terms
+                or (word.endswith("s") and word[:-1].capitalize() in magic_terms))
+
+    patterns = [_PLAYER_NAME]
+    if magic_terms is not None:
+        patterns += [_PLAYER_POSSESSIVE, _PLAYER_PREP]
+
     for text in (question or "", answer or ""):
-        for name in _PLAYER_NAME.findall(text):
-            if name not in banned and name not in order:
-                order.append(name)
+        # Sorted by position so first-appearance order holds across patterns.
+        found = sorted((m.start(1), m.group(1), p is not _PLAYER_NAME)
+                       for p in patterns for m in p.finditer(text))
+        for _, name, widened in found:
+            if name in banned or name in order:
+                continue
+            if widened and is_term(name):
+                continue
+            order.append(name)
     return order
 
 
@@ -562,7 +617,8 @@ def _rename(text: str, mapping: dict[str, str]) -> str:
     return pattern.sub(lambda m: mapping[m.group(1)], text)
 
 
-def normalize_record(rec: dict, templatize_rubric: bool | None = None) -> tuple[dict, list[str]]:
+def normalize_record(rec: dict, templatize_rubric: bool | None = None,
+                     magic_terms: frozenset[str] | None = None) -> tuple[dict, list[str]]:
     """Player names to `Player A/B/...`, and `card_slots` derived from `cards`.
 
     Returns `(new record, notes)` and never mutates the input.
@@ -593,11 +649,22 @@ def normalize_record(rec: dict, templatize_rubric: bool | None = None) -> tuple[
     notes: list[str] = []
     cards = rec.get("cards") or []
 
-    players = find_players(rec.get("question", ""), rec.get("answer", ""), cards)
-    if len(players) > len(PLAYER_LABELS):
-        notes.append(f"!! {len(players)} players found, only {len(PLAYER_LABELS)} labels — skipped")
+    players = find_players(rec.get("question", ""), rec.get("answer", ""), cards,
+                           magic_terms)
+    # Labels already in the text are taken. This function is not only run on
+    # raw RulesGuru text: it also re-runs over records that are already
+    # partly normalized, where "Player A" is a literal string and therefore
+    # invisible to name discovery. Allocating from the top of the list again
+    # rewrote "control of a Resolute Survivors from Noemi" into "...from
+    # Player A" — the player who took control — and turned the key point
+    # "untaps during Noemi's untap step" into "during Player A's untap step",
+    # which is the opposite of the ruling. Allocate only unused labels.
+    taken = set(_EXISTING_LABEL.findall(f"{rec.get('question','')} {rec.get('answer','')}"))
+    free = [lab for lab in PLAYER_LABELS if lab not in taken]
+    if len(players) > len(free):
+        notes.append(f"!! {len(players)} players found, only {len(free)} labels free — skipped")
         return dict(rec), notes
-    mapping = dict(zip(players, PLAYER_LABELS))
+    mapping = dict(zip(players, free))
     if mapping:
         out["question"] = _rename(rec.get("question", ""), mapping)
         out["answer"] = _rename(rec.get("answer", ""), mapping)
