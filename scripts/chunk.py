@@ -18,7 +18,8 @@ from collections import OrderedDict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CHUNKS_PATH, GLOSSARY_PATH, RULES_PATH, read_jsonl  # noqa: E402
+from common import (CHUNKS_PATH, GLOSSARY_PATH, RULES_PATH, guard_shrink,  # noqa: E402
+                    read_jsonl, write_jsonl_atomic)
 
 
 def estimate_tokens(text: str) -> int:
@@ -139,6 +140,8 @@ def main() -> None:
     parser.add_argument("--rules", type=Path, default=RULES_PATH)
     parser.add_argument("--glossary", type=Path, default=GLOSSARY_PATH)
     parser.add_argument("--out", type=Path, default=CHUNKS_PATH)
+    parser.add_argument("--force", action="store_true",
+                        help="write even if it would shrink an existing corpus by more than half")
     # Tuned so body + related-rules + glossary together land near the
     # README's "a few hundred to ~1,000 tokens" target (Section 5.3)
     # rather than each budget stacking independently toward 1,500+.
@@ -166,9 +169,14 @@ def main() -> None:
             )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8") as f:
-        for c in chunks:
-            f.write(json.dumps(c, ensure_ascii=False) + "\n")
+    # Softer than ingest.py's bound: chunk sizes are tunable by flag, so the
+    # count moves legitimately. The failure this catches is the order-of-
+    # magnitude one -- chunking a subset of the rules over the full corpus.
+    # A stale index is caught downstream instead: rag.py stores a fingerprint
+    # of chunks.jsonl and refuses to retrieve against a corpus that changed.
+    guard_shrink(args.out, len(chunks), args.force, what="chunks",
+                 hint="run `python scripts/rag.py index` after any successful rebuild.")
+    write_jsonl_atomic(args.out, chunks)
 
     token_counts = [c["approx_tokens"] for c in chunks]
     print(f"built {len(chunks)} chunks from {len(rules)} rules -> {args.out}")

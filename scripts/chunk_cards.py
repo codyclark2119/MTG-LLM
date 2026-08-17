@@ -33,7 +33,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CARD_CHUNKS_PATH, GLOSSARY_PATH, ORACLE_CARDS_PATH, RULES_PATH, iter_jsonl
+from common import (CARD_CHUNKS_PATH, GLOSSARY_PATH, ORACLE_CARDS_PATH, RULES_PATH,
+                    guard_shrink, iter_jsonl, read_jsonl, write_jsonl_atomic)
 from common import RULE_ID_RE as CROSS_REF_RE
 
 KEYWORD_RULE_RE = re.compile(r"70[12]\.\d+")
@@ -160,8 +161,7 @@ def main() -> None:
     keyword_rules = build_keyword_rule_map(args.rules, args.glossary)
     print(f"{len(keyword_rules)} keyword -> rule mappings available")
 
-    with args.cards.open(encoding="utf-8") as f:
-        raw = [json.loads(line) for line in f if line.strip()]
+    raw = read_jsonl(args.cards, missing_ok=False)
     cards = [c for c in raw if is_playable(c)]
     print(f"{len(raw)} entries, {len(cards)} playable after dropping tokens/art-series/memorabilia")
 
@@ -169,20 +169,14 @@ def main() -> None:
 
     # A large shrink almost always means a format subset is being written over
     # the full pool. Downstream card resolution degrades quietly when that
-    # happens, so make it an explicit choice rather than a silent one.
-    if args.out.exists() and not args.force:
-        existing = sum(1 for _ in args.out.open(encoding="utf-8"))
-        if existing > 2 * len(chunks):
-            raise SystemExit(
-                f"refusing to shrink {args.out} from {existing} to {len(chunks)} chunks.\n"
-                f"  This usually means --cards points at a format subset rather than the "
-                f"full Oracle pool.\n  Pass --force if the shrink is intended."
-            )
-
+    # happens, so make it an explicit choice rather than a silent one. The
+    # check moved to common.guard_shrink so ingest.py and chunk.py share it
+    # rather than each deciding again.
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8") as f:
-        for c in chunks:
-            f.write(json.dumps(c, ensure_ascii=False) + "\n")
+    guard_shrink(args.out, len(chunks), args.force, what="chunks",
+                 hint="this usually means --cards points at a format subset rather "
+                      "than the full Oracle pool.")
+    write_jsonl_atomic(args.out, chunks)
 
     linked = sum(1 for c in chunks if c["keyword_rule_ids"])
     with_kw = sum(1 for c in chunks if c["keywords"])

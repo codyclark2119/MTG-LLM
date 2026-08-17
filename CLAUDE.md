@@ -209,7 +209,13 @@ Each cost real time. They recur in new code, so they are worth knowing.
   docstring that explains *why*, with a usage block.
 - Data is `.jsonl`, one record per line. Read with `common.read_jsonl`; write
   hand-authored data with `common.write_jsonl_atomic`.
-- Destructive rebuilds refuse to shrink an existing corpus without `--force`.
+- Destructive rebuilds refuse to shrink an existing corpus without `--force`,
+  via `common.guard_shrink` — never a re-implementation. `min_ratio` is 1.0 for
+  `rules.jsonl` (the CR is pinned, so any shrink is a parse regression and
+  nothing downstream checksums it) and 0.5 for derived corpora, where the known
+  failure is an order-of-magnitude subset. They write with
+  `write_jsonl_atomic`, so a crash mid-write cannot leave a truncated corpus
+  that reads as valid.
 - Snapshots of external APIs are **frozen and additive** — RulesGuru
   re-randomizes card and player names per request, so re-fetching a record
   would silently change it.

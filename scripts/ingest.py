@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CR_TEXT_PATH, PROCESSED_DIR
+from common import CR_TEXT_PATH, PROCESSED_DIR, guard_shrink, write_jsonl_atomic
 from common import RULE_ID_RE as CROSS_REF_RE
 
 SECTION_RE = re.compile(r"^([1-9])\.\s+(.+)$")
@@ -196,6 +196,10 @@ def main() -> None:
         "--out-dir", type=Path, default=PROCESSED_DIR,
         help="Directory to write rules.jsonl and glossary.jsonl into",
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="write even if the parse produced fewer rules than the existing corpus",
+    )
     args = parser.parse_args()
 
     text = args.raw.read_text(encoding="utf-8")
@@ -216,13 +220,20 @@ def main() -> None:
     rules_path = args.out_dir / "rules.jsonl"
     glossary_path = args.out_dir / "glossary.jsonl"
 
-    with rules_path.open("w", encoding="utf-8") as f:
-        for r in rules:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    # The CR is pinned (common.CR_VERSION), so these counts are constants until
+    # the pin deliberately changes. Any shrink is a parse regression, and this
+    # is the corpus where one is most expensive: nothing checksums
+    # rules.jsonl, and validate_gold resolves gold citations against it, so a
+    # short parse reports correct hand-authored citations as unresolvable.
+    guard_shrink(rules_path, len(rules), args.force, min_ratio=1.0, what="rules",
+                 hint="the Comprehensive Rules are pinned, so a smaller parse is a regression.")
+    guard_shrink(glossary_path, len(glossary), args.force, min_ratio=1.0,
+                 what="glossary entries")
 
-    with glossary_path.open("w", encoding="utf-8") as f:
-        for g in glossary:
-            f.write(json.dumps(g, ensure_ascii=False) + "\n")
+    # Atomic: these streamed to an open file, so a crash mid-write left a
+    # truncated corpus that reads as valid until something reaches the last line.
+    write_jsonl_atomic(rules_path, rules)
+    write_jsonl_atomic(glossary_path, glossary)
 
     print(f"parsed {len(rules)} rules across {len(sections)} sections -> {rules_path}")
     print(f"parsed {len(glossary)} glossary entries -> {glossary_path}")

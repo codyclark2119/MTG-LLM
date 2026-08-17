@@ -620,6 +620,45 @@ def iter_jsonl(path: Path, missing_ok: bool = True):
                 yield json.loads(line)
 
 
+def guard_shrink(path: Path, new_count: int, force: bool = False,
+                 min_ratio: float = 0.5, what: str = "records",
+                 hint: str = "") -> None:
+    """Refuse to overwrite a corpus with a much smaller one. Raises SystemExit.
+
+    The README's own quick start once overwrote a 34,933-chunk card corpus with
+    a 4% subset, and nothing downstream complained — card resolution just got
+    quietly worse. `chunk_cards.py` grew a guard afterwards; `ingest.py` and
+    `chunk.py`, which are the same kind of destructive rebuild, did not. One
+    definition now, so a new rebuild script inherits it instead of
+    re-deciding.
+
+    `min_ratio` is the fraction of the existing corpus the new one must reach.
+    It is a parameter rather than a constant because the two failure modes are
+    genuinely different:
+
+      * **0.5 for derived corpora.** The known failure is writing a format
+        subset over the full pool, which is an order-of-magnitude shrink. A
+        tighter bound would fire on ordinary churn.
+      * **1.0 for `rules.jsonl`.** The Comprehensive Rules are pinned in this
+        file (`CR_VERSION`), so the rule count is a constant until someone
+        deliberately changes the pin. Any shrink at all is a parse regression,
+        and it is the expensive one: nothing downstream checksums
+        `rules.jsonl`, and `validate_gold` resolves gold citations against it —
+        so a short corpus reports *correct* hand-authored citations as
+        unresolvable, which invites "fixing" the data to match a broken parse.
+    """
+    if force or not path.exists():
+        return
+    existing = sum(1 for line in path.open(encoding="utf-8") if line.strip())
+    if new_count >= existing * min_ratio:
+        return
+    detail = (f"refusing to shrink {path} from {existing} to {new_count} {what}.\n"
+              f"  (the new corpus must be at least {min_ratio:.0%} of the existing one)")
+    if hint:
+        detail += f"\n  {hint}"
+    raise SystemExit(detail + "\n  Pass --force if the shrink is intended.")
+
+
 def write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
     """Write via a temp file in the same directory, then replace.
 
