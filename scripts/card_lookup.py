@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import CARD_CHUNKS_PATH as CARD_CHUNKS
+from common import iter_jsonl
 
 BRACKET_RE = re.compile(r"\[\[(.*?)\]\]")
 
@@ -40,16 +41,14 @@ class CardIndex:
     def __init__(self, chunks_path: Path = CARD_CHUNKS):
         self.by_name: dict[str, dict] = {}
         self.by_norm: dict[str, dict] = {}
-        with chunks_path.open(encoding="utf-8") as f:
-            for line in f:
-                c = json.loads(line)
-                name = c["name"]
-                self.by_name[name] = c
-                self.by_norm.setdefault(normalize(name), c)
-                # Index each face of a split/transform card under its own
-                # name too — players cite "Fire" not "Fire // Ice".
-                for face in name.split(" // "):
-                    self.by_norm.setdefault(normalize(face), c)
+        for c in iter_jsonl(chunks_path):
+            name = c["name"]
+            self.by_name[name] = c
+            self.by_norm.setdefault(normalize(name), c)
+            # Index each face of a split/transform card under its own
+            # name too — players cite "Fire" not "Fire // Ice".
+            for face in name.split(" // "):
+                self.by_norm.setdefault(normalize(face), c)
         self._norm_keys = list(self.by_norm)
 
     @lru_cache(maxsize=4096)

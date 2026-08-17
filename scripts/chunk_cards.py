@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CARD_CHUNKS_PATH, GLOSSARY_PATH, ORACLE_CARDS_PATH, RULES_PATH
+from common import CARD_CHUNKS_PATH, GLOSSARY_PATH, ORACLE_CARDS_PATH, RULES_PATH, iter_jsonl
 from common import RULE_ID_RE as CROSS_REF_RE
 
 KEYWORD_RULE_RE = re.compile(r"70[12]\.\d+")
@@ -60,23 +60,19 @@ def build_keyword_rule_map(rules_path: Path, glossary_path: Path) -> dict[str, s
     for keywords whose header didn't survive as a clean record.
     """
     mapping: dict[str, str] = {}
-    with rules_path.open(encoding="utf-8") as f:
-        for line in f:
-            r = json.loads(line)
-            if KEYWORD_RULE_RE.fullmatch(r["rule_id"]):
-                text = r["text"].strip().rstrip(".")
-                if len(text) < 60 and "\n" not in text:
-                    mapping.setdefault(text.lower(), r["rule_id"])
+    for r in iter_jsonl(rules_path):
+        if KEYWORD_RULE_RE.fullmatch(r["rule_id"]):
+            text = r["text"].strip().rstrip(".")
+            if len(text) < 60 and "\n" not in text:
+                mapping.setdefault(text.lower(), r["rule_id"])
 
-    with glossary_path.open(encoding="utf-8") as f:
-        for line in f:
-            g = json.loads(line)
-            term = g["term"].lower()
-            if term in mapping:
-                continue
-            refs = CROSS_REF_RE.findall(g["definition"])
-            if refs:
-                mapping[term] = refs[0]
+    for g in iter_jsonl(glossary_path):
+        term = g["term"].lower()
+        if term in mapping:
+            continue
+        refs = CROSS_REF_RE.findall(g["definition"])
+        if refs:
+            mapping[term] = refs[0]
     return mapping
 
 

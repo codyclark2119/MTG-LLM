@@ -34,7 +34,7 @@ import argparse
 import json
 from pathlib import Path
 
-from common import CHUNKS_PATH, CR_VERSION, INDEX_PATH, REPO_ROOT, RULES_PATH, SYSTEM_PROMPT, load_rule_ids
+from common import CHUNKS_PATH, CR_VERSION, INDEX_PATH, REPO_ROOT, RULES_PATH, SYSTEM_PROMPT, iter_jsonl, load_rule_ids
 from common import RULE_ID_RE as CROSS_REF_RE
 
 MIN_PROMPT_LEN = 30
@@ -111,16 +111,14 @@ def main() -> None:
     for path in args.exclude_from:
         if not path.exists():
             continue
-        with path.open(encoding="utf-8") as f:
-            for line in f:
-                rec = json.loads(line)
-                if "messages" in rec:
-                    for m in rec["messages"]:
-                        if m["role"] == "user":
-                            t = m["content"]
-                            excluded_questions.add(t.split("\n\nQuestion: ", 1)[-1].strip())
-                elif "question" in rec:
-                    excluded_questions.add(rec["question"].strip())
+        for rec in iter_jsonl(path):
+            if "messages" in rec:
+                for m in rec["messages"]:
+                    if m["role"] == "user":
+                        t = m["content"]
+                        excluded_questions.add(t.split("\n\nQuestion: ", 1)[-1].strip())
+            elif "question" in rec:
+                excluded_questions.add(rec["question"].strip())
     if excluded_questions:
         before = len(candidates)
         candidates = [r for r in candidates if r["prompt"].strip() not in excluded_questions]

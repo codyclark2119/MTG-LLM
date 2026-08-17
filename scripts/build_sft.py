@@ -41,7 +41,7 @@ import sys
 import time
 from pathlib import Path
 
-from common import CHUNKS_PATH, DATASETS_DIR, GLOSSARY_PATH, INDEX_PATH, REPO_ROOT, RULES_PATH, build_rag_messages, read_jsonl
+from common import CHUNKS_PATH, DATASETS_DIR, GLOSSARY_PATH, INDEX_PATH, REPO_ROOT, RULES_PATH, build_rag_messages, iter_jsonl, read_jsonl
 from common import RULE_ID_RE as CROSS_REF_RE
 
 REDIRECT_RE = re.compile(r"^See [^.]+\.$")
@@ -239,17 +239,15 @@ def load_eval_questions(*paths: Path) -> set[str]:
     for path in paths:
         if not path.exists():
             continue
-        with path.open(encoding="utf-8") as f:
-            for line in f:
-                record = json.loads(line)
-                for m in record["messages"]:
-                    if m["role"] == "user":
-                        # Strip the RAG wrapper if present so bare and grounded
-                        # phrasings of the same question both match.
-                        text = m["content"]
-                        if "\n\nQuestion: " in text:
-                            text = text.split("\n\nQuestion: ", 1)[1]
-                        questions.add(text.strip())
+        for record in iter_jsonl(path):
+            for m in record["messages"]:
+                if m["role"] == "user":
+                    # Strip the RAG wrapper if present so bare and grounded
+                    # phrasings of the same question both match.
+                    text = m["content"]
+                    if "\n\nQuestion: " in text:
+                        text = text.split("\n\nQuestion: ", 1)[1]
+                    questions.add(text.strip())
     return questions
 
 

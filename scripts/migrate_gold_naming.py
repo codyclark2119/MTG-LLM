@@ -49,115 +49,20 @@ Usage:
 """
 
 import argparse
-import json
-import re
 import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import (GOLD_PATH, is_hand_authored, read_jsonl, templatize,
+from common import (GOLD_PATH, normalize_record, read_jsonl,
                     write_jsonl_atomic)
 
-# A capitalized word directly in front of a verb only a player performs. Same
-# grammar test `common.stray_names` uses, and for the same reason: matching on
-# capitalization alone cannot tell "Nylah" from "Swamp".
-# Only verbs that REQUIRE a player subject. The first draft also carried
-# "is/are/do/does/will/would" and turned "What are the characteristics of..."
-# into "Player B are the characteristics of...", corrupting the question. A
-# generic copula is not evidence of a player.
-PLAYER_VERBS = (
-    "controls control casts cast has have had plays play played attacks attack "
-    "blocks block targets target draws draw discards discard sacrifices sacrifice "
-    "activates activate taps tap owns own gains gain loses lose wants want "
-    "responds respond chooses choose declares declare puts put moves move "
-    "exiles exile destroys destroy counters counter reveals reveal wins win "
-    "searches search passes pass concedes concede attempts attempt tries try"
-).split()
-PLAYER_RE = re.compile(r"\b([A-Z][a-z]{2,})\s+(?:" + "|".join(PLAYER_VERBS) + r")\b")
-LABELS = [f"Player {c}" for c in "ABCDEFGH"]
-
-# The [[cardN]] form and the reason for it live in common.py, alongside the
-# inverse the authoring form needs.
-
-
-def card_words(cards: list[str]) -> set[str]:
-    """Every capitalized token appearing inside a card name.
-
-    A card called "Alesha, Who Smiles at Death" would otherwise have "Alesha"
-    read as a player. Card names are known exactly, so exclude their tokens.
-    """
-    out: set[str] = set()
-    for name in cards or []:
-        for tok in re.split(r"[^A-Za-z]+", name):
-            if tok and tok[0].isupper():
-                out.add(tok)
-    return out
-
-
-def find_players(question: str, answer: str, cards: list[str]) -> list[str]:
-    """Player names, in order of first appearance in the question then answer."""
-    banned = card_words(cards)
-    order: list[str] = []
-    for text in (question or "", answer or ""):
-        for name in PLAYER_RE.findall(text):
-            if name not in banned and name not in order:
-                order.append(name)
-    return order
-
-
-def rename(text: str, mapping: dict[str, str]) -> str:
-    if not text or not mapping:
-        return text
-    # Longest first so a name that is a prefix of another cannot half-match.
-    pattern = re.compile(r"\b(" + "|".join(re.escape(n) for n in
-                                           sorted(mapping, key=len, reverse=True)) + r")\b")
-    return pattern.sub(lambda m: mapping[m.group(1)], text)
-
-
-def migrate_record(rec: dict) -> tuple[dict, list[str]]:
-    """Return (new record, human-readable notes). Never mutates the input."""
-    out = dict(rec)
-    notes: list[str] = []
-    cards = rec.get("cards") or []
-
-    players = find_players(rec.get("question", ""), rec.get("answer", ""), cards)
-    if len(players) > len(LABELS):
-        notes.append(f"!! {len(players)} players found, only {len(LABELS)} labels — skipped")
-        return rec, notes
-    mapping = dict(zip(players, LABELS))
-    if mapping:
-        out["question"] = rename(rec.get("question", ""), mapping)
-        out["answer"] = rename(rec.get("answer", ""), mapping)
-        out["paraphrases"] = [rename(p, mapping) for p in rec.get("paraphrases") or []]
-        # The rubric names players too. Renaming only question and answer left
-        # a key point reading "At the moment [[card2]] enters Alex controls no
-        # Swamps" against a question that no longer mentions Alex.
-        for field in ("key_points", "common_errors"):
-            out[field] = [rename(x, mapping) for x in rec.get(field) or []]
-        notes.append("players: " + ", ".join(f"{k} -> {v}" for k, v in mapping.items()))
-    else:
-        notes.append("players: none found")
-
-    if cards:
-        slots = {f"card{i}": name for i, name in enumerate(cards, 1)}
-        out["card_slots"] = slots
-        notes.append("slots: " + ", ".join(f"{k}={v}" for k, v in slots.items()))
-        # Only hand-authored rubrics are templated. A machine draft is going to
-        # be rewritten from scratch anyway, and templating it would just make
-        # the text the author is meant to replace harder to read.
-        if is_hand_authored(rec):
-            for field in ("key_points", "common_errors"):
-                before = out.get(field) or []          # already player-renamed
-                after = [templatize(x, slots) for x in before]
-                out[field] = after
-                for b, a in zip(before, after):
-                    if b != a:
-                        notes.append(f"  {field}: {a}")
-        else:
-            notes.append("  (machine draft — rubric left alone, it gets rewritten)")
-    return out, notes
+# The normalizer itself now lives in common.py — `migrate_record` was copied
+# into the task export and the promotion path, and a third copy is how the
+# player-verb lists drifted apart in the first place. This script is the
+# one-time driver; the logic is shared. See `common.normalize_record`.
+migrate_record = normalize_record
 
 
 def main() -> None:

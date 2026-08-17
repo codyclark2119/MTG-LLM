@@ -70,6 +70,24 @@ from rag import retrieve
 # base model, which fits at 36GB for inference) a flag change rather than an
 # edit.
 BASE_MODEL_ID = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+
+# v2-best, deliberately, after run 3 — NOT a stale default (Section 18.3).
+#
+# Run 3 trained a full epoch against v2's 0.45 and was evaluated under both
+# judges: `finetuned_rag` moved +0.04 (Qwen) and +0.02 (Llama), while the two
+# control arms — byte-identical answers that cannot have changed — moved up to
+# 0.23 on judge variance alone. There is no measured basis to prefer
+# ckpt1322, so nothing was promoted and `models/mtg-rules-adapter-v3-best`
+# deliberately does not exist.
+#
+# Note also that v2-best IS iteration 600 of the v3 run: the two checkpoints
+# are bit-identical, 224 tensors, max absolute difference 0.0. So this default
+# does not point at an older experiment — it points at the earlier of two
+# indistinguishable checkpoints from the same curve, and the cheaper one to
+# reproduce.
+#
+# Evaluate ckpt1322 with `--adapter-path models/mtg-rules-adapter-v3-ckpt1322`;
+# the choice is recorded in the results file either way.
 ADAPTER_PATH = "models/mtg-rules-adapter-v2-best"
 
 # The v1 judge prompt and its judge_batch() were removed in the Section 17

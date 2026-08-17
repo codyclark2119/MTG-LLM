@@ -48,8 +48,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (GOLD_CANDIDATES_PATH, GOLD_PATH, WORKSHEETS_DIR,
-                    is_hand_authored, lint_common_errors, read_jsonl,
-                    stray_names, templatize, untemplatize)
+                    is_hand_authored, lint_common_errors, normalize_record,
+                    read_jsonl, stray_names, templatize, untemplatize)
 
 CANDIDATES_PATH = GOLD_CANDIDATES_PATH
 WORKSHEET_DIR = WORKSHEETS_DIR
@@ -157,7 +157,7 @@ def pick_candidates(candidates: list[dict], gold: list[dict], n: int,
     return picked
 
 
-def export_tasks(records: list[dict], out_path: Path) -> None:
+def export_tasks(records: list[dict], out_path: Path, gold_ids: set[str] | None = None) -> None:
     """Write the self-contained task file the rubric server reads.
 
     Self-contained on purpose. The server gets questions, verified answers and
@@ -165,7 +165,21 @@ def export_tasks(records: list[dict], out_path: Path) -> None:
     no rules corpus and no card index, so a host running it cannot leak or
     corrupt any of them. Everything a contributor needs to see is here; nothing
     they must not reach is.
+
+    **Records are normalized on the way out.** Gold was migrated to
+    `Player A/B` with `card_slots`; the 1,202 candidates never were, and they
+    are where every record past the first 39 comes from. Exporting them raw
+    showed contributors "Arden controls..." next to gold's "Player A
+    controls...", and shipped `card_slots: {}` even though `cards` was
+    populated on 1,200 of them — so the card chips did nothing and no rubric
+    written against a candidate got templated. Both defects were silent: the
+    form worked, the rubric saved, validation passed.
+
+    The promotion path applies the *same* function, so the slots a rubric was
+    written against are the slots the gold record ends up with.
     """
+    gold_ids = gold_ids or set()
+    records = [normalize_record(r)[0] for r in records]
     tasks = [
         {
             "id": r["id"],
@@ -179,7 +193,12 @@ def export_tasks(records: list[dict], out_path: Path) -> None:
             "draft": [untemplatize(x, r.get("card_slots") or {})
                       for x in r.get("key_points") or []],
             "url": r.get("rulesguru_url", ""),
-            "in_gold": bool(r.get("cr_version")),
+            # Membership, checked against the gold set. This was
+            # `bool(r.get("cr_version"))` — but candidates carry `cr_version`
+            # too (they are built against the same pinned CR), so every
+            # candidate exported as `in_gold: True`. One field, two meanings:
+            # "built against CR 2026-08-07" is not "a person promoted this".
+            "in_gold": r["id"] in gold_ids,
             # The form needs the mapping in both directions: to show which card
             # occupies which slot, and to turn the names an author types back
             # into slots on save. Without it a fresh task file would render
@@ -357,7 +376,8 @@ def main() -> None:
         if not pool:
             raise SystemExit("nothing to export — every gold rubric is hand-authored "
                              "and --include-new was not given")
-        export_tasks(pool, args.out or WORKSHEETS_DIR / "tasks.json")
+        export_tasks(pool, args.out or WORKSHEETS_DIR / "tasks.json",
+                     gold_ids={r["id"] for r in gold})
         return
 
     if args.ingest or args.ingest_submissions:
@@ -398,7 +418,14 @@ def main() -> None:
                          else "promote" if rid in {c["id"] for c in load_jsonl(args.candidates)}
                          else "UNKNOWN ID")
                 who = authors.get(rid) or args.author or "unattributed"
-                ref = (by_id.get(rid) or candidates.get(rid) or {})
+                # Normalized, for the same reason the promotion is: the rubric
+                # being checked says "Player A", so checking it against a raw
+                # candidate's "Arden" question would report every correct
+                # rubric as naming a player the question never introduces.
+                ref = by_id.get(rid)
+                if ref is None and rid in candidates:
+                    ref = normalize_record(candidates[rid], templatize_rubric=False)[0]
+                ref = ref or {}
                 # Expand [[cardN]] before showing OR linting. The answer keeps
                 # real card names, so a templated rubric silently defeats
                 # `lint_common_errors`: the Section 16.12 defect "Casts
@@ -444,7 +471,15 @@ def main() -> None:
                                   rubric_source=source_for(rid), needs_rubric_review=False)
                 updated += 1
             elif rid in candidates:
-                rec = dict(candidates[rid])
+                # Normalize BEFORE attaching the rubric. The contributor wrote
+                # against the exported task, which `export_tasks` normalized
+                # with this same function — so the question they read said
+                # "Player A" and the slots their card names collapsed into came
+                # from this same `cards` list, in this same order. Promoting the
+                # raw candidate instead would file a "Player A" rubric against
+                # an "Arden" question, and drop the slots the rubric is written
+                # in. The rubric itself is taken as submitted, not re-renamed.
+                rec = normalize_record(candidates[rid], templatize_rubric=False)[0]
                 rec.update(key_points=rub["key_points"], common_errors=rub["common_errors"],
                            rubric_source=source_for(rid), needs_rubric_review=False,
                            needs_review=True)

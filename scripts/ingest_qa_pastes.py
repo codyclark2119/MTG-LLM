@@ -36,7 +36,7 @@ import re
 import sys
 from pathlib import Path
 
-from common import CR_VERSION, GOLD_PATH, RULES_PATH, load_rule_ids
+from common import CR_VERSION, GOLD_PATH, RULES_PATH, iter_jsonl, load_rule_ids
 from common import RULE_ID_RE as CROSS_REF_RE
 
 # Labels vary across sources ("Question" vs "Question:"), and pasted text
@@ -171,10 +171,8 @@ def main() -> None:
 
     existing: dict[str, dict] = {}
     if args.out.exists():
-        with args.out.open(encoding="utf-8") as f:
-            for line in f:
-                r = json.loads(line)
-                existing[r["id"]] = r
+        for r in iter_jsonl(args.out):
+            existing[r["id"]] = r
     print(f"{len(existing)} gold records already present")
 
     entries = []

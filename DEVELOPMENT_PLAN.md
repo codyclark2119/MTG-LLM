@@ -1734,6 +1734,21 @@ which judge is asked, which is the only thing being claimed.
 fell 6/110 → 2/110. At these counts that is not distinguishable from chance, and
 it is recorded as an observation rather than a result.
 
+**Promotion decision: nothing was promoted.** `models/mtg-rules-adapter-v3-best`
+deliberately does not exist, and `eval.ADAPTER_PATH` stays at
+`models/mtg-rules-adapter-v2-best`. Promoting ckpt1322 would assert it is
+better; two judges say it is not distinguishable, and the project's rule is
+that a number inside the noise band is not a result. Keeping v2-best also costs
+nothing in currency: it *is* iteration 600 of the v3 run, bit-identical, so the
+default points at the earlier of two indistinguishable checkpoints on the same
+curve rather than at a superseded experiment.
+
+This is written down because the opposite failure has happened here —
+`ADAPTER_PATH` pointed at v1 long after v2 superseded it and a bare
+`python scripts/eval.py` silently scored the wrong adapter (Section 15.2). The
+distinction between "stale" and "deliberate" lives in the reason, so the reason
+is recorded next to the default itself.
+
 ### 18.4 Gate 1 passes; Gate 2 still depends on which judge is asked
 
 The `PASS`-matching fix from Section 16.13 was re-run against the stored seed

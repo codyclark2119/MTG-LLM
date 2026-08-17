@@ -29,7 +29,7 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import CARD_CHUNKS_PATH, RAW_RULINGS_PATH, RULES_PATH, RULING_CHUNKS_PATH, load_rule_ids
+from common import CARD_CHUNKS_PATH, RAW_RULINGS_PATH, RULES_PATH, RULING_CHUNKS_PATH, iter_jsonl, load_rule_ids
 from common import RULE_ID_RE as CROSS_REF_RE
 
 # Scryfall bulk downloading lives in fetch_cards.py — this was a second,
@@ -58,22 +58,18 @@ def main() -> None:
     valid_rule_ids = load_rule_ids(args.rules)
 
     cards_by_oracle: dict[str, dict] = {}
-    with args.card_chunks.open(encoding="utf-8") as f:
-        for line in f:
-            c = json.loads(line)
-            if c.get("oracle_id"):
-                cards_by_oracle[c["oracle_id"]] = c
+    for c in iter_jsonl(args.card_chunks):
+        if c.get("oracle_id"):
+            cards_by_oracle[c["oracle_id"]] = c
 
     grouped: dict[str, list[dict]] = defaultdict(list)
     total = kept = 0
-    with args.rulings.open(encoding="utf-8") as f:
-        for line in f:
-            r = json.loads(line)
-            total += 1
-            if wotc_only and r.get("source") != "wotc":
-                continue
-            kept += 1
-            grouped[r["oracle_id"]].append(r)
+    for r in iter_jsonl(args.rulings):
+        total += 1
+        if wotc_only and r.get("source") != "wotc":
+            continue
+        kept += 1
+        grouped[r["oracle_id"]].append(r)
 
     chunks = []
     orphans = 0

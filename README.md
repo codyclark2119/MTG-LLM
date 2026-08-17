@@ -59,7 +59,9 @@ Each stage writes a committed artifact, so you can start anywhere.
 | Fine-tune | `python -m mlx_lm lora -c configs/phase1_lora_v3.yaml` | adapter in `models/` |
 | Evaluate | `python scripts/eval.py --adapter-path models/mtg-rules-adapter-v2-best` | `eval/EVAL_REPORT*.md` |
 
-Evaluation takes ~2.5 hours on an M3 Pro; both stages checkpoint incrementally. The v3 config runs `iters: 1322` — exactly one epoch at batch 2 over 2,644 lines, ~6 hours. `phase1_lora_v2.yaml` is kept for comparability but ran only **0.45 epochs**, which confounds every result that scores its adapter (§15.6); use v3 for new runs.
+Evaluation takes ~2.5 hours on an M3 Pro; both stages checkpoint incrementally. The v3 config runs `iters: 1322` — exactly one epoch at batch 2 over 2,644 lines, ~6 hours. `phase1_lora_v2.yaml` is kept for comparability but ran only **0.45 epochs**; use v3 for new runs.
+
+**Why the eval command still names `v2-best` after run 3.** Run 3 removed the under-training confound and changed nothing: `finetuned_rag` moved +0.04 under Qwen and +0.02 under Llama, against control arms — byte-identical answers — that moved up to 0.23 on judge variance alone (§18.3). With no measured basis to prefer it, ckpt1322 was **not promoted** and `models/mtg-rules-adapter-v3-best` deliberately does not exist. `v2-best` is also bit-identical to iteration 600 of the v3 run, so the default is the earlier of two indistinguishable checkpoints on one curve, not an older experiment. Score run 3 explicitly with `--adapter-path models/mtg-rules-adapter-v3-ckpt1322`.
 
 ### Card data
 

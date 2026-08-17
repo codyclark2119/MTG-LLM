@@ -44,7 +44,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import REPO_ROOT  # noqa: E402
+from common import REPO_ROOT, iter_jsonl  # noqa: E402
 
 RECORD_RE = re.compile(r"^Question ID:\s*(\d+)\s*$", re.M)
 FIELD_RE = re.compile(r"^(Infractions|Cards|Description|Answer):\s*$|^(Infractions|Cards):\s*(.*)$", re.M)
@@ -175,10 +175,8 @@ def main() -> None:
     # is additive rather than a fresh snapshot.
     existing: dict[str, dict] = {}
     if args.out.exists():
-        with args.out.open(encoding="utf-8") as f:
-            for line in f:
-                r = json.loads(line)
-                existing[r["id"]] = r
+        for r in iter_jsonl(args.out):
+            existing[r["id"]] = r
     print(f"{len(existing)} scenarios already collected")
 
     texts: list[str] = []

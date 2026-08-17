@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import REPO_ROOT, RULESGURU_SNAPSHOT  # noqa: E402
+from common import REPO_ROOT, RULESGURU_SNAPSHOT, iter_jsonl  # noqa: E402
 
 API_URL = "https://rulesguru.org/api/questions/"
 # The API asks callers to identify themselves. Doing so is free and it is
@@ -174,10 +174,8 @@ def main() -> None:
     # instead of destructive, given the server re-randomizes question text.
     existing: dict[int, dict] = {}
     if args.out.exists():
-        with args.out.open(encoding="utf-8") as f:
-            for line in f:
-                r = json.loads(line)
-                existing[r["id"]] = r
+        for r in iter_jsonl(args.out):
+            existing[r["id"]] = r
     print(f"{len(existing)} questions already in the snapshot")
 
     settings = build_settings(args)

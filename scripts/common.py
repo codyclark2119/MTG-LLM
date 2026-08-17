@@ -398,15 +398,28 @@ HAND_AUTHORED_PREFIX = "hand-authored"
 # Verbs a PLAYER does. A capitalized word immediately in front of one of these
 # is a player; a capitalized word anywhere else is Magic vocabulary — a card,
 # a creature type, a keyword — and none of our business.
-_PLAYER_VERBS = (
+#
+# Only verbs that REQUIRE a player subject. An early draft also carried
+# "is/are/do/does/will/would" and rewrote "What are the characteristics of..."
+# into "Player B are the characteristics of..." — a generic copula is not
+# evidence of a player.
+#
+# ONE list, because there were two. `migrate_gold_naming` kept its own copy
+# with five extra verbs (search, pass, concede, attempt, try), so the migration
+# and `stray_names` disagreed about what a player is — the duplicated-helper
+# failure this repo keeps finding, live. The union is used everywhere.
+PLAYER_VERBS = (
     "controls control casts cast has have had plays play played attacks attack "
     "blocks block targets target draws draw discards discard sacrifices sacrifice "
     "activates activate taps tap owns own gains gain loses lose wants want "
     "responds respond chooses choose declares declare puts put moves move "
-    "exiles exile destroys destroy counters counter reveals reveal wins win"
+    "exiles exile destroys destroy counters counter reveals reveal wins win "
+    "searches search passes pass concedes concede attempts attempt tries try"
 ).split()
+_PLAYER_VERBS = PLAYER_VERBS  # back-compat for readers of the private name
 _PLAYER_NAME = re.compile(
-    r"\b([A-Z][a-z]{2,})\s+(?:" + "|".join(_PLAYER_VERBS) + r")\b")
+    r"\b([A-Z][a-z]{2,})\s+(?:" + "|".join(PLAYER_VERBS) + r")\b")
+PLAYER_LABELS = [f"Player {c}" for c in "ABCDEFGH"]
 
 
 def stray_names(question: str, answer: str, lines: list[str]) -> list[str]:
@@ -466,6 +479,108 @@ def is_hand_authored(record: dict) -> bool:
     return str(record.get("rubric_source") or "").startswith(HAND_AUTHORED_PREFIX)
 
 
+def _card_words(cards: list[str]) -> set[str]:
+    """Every capitalized token inside a card name.
+
+    "Alesha, Who Smiles at Death" would otherwise have "Alesha" read as a
+    player. Card names are known exactly, so exclude their tokens rather than
+    guessing from capitalization.
+    """
+    out: set[str] = set()
+    for name in cards or []:
+        for tok in re.split(r"[^A-Za-z]+", name):
+            if tok and tok[0].isupper():
+                out.add(tok)
+    return out
+
+
+def find_players(question: str, answer: str, cards: list[str]) -> list[str]:
+    """Player names, in order of first appearance in question then answer."""
+    banned = _card_words(cards)
+    order: list[str] = []
+    for text in (question or "", answer or ""):
+        for name in _PLAYER_NAME.findall(text):
+            if name not in banned and name not in order:
+                order.append(name)
+    return order
+
+
+def _rename(text: str, mapping: dict[str, str]) -> str:
+    if not text or not mapping:
+        return text
+    # Longest first so a name that is a prefix of another cannot half-match.
+    pattern = re.compile(r"\b(" + "|".join(re.escape(n) for n in
+                                           sorted(mapping, key=len, reverse=True)) + r")\b")
+    return pattern.sub(lambda m: mapping[m.group(1)], text)
+
+
+def normalize_record(rec: dict, templatize_rubric: bool | None = None) -> tuple[dict, list[str]]:
+    """Player names to `Player A/B/...`, and `card_slots` derived from `cards`.
+
+    Returns `(new record, notes)` and never mutates the input.
+
+    RulesGuru re-randomizes player names *and* cards on every fetch, so both
+    are arbitrary labels on a ruling that is not. Normalizing players makes a
+    rubric able to name one directly; storing cards as slots lets one rubric
+    score every instantiation of its question, which is what separates "does
+    the model know this rule" from "has it memorized this card".
+
+    Lives here, and not in `migrate_gold_naming.py` where it started, because
+    three callers need the *same* answer: the one-time migration, the task
+    export a contributor reads, and the promotion that writes a candidate into
+    the gold set. When only the migration had it, records promoted afterwards
+    entered the gold set un-normalized and slot-less while the first 39 were
+    fine — two conventions inside one measurement, arriving silently.
+
+    Templates never enter `question` or `answer`. Those are what the model
+    reads, and meta-syntax in a prompt gets copied: `ACTION_GRAMMAR` once wrote
+    optional operands as `[TARGET <x>]`, the model reproduced the brackets, and
+    correct plays scored as illegal.
+
+    `templatize_rubric` defaults to "only if a person wrote this rubric" — a
+    machine draft is going to be rewritten from scratch, and templating it just
+    makes the text the author is meant to replace harder to read.
+    """
+    out = dict(rec)
+    notes: list[str] = []
+    cards = rec.get("cards") or []
+
+    players = find_players(rec.get("question", ""), rec.get("answer", ""), cards)
+    if len(players) > len(PLAYER_LABELS):
+        notes.append(f"!! {len(players)} players found, only {len(PLAYER_LABELS)} labels — skipped")
+        return dict(rec), notes
+    mapping = dict(zip(players, PLAYER_LABELS))
+    if mapping:
+        out["question"] = _rename(rec.get("question", ""), mapping)
+        out["answer"] = _rename(rec.get("answer", ""), mapping)
+        out["paraphrases"] = [_rename(p, mapping) for p in rec.get("paraphrases") or []]
+        # The rubric names players too. Renaming only question and answer left a
+        # key point reading "At the moment [[card2]] enters Alex controls no
+        # Swamps" against a question that no longer mentions Alex.
+        for field in ("key_points", "common_errors"):
+            out[field] = [_rename(x, mapping) for x in rec.get(field) or []]
+        notes.append("players: " + ", ".join(f"{k} -> {v}" for k, v in mapping.items()))
+    else:
+        notes.append("players: none found")
+
+    if cards:
+        slots = {f"card{i}": name for i, name in enumerate(cards, 1)}
+        out["card_slots"] = slots
+        notes.append("slots: " + ", ".join(f"{k}={v}" for k, v in slots.items()))
+        want = is_hand_authored(rec) if templatize_rubric is None else templatize_rubric
+        if want:
+            for field in ("key_points", "common_errors"):
+                before = out.get(field) or []          # already player-renamed
+                after = [templatize(x, slots) for x in before]
+                out[field] = after
+                for b, a in zip(before, after):
+                    if b != a:
+                        notes.append(f"  {field}: {a}")
+        else:
+            notes.append("  (machine draft — rubric left alone, it gets rewritten)")
+    return out, notes
+
+
 def read_jsonl(path: Path, missing_ok: bool = True) -> list[dict]:
     """Read a .jsonl file, skipping blank lines.
 
@@ -479,11 +594,30 @@ def read_jsonl(path: Path, missing_ok: bool = True) -> list[dict]:
     That is the same failure `load_rule_ids` was consolidated to fix in
     Section 15.3, reappearing one level up. One definition, so the guard cannot
     be missing from some callers and present in others.
+
+    Use `iter_jsonl` instead when the file is large — `oracle_cards.jsonl` is
+    193MB and several readers stream it on purpose. Both share this guard, so
+    "stream it" never means "reimplement it".
+    """
+    return list(iter_jsonl(path, missing_ok=missing_ok))
+
+
+def iter_jsonl(path: Path, missing_ok: bool = True):
+    """Streaming `read_jsonl`, for files too large to hold in memory.
+
+    Exists so that needing to stream is not a reason to hand-roll the reader.
+    The list-building version above was added to kill five divergent copies,
+    but ten inline `for line in f: json.loads(line)` loops survived it —
+    including over `oracle_cards.jsonl` and `rulings.jsonl`, where loading the
+    whole file was not an option and so the shared helper did not fit. That gap
+    is why the guard was still missing in eight files after being "fixed".
     """
     if missing_ok and not path.exists():
-        return []
+        return
     with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
 
 
 def write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
