@@ -47,9 +47,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import (GOLD_CANDIDATES_PATH, GOLD_PATH, WORKSHEETS_DIR,
+from common import (CR_VERSION, GLOSSARY_CANDIDATES_PATH, GLOSSARY_PATH,  # noqa: E402
+                    GOLD_CANDIDATES_PATH, GOLD_PATH, WORKSHEETS_DIR,
                     is_hand_authored, lint_common_errors, normalize_record,
-                    read_jsonl, stray_names, templatize, untemplatize)
+                    read_jsonl, stray_names, templatize, untemplatize,
+                    write_jsonl_atomic)
 
 CANDIDATES_PATH = GOLD_CANDIDATES_PATH
 WORKSHEET_DIR = WORKSHEETS_DIR
@@ -119,6 +121,87 @@ COMMON ERRORS:
 load_jsonl = read_jsonl  # one definition, in common.py
 
 
+def load_pools(paths: list[Path]) -> list[dict]:
+    """Every candidate across the pools, de-duplicated by id, first pool wins."""
+    seen: dict[str, dict] = {}
+    for path in paths:
+        for rec in read_jsonl(path):
+            seen.setdefault(rec["id"], rec)
+    return list(seen.values())
+
+
+# `definition recall` is the one category RulesGuru cannot supply: it is a
+# database of *scenarios*, so "What does X mean?" never appears in it and the
+# category sat at 1 record while the other seven reached 7-8.
+#
+# The Comprehensive Rules glossary is the natural source, and an authoritative
+# one — the definition IS the verified answer, in WotC's own words. build_sft.py
+# already derives synthetic training examples in exactly this shape; the same
+# question template and the same redirect filter are reused rather than
+# re-derived, so gold and SFT ask the category the same way.
+REDIRECT_RE = re.compile(r"^See [^.]+\.$")
+# Terms that cannot become a clean question. Two kinds, both measured over the
+# 482 eligible entries:
+#   * "(Obsolete)" — Damage Assignment Order, Totem Armor. The CR keeps these
+#     so old cards resolve; asking a model to define them tests trivia about a
+#     rule that no longer applies.
+#   * bracketed or quoted templates — "Venture into [Quality]", "Partner with
+#     [name]", Banding, "Bands with Other". The brackets are meta-syntax, and a
+#     prompt containing them invites the model to copy them back, which is the
+#     `[TARGET <x>]` failure that once scored correct plays as illegal.
+UNUSABLE_TERM = re.compile(r"\(Obsolete\)|[\[\]\u201c\u201d]")
+
+
+def glossary_candidates(glossary: list[dict], n: int, existing: set[str]) -> list[dict]:
+    """Definition-recall candidates from the CR glossary, in gold-record shape.
+
+    Only entries carrying `related_rules` are eligible. `rule_citations` is a
+    required gold field validated against the pinned CR, so an entry without
+    one cannot be promoted — 482 of the 739 glossary terms qualify, which is
+    far more than this category needs.
+    """
+    pool = [g for g in glossary
+            if g.get("related_rules")
+            and not REDIRECT_RE.match(g["definition"])
+            and len(g["definition"]) > 20
+            and not UNUSABLE_TERM.search(g["term"])
+            and f"gloss-{_slug(g['term'])}" not in existing]
+    # Longest definitions first: a term the CR spends three sentences on has
+    # more separable claims, and a rubric needs at least two key points. The
+    # one-line definitions make for rubrics that restate themselves.
+    pool.sort(key=lambda g: (-len(g["definition"]), g["term"]))
+    out = []
+    for g in pool[:n]:
+        out.append({
+            "id": f"gloss-{_slug(g['term'])}",
+            "question": f'What does "{g["term"]}" mean in Magic: The Gathering?',
+            "answer": g["definition"],
+            "key_points": [],
+            "common_errors": [],
+            "rule_citations": g["related_rules"],
+            "category": "definition recall",
+            # Uniformly basic, deliberately. The first version graded on
+            # definition length, which is not difficulty — and the threshold was
+            # dead code besides, since the longest eligible definition is 397
+            # characters against a 400 cutoff. Recalling a definition is a basic
+            # task; a manufactured spread would make the difficulty column mean
+            # two different things in one file. The resulting skew is a
+            # composition fact to report, not to launder.
+            "difficulty": "basic",
+            "source": f"glossary:{g['term']}",
+            "cr_version": CR_VERSION,
+            "cards": [],
+            "paraphrases": [],
+            "needs_review": True,
+            "needs_rubric_review": True,
+        })
+    return out
+
+
+def _slug(term: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", term.lower()).strip("-")
+
+
 def needs_authoring(record: dict) -> bool:
     """True when a gold record's rubric is still a machine draft."""
     return not is_hand_authored(record)
@@ -128,8 +211,12 @@ def pick_candidates(candidates: list[dict], gold: list[dict], n: int,
                     category: str | None, target: int) -> list[dict]:
     """Choose questions from whichever categories are furthest below target."""
     have = Counter(r["category"] for r in gold)
+    # Key on rulesguru_id where there is one and on id otherwise: glossary-derived
+    # candidates have no RulesGuru identity at all, and `c["rulesguru_id"]` on
+    # one of those is a KeyError rather than a miss.
     taken = {r.get("rulesguru_id") for r in gold if r.get("rulesguru_id")}
-    pool = [c for c in candidates if c["rulesguru_id"] not in taken]
+    taken |= {r["id"] for r in gold}
+    pool = [c for c in candidates if (c.get("rulesguru_id") or c["id"]) not in taken]
     if category:
         pool = [c for c in pool if c["category"] == category]
 
@@ -140,7 +227,8 @@ def pick_candidates(candidates: list[dict], gold: list[dict], n: int,
     # advanced questions discriminate between systems more than basic ones.
     rank = {"advanced": 0, "intermediate": 1, "basic": 2}
     for v in by_cat.values():
-        v.sort(key=lambda c: (rank.get(c["difficulty"], 3), c["rulesguru_id"]))
+        v.sort(key=lambda c: (rank.get(c["difficulty"], 3),
+                              str(c.get("rulesguru_id") or c["id"])))
 
     picked: list[dict] = []
     while len(picked) < n and any(by_cat.values()):
@@ -307,7 +395,14 @@ def main() -> None:
     parser.add_argument("--ingest", type=Path, default=None, help="read a completed worksheet back")
     parser.add_argument("--category", default=None, help="restrict --emit to one category")
     parser.add_argument("--target", type=int, default=15, help="per-category goal that drives selection")
-    parser.add_argument("--candidates", type=Path, default=CANDIDATES_PATH)
+    parser.add_argument("--candidates", type=Path, nargs="+",
+                        default=[CANDIDATES_PATH, GLOSSARY_CANDIDATES_PATH],
+                        help="candidate pools. Two by default: the RulesGuru scenarios and "
+                             "the glossary-derived definition-recall questions, which "
+                             "RulesGuru has none of.")
+    parser.add_argument("--from-glossary", type=int, default=0, metavar="N",
+                        help="derive N definition-recall candidates from the CR glossary "
+                             "and append them to the glossary candidate pool")
     parser.add_argument("--gold", type=Path, default=GOLD_PATH)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--author", default="", help="recorded in rubric_source, e.g. 'judge:LX'")
@@ -350,10 +445,29 @@ def main() -> None:
               "rewriting them raises the quality of the set you already have.")
         return
 
+    if args.from_glossary:
+        # Additive, like the RulesGuru snapshot: an existing candidate is never
+        # rewritten, so a term already exported keeps the exact text a
+        # contributor may be part-way through authoring against.
+        existing = read_jsonl(GLOSSARY_CANDIDATES_PATH)
+        have = {r["id"] for r in existing}
+        drafted = glossary_candidates(read_jsonl(GLOSSARY_PATH, missing_ok=False),
+                                      args.from_glossary, have)
+        if not drafted:
+            raise SystemExit("no eligible glossary terms left — every one with "
+                             "related_rules is already a candidate")
+        write_jsonl_atomic(GLOSSARY_CANDIDATES_PATH, existing + drafted)
+        print(f"{len(drafted)} definition-recall candidates -> {GLOSSARY_CANDIDATES_PATH}"
+              f"  ({len(existing)} -> {len(existing) + len(drafted)})")
+        for d in drafted:
+            print(f"  {d['id']:34s} [{d['difficulty']}] {d['question']}")
+        print("\nNext: python scripts/author_rubrics.py --export-tasks --include-new N")
+        return
+
     if args.emit:
-        candidates = load_jsonl(args.candidates)
+        candidates = load_pools(args.candidates)
         if not candidates:
-            raise SystemExit(f"{args.candidates} not found — run scripts/rulesguru_to_gold.py first")
+            raise SystemExit(f"no candidates in {args.candidates} — run scripts/rulesguru_to_gold.py first")
         picked = pick_candidates(candidates, gold, args.emit, args.category, args.target)
         if not picked:
             raise SystemExit("no unused candidates matched — try a different --category")
@@ -365,9 +479,9 @@ def main() -> None:
         pool = [r for r in gold if needs_authoring(r)]
         seen = {r["id"] for r in pool}
         if args.include_new:
-            candidates = load_jsonl(args.candidates)
+            candidates = load_pools(args.candidates)
             if not candidates:
-                raise SystemExit(f"{args.candidates} not found — run rulesguru_to_gold.py first")
+                raise SystemExit(f"no candidates in {args.candidates} — run rulesguru_to_gold.py first")
             pool += [c for c in pick_candidates(candidates, gold, args.include_new,
                                                 args.category, args.target)
                      if c["id"] not in seen]
@@ -402,7 +516,7 @@ def main() -> None:
                 raise SystemExit("no completed blocks found — did you fill in KEY POINTS?")
 
         by_id = {r["id"]: r for r in gold}
-        candidates = {c["id"]: c for c in load_jsonl(args.candidates)}
+        candidates = {c["id"]: c for c in load_pools(args.candidates)}
         def source_for(rid: str) -> str:
             who = authors.get(rid) or args.author
             s = f"hand-authored ({who})" if who else "hand-authored"
@@ -415,7 +529,7 @@ def main() -> None:
             print(f"DRY RUN — {args.gold} will not be modified\n")
             for rid, rub in authored.items():
                 where = ("rewrite" if rid in {r["id"] for r in gold}
-                         else "promote" if rid in {c["id"] for c in load_jsonl(args.candidates)}
+                         else "promote" if rid in candidates
                          else "UNKNOWN ID")
                 who = authors.get(rid) or args.author or "unattributed"
                 # Normalized, for the same reason the promotion is: the rubric

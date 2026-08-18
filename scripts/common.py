@@ -125,6 +125,12 @@ GOLD_PATH = REPO_ROOT / "data/gold/gold_questions.jsonl"
 POSITIONS_PATH = REPO_ROOT / "data/gold/positions.jsonl"
 RULESGURU_SNAPSHOT = REPO_ROOT / "data/gold/rulesguru/questions.jsonl"
 GOLD_CANDIDATES_PATH = REPO_ROOT / "data/gold/rulesguru/gold_candidates.jsonl"
+# Definition-recall candidates derived from the CR glossary. A separate file
+# because RulesGuru is a *scenario* database — "What does X mean?" never
+# appears in it, so `definition recall` has zero candidates there — and because
+# the RulesGuru snapshot is frozen and additive (re-fetching re-randomizes
+# names and cards). Mixing a second source into it would blur that guarantee.
+GLOSSARY_CANDIDATES_PATH = REPO_ROOT / "data/gold/glossary_candidates.jsonl"
 # Anchored like the rest. `author_rubrics.py` had this as a bare relative
 # Path, which Section 17.2's repo-root pass missed: run from anywhere else it
 # wrote the worksheet under the *current* directory while printing the
