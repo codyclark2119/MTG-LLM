@@ -15,6 +15,8 @@ than showing up as a bad score.
 
     python scripts/gameplay/positions.py                    # validate the set
     python scripts/gameplay/positions.py --render pos-0001  # see what the model sees
+    python scripts/gameplay/positions.py --ingest drafts.jsonl --dry-run
+    python scripts/gameplay/positions.py --ingest drafts.jsonl --author "Cody Clark"
 """
 
 import argparse
@@ -272,10 +274,100 @@ def validate_position(pos: dict, card_index=None,
     return [f"[{rid}] {p}" for p in problems]
 
 
+def ingest(drafts: list[dict], existing: list[dict], author: str = "",
+           card_index=None, rule_ids: set[str] | None = None,
+           dry_run: bool = True, path: Path = POSITIONS_PATH) -> int:
+    """Promote reviewed drafts into the position set. Returns the count added.
+
+    The batch analogue of the `#/position` form, and the same trade the rubric
+    loop makes: drafting is cheap, reviewing is the expensive part, so the tool
+    exists to make a reviewed batch land safely rather than to make drafting
+    faster.
+
+    Three refusals, each one a measurement the loop could otherwise corrupt:
+
+    - **An id that already exists is refused, never rewritten.** Positions are
+      never edited through here. `author_rubrics.py` needed a rewrite path
+      because a rubric is a patch onto a candidate question; a position is the
+      whole record, so a "rewrite" is a different board wearing an old id, and
+      every score already filed under that id would then describe a board that
+      no longer exists.
+    - **A record carrying `seed_note` is refused.** The seed fixtures are
+      plumbing verification and say so in their own text (Section 14.6); the
+      one way they become gate evidence is by being copied into this file.
+    - **Nothing is written unless every record validates.** A partial batch
+      leaves the set in a state no one reviewed.
+    """
+    by_id = {p.get("id") for p in existing}
+    problems: list[str] = []
+    accepted: list[dict] = []
+    seen: set[str] = set()
+
+    for i, pos in enumerate(drafts):
+        rid = pos.get("id") or f"<record {i}>"
+        if pos.get("seed_note"):
+            problems.append(f"[{rid}] carries seed_note — machine-drafted fixtures are "
+                            f"not gate evidence and must stay in positions_seed.jsonl")
+            continue
+        if rid in by_id:
+            problems.append(f"[{rid}] already exists — positions are appended, never "
+                            f"rewritten; give the new board a new id")
+            continue
+        if rid in seen:
+            problems.append(f"[{rid}] appears twice in the draft file")
+            continue
+        seen.add(rid)
+        pos = dict(pos)
+        pos.setdefault("cr_version", CR_VERSION)
+        pos.setdefault("graveyards", {"you": [], "opp": []})
+        # Attribution rides on the record when it carries one, so a file can
+        # hold several authors — the same rule that lets eval.py --compare
+        # break agreement down per author for the rules gold set.
+        if not pos.get("rubric_source"):
+            pos["rubric_source"] = f"hand-authored ({author})" if author else "hand-authored"
+        problems.extend(validate_position(pos, card_index, rule_ids))
+        accepted.append(pos)
+
+    for pos in accepted:
+        for w in lint_common_errors(pos):
+            print(f"  !!  [{pos['id']}] {w}")
+
+    if problems:
+        print(f"\n{len(problems)} problem(s) — nothing written:")
+        for p in problems:
+            print(f"  - {p}")
+        raise SystemExit(1)
+
+    if dry_run:
+        print(f"\nDRY RUN — {path} not modified. {len(accepted)} position(s) would be added:")
+        for pos in accepted:
+            print(f"\n### {pos['id']}  [{pos['category']} / {pos['difficulty']}]  "
+                  f"{pos['rubric_source']}")
+            print(render_position(pos))
+            print(f"  -> {pos['answer']}")
+            for kp in pos.get("key_points") or []:
+                print(f"    KP  {kp}")
+            for ce in pos.get("common_errors") or []:
+                print(f"    CE  {ce}")
+        print(f"\n{len(accepted)} position(s) parsed. Re-run without --dry-run to apply.")
+        return 0
+
+    write_jsonl_atomic(path, existing + accepted)
+    print(f"\npositions {len(existing)} -> {len(existing) + len(accepted)}  "
+          f"added {len(accepted)}  pre-existing modified 0")
+    return len(accepted)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--positions", type=Path, default=POSITIONS_PATH)
+    parser.add_argument("--ingest", type=Path, default=None,
+                        help="promote reviewed position drafts from a jsonl file")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="with --ingest, render every incoming board and write nothing")
+    parser.add_argument("--author", default="",
+                        help="recorded in rubric_source when a draft carries none")
     parser.add_argument("--render", default=None,
                         help="print the rendered board (and prompt) for one position id")
     parser.add_argument("--closed", action="store_true",
@@ -285,7 +377,9 @@ def main() -> None:
     args = parser.parse_args()
 
     positions = load_positions(args.positions)
-    if not positions:
+    # An empty set is fatal for validation but is the normal starting state for
+    # --ingest: the first reviewed batch is what creates positions.jsonl.
+    if not positions and not args.ingest:
         raise SystemExit(f"no positions in {args.positions}")
 
     if args.render:
@@ -309,6 +403,12 @@ def main() -> None:
         rule_ids = load_rule_ids()
     except Exception as exc:  # rules corpus not built yet — skip, don't fail
         print(f"(skipping citation checks: {exc})")
+
+    if args.ingest:
+        ingest(read_jsonl(args.ingest), positions, author=args.author,
+               card_index=card_index, rule_ids=rule_ids,
+               dry_run=args.dry_run, path=args.positions)
+        return
 
     all_problems = []
     for pos in positions:

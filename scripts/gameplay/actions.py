@@ -11,7 +11,7 @@ The grammar:
     ACTIVATE <permanent>: <ability>   an activated ability
     ATTACK <creature>[, <creature>]   declare attackers, all at once
     BLOCK <blocker> -> <attacker>     one assignment per line
-    ORDER TRIGGERS <a>, <b>           order matters, so the list is ordered
+    ORDER TRIGGERS <a>, <b>           in the order they should RESOLVE
     MULLIGAN                          ship the opening hand
     KEEP [BOTTOM <a>, <b>]            keep it, naming any cards put on the bottom
     PASS                              yield priority / end the turn
@@ -228,6 +228,13 @@ def parse_line(line: str) -> Action | ParseFailure | None:
         return Action("BLOCK", (blocker, attacker), line)
 
     if verb == "ORDER TRIGGERS":
+        # The operand order is RESOLUTION order, which is what
+        # `common.ACTION_GRAMMAR` promises the model. It is deliberately not
+        # the order the triggers go on the stack — the two are reverses of
+        # each other (405.2), so a position authored against one convention
+        # and scored against the other marks the correct play wrong. Stated
+        # here as well as in the grammar because POSITIONS.md sends authors of
+        # `legal_actions` to this file.
         names = _split_list(body)
         if len(names) < 2:
             return ParseFailure(line, "ORDER TRIGGERS needs at least two triggers")
