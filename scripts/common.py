@@ -455,8 +455,21 @@ PLAYER_VERBS = (
     "uses use used names name named takes take took"
 ).split()
 _PLAYER_VERBS = PLAYER_VERBS  # back-compat for readers of the private name
+# An adverb may sit between the name and the verb — "Arturo then casts", "Avery
+# also sacrifices". Optional, and drawn from a closed list rather than allowing
+# any word, which would turn the pattern into "capitalized word near a verb" and
+# lose the precision that makes it trustworthy. 5 records name a player only
+# this way, all five genuine.
+# "already", "first" and "again" are deliberately absent. They read naturally
+# after a noun that is not a player — "Lands already played this turn" is a real
+# rubric line, and it made "Lands" a player name. Measured: dropping all three
+# costs zero names, because every player they would have found is discoverable
+# somewhere else in the same record.
+_PLAYER_ADVERBS = ("then also now later instead immediately next "
+                   "subsequently").split()
 _PLAYER_NAME = re.compile(
-    r"\b([A-Z][a-z]{2,})\s+(?:" + "|".join(PLAYER_VERBS) + r")\b")
+    r"\b([A-Z][a-z]{2,})\s+(?:(?:" + "|".join(_PLAYER_ADVERBS) + r")\s+)?(?:"
+    + "|".join(PLAYER_VERBS) + r")\b")
 PLAYER_LABELS = [f"Player {c}" for c in "ABCDEFGH"]
 _EXISTING_LABEL = re.compile(r"\bPlayer [A-H]\b")
 
@@ -568,6 +581,22 @@ def _card_words(cards: list[str]) -> set[str]:
 # grammar test alone never finds them. Seven gold records ended up with a raw
 # name sitting next to Player A/B for exactly this reason.
 _PLAYER_POSSESSIVE = re.compile(r"\b([A-Z][a-z]{2,})'s\b")
+# RETIRED, and kept only so the decision is legible. A name as the object of a
+# preposition — "from Braylen using..." — is a real way to name a player, and
+# this found 18 of the 1,202 candidates that no other pattern reaches.
+#
+# It is also the only pattern that can change what a question MEANS. Every
+# other one requires a grammatical role a game term cannot occupy; this one
+# matches any capitalized word after a common preposition, so "refers to Sand
+# Warriors" makes "Sand" a player and rewrites the sentence into nonsense. The
+# glossary gate caught "to Devour" and "with Cascade" but not "Sand", which is
+# a creature type rather than a defined term — and there is no enumerable list
+# of everything it could hit.
+#
+# The standing rule is that the normalizer should MISS a name rather than risk
+# the meaning of a question, because a missed name is cosmetic and a corrupted
+# question is a broken measurement. 18 records keep a raw name; none of them
+# gets rewritten into something it does not say.
 _PLAYER_PREP = re.compile(r"\b(?:from|to|by|with|against)\s+([A-Z][a-z]{2,})\b")
 # "Adonis is attacking with Iron Tusk Elephant." The copula was pulled out of
 # PLAYER_VERBS because a bare "is/are" rewrote "What are the characteristics
@@ -623,7 +652,8 @@ def find_players(question: str, answer: str, cards: list[str],
 
     patterns = [_PLAYER_NAME]
     if magic_terms is not None:
-        patterns += [_PLAYER_POSSESSIVE, _PLAYER_PREP, _PLAYER_PROGRESSIVE]
+        # _PLAYER_PREP is deliberately NOT here. See its definition.
+        patterns += [_PLAYER_POSSESSIVE, _PLAYER_PROGRESSIVE]
 
     for text in (question or "", answer or ""):
         # Sorted by position so first-appearance order holds across patterns.

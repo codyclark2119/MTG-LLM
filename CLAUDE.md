@@ -226,3 +226,14 @@ Each cost real time. They recur in new code, so they are worth knowing.
 - Snapshots of external APIs are **frozen and additive** — RulesGuru
   re-randomizes card and player names per request, so re-fetching a record
   would silently change it.
+- **Player normalization misses rather than guesses.** `common.find_players`
+  should leave a raw name in place before it risks renaming something that
+  isn't a player. A missed name is cosmetic — a question that reads
+  "Player A ... Allison" still means what it said. A false positive rewrites
+  the question into something it does not say, and every rubric, answer and
+  score downstream then describes a different question. When adding a pattern:
+  measure it across all of `gold_candidates.jsonl` first, require the
+  grammatical role to be one a game term cannot occupy, and drop it if any hit
+  is not a person. `_PLAYER_PREP` was retired under this rule — it reached 18
+  records nothing else could, and turned "refers to Sand Warriors" into a
+  player named Sand.
