@@ -421,6 +421,35 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                  + (" Seed fixtures cannot settle this gate — it needs judge-authored positions."
                     if seeded else ""))
 
+    # Gate 3 is one number over basic+intermediate, and that number hides which
+    # band it came from: a set weighted toward `basic` can pass on positions too
+    # easy to separate the arms at all. The band table is reported ALONGSIDE the
+    # gate, never instead of it — at ~13 positions per band a proportion cannot
+    # resolve a difference on its own, so each row is a composition fact and the
+    # combined figure above stays the gate.
+    lines.append("\n## Blunder rate by difficulty band\n")
+    lines.append("| Difficulty | n | " + " | ".join(arm_names) + " |")
+    lines.append("| --- | --- | " + " | ".join("---" for _ in arm_names) + " |")
+    for diff in ("basic", "intermediate", "advanced"):
+        rows = [r for r in results if r["difficulty"] == diff]
+        if not rows:
+            continue
+        cells = []
+        for arm in arm_names:
+            vals = [r["arms"][arm]["blundered"] for r in rows
+                    if r["arms"][arm]["blundered"] is not None]
+            cells.append(f"{sum(vals) / len(vals):.0%}" if vals else "—")
+        lines.append(f"| {diff} | {len(rows)} | " + " | ".join(cells) + " |")
+    thin = [d for d in ("basic", "intermediate", "advanced")
+            if 0 < sum(1 for r in results if r["difficulty"] == d) < 25]
+    if thin:
+        lines.append(f"\n> Bands under 25 positions ({', '.join(thin)}) are too small to "
+                     "resolve a blunder-rate difference on their own. Read them as "
+                     "composition, and take the gate from the combined figure above.\n")
+    if not any(r["difficulty"] == "basic" for r in results):
+        lines.append("\n> **No basic positions in this set.** Gate 3 is then an "
+                     "intermediate-only number wearing a basic+intermediate label.\n")
+
     lines.append("\n## Blunder rate by category\n")
     cats = sorted({r["category"] for r in results})
     lines.append("| Category | n | " + " | ".join(arm_names) + " |")

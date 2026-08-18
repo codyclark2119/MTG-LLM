@@ -10,7 +10,7 @@ This walkthrough covers everything from base model selection through ingesting t
 
 ---
 
-## Status (as of 2026-08-11)
+## Status (as of 2026-08-18)
 
 **Phase 1 (Rules Foundation):**
 
@@ -32,7 +32,10 @@ This walkthrough covers everything from base model selection through ingesting t
 - [x] Built the Phase 3 gameplay scaffolding alongside the open Phase 1 work (Section 16) — position schema, action grammar and parser, position authoring in the console, and a gate-reporting eval that **reuses the V3 rubric judge unchanged**, because `common_errors` is the blunder list and `errors_made` was already being computed per question. Model choice is now a `--base-model` flag rather than a constant (Section 16.8), which also caught `--judge-model` being silently ignored on the generate-and-judge path. On 8 machine-drafted seed fixtures **all three gates fail**, which is the correct result for a pipeline whose fixtures are seeds: the closed arm lifts legality (88% vs 62%) but every arm blunders at exactly 75%, so the eval does not yet discriminate. See Section 16.11 — at n=8 with a single judge these numbers move substantially between runs, and a spot-check found the judge marking a false blunder.
 - [x] Re-ran the fine-tune at a **full epoch** and evaluated it under both judges (Sections 18.1, 18.3) — the under-training confound is removed and **the verdict does not move**: `finetuned_rag` gains +0.04 under Qwen (CI [−0.26, +0.33]) and +0.02 under Llama (CI [−0.33, +0.37]), while the two control arms — byte-identical answers that cannot have changed — moved up to 0.23 on judge variance alone. Both judges now produce the same arm ranking (r = +0.60). Section 9.4's rule stands: fix the SFT data, not the hyperparameters.
 - [x] Gold set finished to n=39, **39/39 hand-authored** with card slots and normalized player names. Caught before it mattered: templated rubrics were reaching the judge as literal `[[card2]]` text on 35 of 39 eval rows (Section 18.5).
-- [ ] **Next:** (a) grow the gold set past n=39 toward n≈100 via `--emit` against the 1,202 RulesGuru candidates, then run the real comparison under both judges — `definition recall` has 1 record and needs judge-authored entries; (b) author ~40 positions for Gate 3, since Gate 2 cannot be settled on machine-drafted seeds (Section 18.4); (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk.
+- [x] Gold set grown 39 → **99, all hand-authored**, in five reviewed batches — 330 key points, 264 common errors, every category at 9–13, 0 lint warnings. `definition recall` was filled from the CR glossary, since RulesGuru is a scenario database and never asks "what does X mean?". Player normalization was retired back to a miss-rather-than-guess rule after `_PLAYER_PREP` turned "refers to Sand Warriors" into a player named Sand.
+- [x] **A3 run at n=99 under both judges (Section 19) — the Phase 1 verdict.** `finetuned_rag` trails `base_rag` by **0.50** under Qwen (1.88 vs 2.38) and **0.80** under Llama (2.36 vs 3.16), and **both judges produce the same arm ranking**. That is well outside the 0.4-point effect Section 14.6 sized this sample to resolve. **Fine-tuning did not beat retrieval** — now a measurement at adequate sample size on hand-authored rubrics, not the n=8 and n=16 gestures that had to be walked back twice. Inter-judge r = +0.49 over 367 pairs. Caveat that must travel with the table: `base` scores nominally highest under Qwen while fabricating a citation on **35 of 99** questions, because the rubric judge does not price fabrication (Section 19.1).
+- [x] Gave positions a reviewed batch path (`positions.py --ingest`) and pinned `ORDER TRIGGERS`' operand order, which meant "resolution order" in the grammar shown to the model and merely "order matters" in the parser's own docs — the `CROSS_REF_RE`/`PASS` trap again, caught on the first position that ever used the verb.
+- [ ] **Next:** (a) author ~40 positions for Gate 3, since Gate 2 cannot be settled on machine-drafted seeds (Section 18.4) — 18 drafted and adjudicated, 4 basic / 9 intermediate / 5 advanced across all seven categories; (b) decide whether the rubric judge should price fabricated citations, given Section 19.1; (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk; (e) Section 9.4's standing instruction is unchanged and now well-supported — **fix the SFT data, not the hyperparameters**.
 
 **Phase 2 (Card Data):** started early, ahead of finishing Phase 1 — see Section 13. The Standard-only pool proved far too narrow (it covered just 4% of cards players actually ask about), so the corpus is now Scryfall's full Oracle set: 34,933 playable cards chunked and linked to the rules governing their keywords, with card names resolved by lookup at 99%.
 
@@ -1832,3 +1835,100 @@ braces:
 - The payment of {b} is made as [[card2]]'s trigger resolves
 + The payment of {b} is made as Nihil Spellbomb's trigger resolves
 ```
+
+---
+
+## 19. A3: the n=99 verdict on hand-authored rubrics
+
+Every judge number before this section was measured on one of two things: the
+110-question synthetic+reddit set, whose references are machine-derived, or a
+hand-authored subset too small to resolve the effect it was asked about. Section
+14.6 sized the instrument at ~100–150 questions for a 0.4-point effect, and A3
+has been blocked on that number since run 1. The gold set reached 99 (Section
+14.7), so it ran.
+
+99 questions, four arms, generated once and scored twice — Qwen first, then
+`Meta-Llama-3.1-8B-Instruct-4bit` via `--rescore-from`. Same rubrics, same
+answers, same judge prompt; the judge model is the only thing that varies, which
+is what Section 9.9 requires.
+
+| Arm | Qwen (V3 rubric) | Llama (V3 rubric) |
+| --- | --- | --- |
+| `base_rag` | **2.38** | **3.16** |
+| `base` | 2.46 | 3.09 |
+| `finetuned_rag` | 1.88 | 2.36 |
+| `finetuned` | 1.69 | 2.18 |
+
+**Both judges produce the same arm ranking.** `finetuned_rag` trails `base_rag`
+by 0.50 under Qwen and 0.80 under Llama — well outside the 0.4-point effect this
+sample was built to resolve, in the same direction, under two models that have
+previously disagreed enough to reverse a ranking outright (Section 9.9) and to
+reverse two of three gameplay gates (Section 16.12).
+
+So the project's headline negative is now a measurement rather than a gesture:
+**fine-tuning did not beat retrieval**, at adequate sample size, on
+hand-authored rubrics, under two independent judges. Sections 8 and 9 reached
+the same conclusion twice on instruments that could not support it. This one
+can.
+
+Inter-judge agreement is r = +0.49 over 367 arm-answer pairs, 30% exact. Broken
+down by rubric author, `Cody Clark` r = +0.51 (n = 283 pairs) and `Steve Steve`
+r = +0.40 (n = 84). That is the same direction and roughly the same size as the
+n=12 pilot in Section 14.8, whose interval was [−0.19, +0.53] — so it remains
+**unresolved, not confirmed**. Steve's 24 questions are still below the
+25-per-segment line `compare_judges` warns at.
+
+Llama returned an unparseable score on 7–8 questions per arm, so its n is 91–92
+against Qwen's 99/99.
+
+### 19.1 The best-scoring arm is the one that makes things up
+
+Under Qwen, `base` — no retrieval at all — scores 2.46, nominally the highest of
+the four. It also fabricates a rule citation on **35 of 99** questions:
+
+| Arm | Fabricated citation | Matched the reference |
+| --- | --- | --- |
+| `base_rag` | 1/99 | 10/99 |
+| `base` | **35/99** | 2/99 |
+| `finetuned_rag` | 4/99 | 5/99 |
+| `finetuned` | 9/99 | 0/99 |
+
+The V3 judge scores which enumerated claims an answer made. Inventing a
+plausible-looking rule id is not one of the claims, so **fabrication is very
+nearly free under this metric**. Retrieval's measurable contribution shows up
+almost entirely in the citation columns and almost not at all in the score.
+
+This is a property of the instrument, not a result about the models, and it is
+recorded here because the ranking invites exactly one misreading: that
+retrieval is unnecessary because `base` scored highest. Any reading of the score
+column without the fabrication column beside it is wrong. Whether the rubric
+judge *should* price fabrication is an open question — pricing it would make the
+metric a blend of two things again, which is what V3 was built to stop.
+
+### 19.2 The rescore report described a judge that never ran
+
+Found while checking whether the two-judge comparison was clean, which is the
+one thing that makes the headline result meaningful.
+
+`rescore()` built its report header from a hardcoded string reading "with the v2
+judge: correctness and citation scored separately … candidates anonymized behind
+randomized A/B/C/D labels." None of that describes what happens once the gold
+set is fully rubric-backed: `score_one_question` routes to the V3 rubric judge
+for any record carrying `key_points`, and `rescore()` deliberately preserves
+that — its own comment says so.
+
+Verified against the stored data rather than against the report: **all 396
+arm-answers in both runs carry `scored_by="rubric"`.** The comparison is clean.
+The report said it was not.
+
+The failure mode is worth naming because it is the inverse of the usual one. A
+stale default normally makes a bad result look good. This one made a *sound*
+result look unusable: a reader comparing the judge-2 header against the V3
+first-pass report would conclude the study had varied model **and** prompt, and
+would discount it. Same family as the stale `ADAPTER_PATH` and the accepted-then-
+ignored `--judge-model` — the default was correct, printing it without checking
+was not.
+
+The header is now derived: it counts `scored_by` across the run, names the V3
+rubric judge, the V2 prose judge, or the mix, and states explicitly that only
+the model differs when that is true.

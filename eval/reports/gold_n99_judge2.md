@@ -1,6 +1,8 @@
 # Section 9 Evaluation Report (recalibrated judge)
 
-99 questions, re-scored from `gold_n99.jsonl` with the v2 judge: correctness and citation scored separately, length/style explicitly excluded, candidates anonymized behind randomized A/B/C/D labels.
+99 questions, re-scored from `gold_n99.jsonl` with the **V3 rubric judge**: the judge reports which enumerated key points and which common errors each answer made, and the score is computed in Python from those counts.
+
+The judge PROMPT is identical to the first pass; only the judge MODEL differs. That is what Section 9.9 requires — vary the judge and nothing else.
 
 - judge: `mlx-community/Meta-Llama-3.1-8B-Instruct-4bit`
 
