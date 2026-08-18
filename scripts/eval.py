@@ -36,6 +36,7 @@ Usage:
 import argparse
 import json
 import random
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -500,6 +501,12 @@ def rubric_provenance(gold_path: Path, candidates_path: Path) -> dict[str, str]:
     return prov
 
 
+def _author_of(rubric_source: str) -> str:
+    """'hand-authored (Cody Clark); decomposed...' -> 'Cody Clark'."""
+    m = re.search(r"\(([^)]+)\)", rubric_source or "")
+    return m.group(1) if m else (rubric_source or "unattributed")
+
+
 def compare_judges(path_a: Path, path_b: Path, report_out: Path,
                    gold_path: Path, candidates_path: Path) -> None:
     """Inter-judge agreement on identical stored answers, split by rubric source.
@@ -527,9 +534,17 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
     arms = [x for x in a[shared[0]]["arms"] if x in b[shared[0]]["arms"]]
 
     # group -> list of (score_a, score_b, points_hit_a, points_hit_b, id, arm)
+    #
+    # Segmented by AUTHOR, not just hand-vs-machine. This used to collapse every
+    # hand-authored rubric into one bucket, which made the per-author breakdown
+    # CLAUDE.md advertises impossible: attribution rides on each submission
+    # precisely so one file can hold several people's work, and the readout
+    # threw that away. Every record in the set is hand-authored now, so the
+    # binary split has nothing left to contrast.
     groups: dict[str, list] = {}
     for qid in shared:
-        label = "hand-authored" if prov.get(qid, "machine-drafted") != "machine-drafted" else "machine-drafted"
+        src = prov.get(qid, "machine-drafted")
+        label = "machine-drafted" if src == "machine-drafted" else _author_of(src)
         for arm in arms:
             xa, xb = a[qid]["arms"][arm], b[qid]["arms"][arm]
             ca, cb = xa.get("correctness"), xb.get("correctness")
@@ -552,7 +567,8 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
                 "gap": mean_gap, "same_points": same_ph,
                 "n_questions": len({r[4] for r in rows})}
 
-    order = [g for g in ("ALL", "hand-authored", "machine-drafted") if g in groups]
+    authors = sorted(g for g in groups if g not in ("ALL", "machine-drafted"))
+    order = ["ALL"] + authors + (["machine-drafted"] if "machine-drafted" in groups else [])
     lines = [f"# Inter-judge agreement: `{path_a.name}` vs `{path_b.name}`", "",
              f"{len(shared)} questions x {len(arms)} arms, identical stored answers.",
              "Segmented by who wrote the rubric — the variable Section 14.6 found "
@@ -565,13 +581,18 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
         lines.append(f"| {name} | {s['n_questions']} | {s['n']} | {s['r']:+.2f} | "
                      f"{s['exact']:.0%} | {s['gap']:.2f} | {s['same_points']:.0%} |")
 
-    both = {"hand-authored", "machine-drafted"} <= set(groups)
+    both = len([g for g in groups if g != "ALL"]) > 1
     lines += ["", "Reference: Section 14.6 measured r **+0.30** machine-drafted vs "
               "**+0.62** hand-authored on 20 questions.", ""]
     if not both:
         only = order[-1]
         lines.append(f"> Only **{only}** rubrics are present, so there is no contrast to read "
-                     f"here — the row is a baseline for when the other kind arrives.")
+                     f"here — the row is a baseline for when another source arrives.")
+    elif min(len({r[4] for r in groups[g]}) for g in authors) < 25:
+        lines.append("> At least one segment is under 25 questions. Section 14.6 needed 20 to "
+                     "separate hand from machine, an effect far larger than the difference "
+                     "between two careful authors — read a split here as a prompt to look at "
+                     "specific records, not as a measured difference.")
     lines += ["", "## Questions the judges disagree on most", "",
               "Rewrite these rubrics before adding more (Section 16.12: disagreement "
               "localizes, so a handful of items carries most of it).", "",
@@ -582,7 +603,7 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
         if ca == cb:
             break
         lines.append(f"| `{qid}` | {arm} | {ca:.1f} | {cb:.1f} | {abs(ca - cb):.1f} | "
-                     f"{'hand' if prov.get(qid, 'machine-drafted') != 'machine-drafted' else 'machine'} |")
+                     f"{prov.get(qid, 'machine-drafted') if prov.get(qid) == 'machine-drafted' else _author_of(prov.get(qid, ''))} |")
 
     report_out.parent.mkdir(parents=True, exist_ok=True)
     report_out.write_text("\n".join(lines) + "\n", encoding="utf-8")
