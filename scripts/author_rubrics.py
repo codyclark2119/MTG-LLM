@@ -43,13 +43,15 @@ import json
 import re
 import sys
 from collections import Counter
+from functools import lru_cache
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (CR_VERSION, GLOSSARY_CANDIDATES_PATH, GLOSSARY_PATH,  # noqa: E402
                     GOLD_CANDIDATES_PATH, GOLD_PATH, WORKSHEETS_DIR,
-                    is_hand_authored, lint_common_errors, normalize_record,
+                    is_hand_authored, lint_common_errors, load_glossary_terms,
+                    normalize_record,
                     read_jsonl, stray_names, templatize, untemplatize,
                     write_jsonl_atomic)
 
@@ -119,6 +121,20 @@ COMMON ERRORS:
 
 
 load_jsonl = read_jsonl  # one definition, in common.py
+
+
+@lru_cache(maxsize=1)
+def magic_terms() -> frozenset[str]:
+    """Vocabulary gate for the widened player-name patterns.
+
+    Every `normalize_record` call in this file must pass it. Without it the
+    possessive/prepositional/progressive patterns are inert by design, and a
+    caller that forgets gets the narrow grammar test silently — which is
+    exactly what happened: `export_tasks` normalized without it and shipped
+    "Adonis is attacking" beside "Player A controls", the mixed convention the
+    whole migration exists to end.
+    """
+    return load_glossary_terms()
 
 
 def load_pools(paths: list[Path]) -> list[dict]:
@@ -267,7 +283,7 @@ def export_tasks(records: list[dict], out_path: Path, gold_ids: set[str] | None 
     written against are the slots the gold record ends up with.
     """
     gold_ids = gold_ids or set()
-    records = [normalize_record(r)[0] for r in records]
+    records = [normalize_record(r, magic_terms=magic_terms())[0] for r in records]
     tasks = [
         {
             "id": r["id"],
@@ -538,7 +554,8 @@ def main() -> None:
                 # rubric as naming a player the question never introduces.
                 ref = by_id.get(rid)
                 if ref is None and rid in candidates:
-                    ref = normalize_record(candidates[rid], templatize_rubric=False)[0]
+                    ref = normalize_record(candidates[rid], templatize_rubric=False,
+                                          magic_terms=magic_terms())[0]
                 ref = ref or {}
                 # Expand [[cardN]] before showing OR linting. The answer keeps
                 # real card names, so a templated rubric silently defeats
@@ -581,8 +598,27 @@ def main() -> None:
                 skipped += 1
                 continue
             if rid in by_id:
-                by_id[rid].update(key_points=rub["key_points"], common_errors=rub["common_errors"],
-                                  rubric_source=source_for(rid), needs_rubric_review=False)
+                # A rewrite that DROPS rubric lines is almost never intended, and
+                # it is silent: nothing fails, the record just gets weaker.
+                # This fired for real. The submissions log is append-only, so
+                # after the gold rubrics were sharpened in place (57 common
+                # errors added in one pass) the stored rows still held the older,
+                # thinner version. Re-ingesting the whole log then rewrote 40
+                # records back down, 123 common errors to 102, with four
+                # returning to none at all — the field blunder rate is computed
+                # from. Caught by a diff, not by the tool.
+                cur = by_id[rid]
+                shrink = [f"{f} {len(cur.get(f) or [])} -> {len(rub[f])}"
+                          for f in ("key_points", "common_errors")
+                          if len(rub[f]) < len(cur.get(f) or [])]
+                if shrink and is_hand_authored(cur):
+                    problems.append(f"{rid}: submission would shrink a hand-authored rubric "
+                                    f"({', '.join(shrink)}) — skipped. Re-export the task file "
+                                    f"if the shorter version is the one you want.")
+                    skipped += 1
+                    continue
+                cur.update(key_points=rub["key_points"], common_errors=rub["common_errors"],
+                           rubric_source=source_for(rid), needs_rubric_review=False)
                 updated += 1
             elif rid in candidates:
                 # Normalize BEFORE attaching the rubric. The contributor wrote
@@ -593,7 +629,8 @@ def main() -> None:
                 # raw candidate instead would file a "Player A" rubric against
                 # an "Arden" question, and drop the slots the rubric is written
                 # in. The rubric itself is taken as submitted, not re-renamed.
-                rec = normalize_record(candidates[rid], templatize_rubric=False)[0]
+                rec = normalize_record(candidates[rid], templatize_rubric=False,
+                                       magic_terms=magic_terms())[0]
                 rec.update(key_points=rub["key_points"], common_errors=rub["common_errors"],
                            rubric_source=source_for(rid), needs_rubric_review=False,
                            needs_review=True)

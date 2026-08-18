@@ -555,6 +555,12 @@ def _card_words(cards: list[str]) -> set[str]:
 # name sitting next to Player A/B for exactly this reason.
 _PLAYER_POSSESSIVE = re.compile(r"\b([A-Z][a-z]{2,})'s\b")
 _PLAYER_PREP = re.compile(r"\b(?:from|to|by|with|against)\s+([A-Z][a-z]{2,})\b")
+# "Adonis is attacking with Iron Tusk Elephant." The copula was pulled out of
+# PLAYER_VERBS because a bare "is/are" rewrote "What are the characteristics
+# of..." into "Player B are the characteristics of...". The progressive form is
+# safe where the copula is not: it requires a following -ing word, which no
+# question phrasing supplies. 17 records name a player only this way.
+_PLAYER_PROGRESSIVE = re.compile(r"\b([A-Z][a-z]{2,})\s+(?:is|was|are|were)\s+\w+ing\b")
 
 
 def load_glossary_terms(path: Path | None = None) -> frozenset[str]:
@@ -593,13 +599,17 @@ def find_players(question: str, answer: str, cards: list[str],
     order: list[str] = []
 
     def is_term(word: str) -> bool:
-        # Plural too: the glossary defines "Aura", the text says "to Auras".
+        # Plural too, against both vocabularies: the glossary defines "Aura"
+        # while the text says "to Auras", and a record naming "Resolute
+        # Survivors" bans "Resolute" while the text says "Resolutes".
+        singular = word[:-1] if word.endswith("s") else word
         return (word.capitalize() in magic_terms
-                or (word.endswith("s") and word[:-1].capitalize() in magic_terms))
+                or singular.capitalize() in magic_terms
+                or singular in banned)
 
     patterns = [_PLAYER_NAME]
     if magic_terms is not None:
-        patterns += [_PLAYER_POSSESSIVE, _PLAYER_PREP]
+        patterns += [_PLAYER_POSSESSIVE, _PLAYER_PREP, _PLAYER_PROGRESSIVE]
 
     for text in (question or "", answer or ""):
         # Sorted by position so first-appearance order holds across patterns.
