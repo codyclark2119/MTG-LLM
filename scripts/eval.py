@@ -657,11 +657,36 @@ def rescore(args) -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     arms = list(results[0]["arms"])
+    # Which judge prompt ran is DERIVED, never assumed. This header used to say
+    # "with the v2 judge" unconditionally, while score_one_question routes to
+    # the V3 rubric judge for any record carrying key_points — so once the gold
+    # set became fully rubric-backed, every rescore report described a prompt
+    # that had not run. A reader comparing it against the V3 first-pass report
+    # would conclude the two-judge study varied model AND prompt, and discount
+    # a result that is actually clean. Same trap as the stale ADAPTER_PATH:
+    # the default is fine, printing it without checking is not.
+    n_rubric = sum(1 for r in results for d in r["arms"].values()
+                   if d.get("scored_by") == "rubric")
+    n_prose = sum(len(r["arms"]) for r in results) - n_rubric
+    if n_prose == 0:
+        how = ("the **V3 rubric judge**: the judge reports which enumerated key points "
+               "and which common errors each answer made, and the score is computed in "
+               "Python from those counts")
+    elif n_rubric == 0:
+        how = ("the **V2 prose judge**: correctness and citation scored separately, "
+               "length/style explicitly excluded, candidates anonymized behind "
+               "randomized A/B/C/D labels")
+    else:
+        how = (f"a mix of both judge prompts — {n_rubric} arm-answers against enumerated "
+               f"rubrics (V3) and {n_prose} against a prose reference (V2)")
     lines = ["# Section 9 Evaluation Report (recalibrated judge)\n"]
     lines.append(
-        f"{len(results)} questions, re-scored from `{args.rescore_from.name}` with the v2 judge: "
-        "correctness and citation scored separately, length/style explicitly excluded, "
-        "candidates anonymized behind randomized A/B/C/D labels.\n"
+        f"{len(results)} questions, re-scored from `{args.rescore_from.name}` with {how}.\n"
+    )
+    lines.append(
+        "The judge PROMPT is identical to the first pass; only the judge MODEL differs. "
+        "That is what Section 9.9 requires — vary the judge and nothing else.\n"
+        if n_prose == 0 else ""
     )
     # Name the judge in the body. The earlier reports recorded it only in the
     # filename (cards_n100_judge2.md), which puts the single
