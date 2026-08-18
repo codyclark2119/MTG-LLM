@@ -180,7 +180,8 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
                              f"carries information.")
         warnings = lint_common_errors({"answer": t.get("answer", ""),
                                        "key_points": kp, "common_errors": ce})
-        stray = stray_names(t.get("question", ""), t.get("answer", ""), kp + ce)
+        stray = stray_names(t.get("question", ""), t.get("answer", ""), kp + ce,
+                            list((t.get("card_slots") or {}).values()))
         if stray:
             warnings.append(
                 f"{', '.join(stray)} — not mentioned in the question or its answer. "

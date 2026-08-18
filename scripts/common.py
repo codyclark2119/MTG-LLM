@@ -445,7 +445,14 @@ PLAYER_VERBS = (
     "activates activate taps tap owns own gains gain loses lose wants want "
     "responds respond chooses choose declares declare puts put moves move "
     "exiles exile destroys destroy counters counter reveals reveal wins win "
-    "searches search passes pass concedes concede attempts attempt tries try"
+    "searches search passes pass concedes concede attempts attempt tries try "
+    # Added after "Nikolai uses Processor Assault" survived a migration. Measured
+    # across all 1,202 candidates: these three verbs find 17 more records and 15
+    # more names, every one a person. "gets", "returns" and "makes" were tried
+    # alongside and rejected despite finding 3 records more — creatures get
+    # bonuses and spells return permanents, so those would misfire on a corpus
+    # this one happens not to contain.
+    "uses use used names name named takes take took"
 ).split()
 _PLAYER_VERBS = PLAYER_VERBS  # back-compat for readers of the private name
 _PLAYER_NAME = re.compile(
@@ -477,7 +484,8 @@ _NOT_A_NAME = {
 }
 
 
-def stray_names(question: str, answer: str, lines: list[str]) -> list[str]:
+def stray_names(question: str, answer: str, lines: list[str],
+                cards: list[str] | None = None) -> list[str]:
     """Player names a rubric uses that its question never introduces.
 
     RulesGuru re-randomizes player names per request, which is why the
@@ -502,7 +510,13 @@ def stray_names(question: str, answer: str, lines: list[str]) -> list[str]:
     Reported, never blocked. Missing a stray name phrased some other way is
     the acceptable failure; nagging about correct card vocabulary is not.
     """
-    known = set(_PLAYER_NAME.findall(f"{question or ''} {answer or ''}")) | _NOT_A_NAME
+    # Card words are not player names. Without `cards` this warned on "Reef"
+    # (Shivan Reef), "Spellbomb", "Devilboon", "Moon" and "Storm" — every one a
+    # card the rubric legitimately names, and every one in front of a player
+    # verb by coincidence of phrasing. A check that is wrong in both directions
+    # gets ignored, which is worse than not having it.
+    known = (set(_PLAYER_NAME.findall(f"{question or ''} {answer or ''}"))
+             | _NOT_A_NAME | _card_words(cards or []))
     seen: list[str] = []
     for line in lines or []:
         for name in _PLAYER_NAME.findall(line or ""):

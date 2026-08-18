@@ -582,7 +582,8 @@ def main() -> None:
                 for w in lint_common_errors({"answer": ref.get("answer", ""), **shown}):
                     print(f"    !!  {w}")
                 stray = stray_names(ref.get("question", ""), ref.get("answer", ""),
-                                    shown["key_points"] + shown["common_errors"])
+                                    shown["key_points"] + shown["common_errors"],
+                                    ref.get("cards") or [])
                 if stray:
                     print(f"    !!  {', '.join(stray)} — not in the question or its "
                           f"answer; check the player name is the right one")
