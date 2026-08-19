@@ -2835,3 +2835,45 @@ string alone:
 A fingerprint over the system prompts alone would have reported a match, which
 is the trap: a check that passes through the one failure it was written for is
 worse than no check, because it is then cited as evidence.
+
+### 21.16 The card corpus is pinned; one of the two is read by nothing
+
+`rules.jsonl` and `glossary.jsonl` have been content-pinned since Section 17,
+because a parse that keeps the record count and changes the text is invisible to
+`guard_shrink` and to git. The card corpora had a count check and nothing else,
+and they are the ones fed by a **live API**: Scryfall returns errata'd oracle
+text months later under the same card name and the same record count.
+
+`CARD_PIN` closes it, verified from `CardIndex.__init__` — the chokepoint eleven
+call sites reach card text through, the same role `load_rule_ids` plays for
+rules. Cost is ~12ms against the 25MB read the constructor already does.
+
+Verified by simulating the failure rather than by reading the code: one word of
+one card's oracle text changed, record count untouched.
+
+    CardIndex(<non-canonical path>)   -> allowed, as designed
+    CardIndex() at the canonical path -> refused
+
+    expected sha256 407903e2d42442db...  (34933 card chunks)
+    actual   sha256 e49d178f50a323c2...  (34933 card chunks) — SAME record count,
+                                          so only the TEXT changed
+
+That last clause is in the error message on purpose. A count mismatch reads as
+"wrong file"; a count match with a hash mismatch is the case the pin exists for,
+and it should not require the reader to compare two numbers to notice.
+
+`verify_cr_pin` and `verify_card_pin` share one body (`_verify_pin`). Two copies
+would be the duplicated-helper trap on the guard against silent corpus drift,
+and the copy that got the *only check the canonical path* rule wrong would
+either nag on every deliberate `--cards somewhere_else` or check nothing at all.
+
+#### `ruling_chunks.jsonl` is ingested and read by nothing
+
+Found while looking for its chokepoint: there isn't one. 19,726 ruling chunks,
+22.7MB, built by `ingest_rulings.py` and referenced by no other script — the
+corpus was ingested and never wired into retrieval. It backs no published
+number, so nothing is wrong with any result; it is simply not doing anything.
+
+Pinned anyway, since the moment it gets wired in is the moment nobody will think
+to pin it. Recorded here rather than quietly fixed, because "is this corpus
+actually used" is a question worth asking of the others too.

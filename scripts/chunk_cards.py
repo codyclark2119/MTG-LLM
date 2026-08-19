@@ -33,8 +33,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import (CARD_CHUNKS_PATH, GLOSSARY_PATH, ORACLE_CARDS_PATH, RULES_PATH,
-                    guard_shrink, iter_jsonl, read_jsonl, verify_cr_pin,
+from common import (CARD_CHUNKS_PATH, CARD_PIN, GLOSSARY_PATH, ORACLE_CARDS_PATH,
+                    RULES_PATH, RULING_CHUNKS_PATH, file_sha256, guard_shrink,
+                    iter_jsonl, read_jsonl, verify_card_pin, verify_cr_pin,
                     write_jsonl_atomic)
 from common import RULE_ID_RE as CROSS_REF_RE
 
@@ -136,6 +137,48 @@ def build_card_chunk(card: dict, keyword_rules: dict[str, str]) -> dict:
     }
 
 
+def update_card_pin(card_chunks_path: Path, n_card_chunks: int) -> None:
+    """Rewrite `common.CARD_PIN` to match the corpus just written.
+
+    A command rather than a hand-edited hex string, for the same reason as
+    `ingest.py --update-pin`: the value has to be exactly right to be worth
+    anything, and a typo would be indistinguishable from a corrupted corpus.
+
+    The ruling-chunk entry is carried through untouched. This script does not
+    write ruling_chunks.jsonl (`ingest_rulings.py` does), so recomputing it here
+    would pin whatever happened to be on disk from an unrelated run.
+    """
+    common_py = Path(__file__).parent / "common.py"
+    src = common_py.read_text(encoding="utf-8")
+    new = dict(CARD_PIN)
+    new["card_chunks_sha256"] = file_sha256(card_chunks_path)
+    new["n_card_chunks"] = n_card_chunks
+
+    changed = {k: (CARD_PIN.get(k), v) for k, v in new.items() if CARD_PIN.get(k) != v}
+    if not changed:
+        print("\nCARD_PIN already matches this corpus — nothing to update.")
+        return
+
+    block = ("CARD_PIN = {\n"
+             f'    "card_chunks_sha256": "{new["card_chunks_sha256"]}",\n'
+             f'    "ruling_chunks_sha256": "{new["ruling_chunks_sha256"]}",\n'
+             f'    "n_card_chunks": {new["n_card_chunks"]},\n'
+             f'    "n_ruling_chunks": {new["n_ruling_chunks"]},\n'
+             "}")
+    start = src.index("CARD_PIN = {")
+    end = src.index("}", start) + 1
+    common_py.write_text(src[:start] + block + src[end:], encoding="utf-8")
+
+    print(f"\nCARD_PIN updated in {common_py}:")
+    for k, (was, now) in changed.items():
+        fmt = (lambda v: f"{v[:16]}..." if isinstance(v, str) and len(v) > 16 else str(v))
+        print(f"  {k}: {fmt(was) or '(unset)'} -> {fmt(now)}")
+    print("  Every number computed against the previous snapshot now describes a "
+          "different card corpus. Re-run what depends on it.")
+    if card_chunks_path.resolve() != CARD_CHUNKS_PATH.resolve():
+        print(f"  !! pinned against {card_chunks_path}, which is NOT the canonical path")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     # Defaults to the FULL Oracle pool, not a format subset. This used to
@@ -150,6 +193,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=CARD_CHUNKS_PATH)
     parser.add_argument("--force", action="store_true",
                         help="write even if it would shrink an existing corpus by more than half")
+    parser.add_argument("--update-pin", action="store_true",
+                        help="rewrite common.CARD_PIN to match what this run wrote. "
+                             "Deliberate: every published number was computed against the "
+                             "pinned Scryfall snapshot, so re-pinning means they describe "
+                             "a different card corpus.")
     args = parser.parse_args()
 
     if not args.cards.exists():
@@ -189,6 +237,19 @@ def main() -> None:
     print(f"{len(chunks)} card chunks -> {args.out}")
     print(f"  {with_kw} cards have keywords; {linked} carry at least one linked rule ID")
     print(f"  chars per chunk: median {lengths[len(lengths) // 2]}, max {lengths[-1]} (~{lengths[-1] // 4} tokens)")
+
+    if args.update_pin:
+        update_card_pin(args.out, len(chunks))
+    elif args.out.resolve() == CARD_CHUNKS_PATH.resolve():
+        # Say it here rather than letting the next CardIndex() die with a stack
+        # trace two commands later. Rebuilding the canonical corpus without
+        # re-pinning leaves every card reader refusing to load.
+        try:
+            verify_card_pin(args.out)
+        except SystemExit:
+            print("\n!! This corpus no longer matches common.CARD_PIN, so every reader "
+                  "of it will now refuse to load.\n"
+                  "   Re-run with --update-pin if this parse is the intended one.")
 
 
 if __name__ == "__main__":

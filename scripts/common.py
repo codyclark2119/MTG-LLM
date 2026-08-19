@@ -79,6 +79,26 @@ CR_PIN = {
     "n_glossary": 739,
 }
 
+# The same guarantee for the card corpora. Scryfall is a LIVE API: a re-fetch
+# months later returns errata'd oracle text under the same card name and the
+# same record count, which `guard_shrink` cannot see and git will not flag
+# unless someone reads a 25MB diff.
+#
+# `card_chunks.jsonl` is pinned rather than `oracle_cards.jsonl` because it is
+# what everything downstream actually reads — eleven call sites reach it through
+# `CardIndex` — and it is the layer where a *chunker* change shows up too. Same
+# reasoning as pinning `rules.jsonl` rather than the raw CR text.
+#
+# `ruling_chunks.jsonl` is pinned but currently READ BY NOTHING: it is ingested
+# and never wired into retrieval. Pinned anyway, because the moment it is wired
+# in is the moment nobody will think to pin it.
+CARD_PIN = {
+    "card_chunks_sha256": "407903e2d42442dbdb8c598d4269fe4f8c2349c07a2164c7d9b7cf438df240f7",
+    "ruling_chunks_sha256": "1e3e0fd4b57d4e10796e6adaf7fd0fdbe3a3899c0fd10aec7b71745e2ee24c17",
+    "n_card_chunks": 34933,
+    "n_ruling_chunks": 19726,
+}
+
 # --- Rule-id patterns -------------------------------------------------------
 
 # Find rule ids inside prose: "...as a state-based action (704.5g) and..."
@@ -966,7 +986,18 @@ def verify_cr_pin(rules_path: Path = RULES_PATH,
     if glossary_path is not None:
         checks.append(("glossary", glossary_path, GLOSSARY_PATH,
                        CR_PIN["glossary_sha256"], CR_PIN["n_glossary"]))
+    _verify_pin(checks, f"the pinned CR {CR_VERSION} parse",
+                "python scripts/ingest.py --update-pin")
 
+
+def _verify_pin(checks: list[tuple], what: str, repin_cmd: str) -> None:
+    """Shared body of every content pin. Raises SystemExit on mismatch.
+
+    One implementation, because a second copy would be the duplicated-helper
+    trap on the guard that exists to catch silent corpus drift — and the copy
+    that got the "only check the canonical path" rule wrong would either nag on
+    every deliberate `--cards somewhere_else` or check nothing at all.
+    """
     for label, path, canonical, expected, n_expected in checks:
         if not expected or path.resolve() != canonical.resolve() or not path.exists():
             continue
@@ -974,15 +1005,36 @@ def verify_cr_pin(rules_path: Path = RULES_PATH,
         if actual == expected:
             continue
         n_actual = sum(1 for line in path.open(encoding="utf-8") if line.strip())
+        same_count = " — SAME record count, so only the TEXT changed" if n_actual == n_expected else ""
         raise SystemExit(
-            f"{path} does not match the pinned CR {CR_VERSION} parse.\n"
+            f"{path} does not match {what}.\n"
             f"  expected sha256 {expected[:16]}...  ({n_expected} {label})\n"
-            f"  actual   sha256 {actual[:16]}...  ({n_actual} {label})\n"
-            f"  Every published number was computed against the pinned parse, so this\n"
-            f"  corpus and those numbers do not describe the same rules. Either restore\n"
+            f"  actual   sha256 {actual[:16]}...  ({n_actual} {label}){same_count}\n"
+            f"  Every published number was computed against the pinned corpus, so this\n"
+            f"  corpus and those numbers do not describe the same thing. Either restore\n"
             f"  it (`git checkout {path}`) or, if the new parse is intended, re-pin with\n"
-            f"  `python scripts/ingest.py --update-pin` and re-run what depends on it."
+            f"  `{repin_cmd}` and re-run what depends on it."
         )
+
+
+def verify_card_pin(card_chunks_path: Path = CARD_CHUNKS_PATH,
+                    ruling_chunks_path: Path | None = None) -> None:
+    """Check the card corpora against `CARD_PIN`.
+
+    Called from `CardIndex.__init__`, which is the chokepoint: eleven call
+    sites reach the card corpus through it. Costs ~12ms against the 25MB read
+    the constructor was already doing.
+
+    Scryfall is live, so this catches what `guard_shrink` and git cannot — a
+    re-fetch that returns errata'd oracle text at an unchanged record count.
+    """
+    checks = [("card chunks", card_chunks_path, CARD_CHUNKS_PATH,
+               CARD_PIN["card_chunks_sha256"], CARD_PIN["n_card_chunks"])]
+    if ruling_chunks_path is not None:
+        checks.append(("ruling chunks", ruling_chunks_path, RULING_CHUNKS_PATH,
+                       CARD_PIN["ruling_chunks_sha256"], CARD_PIN["n_ruling_chunks"]))
+    _verify_pin(checks, "the pinned Scryfall snapshot",
+                "python scripts/chunk_cards.py --update-pin")
 
 
 def load_rule_ids(rules_path: Path = RULES_PATH) -> set[str]:

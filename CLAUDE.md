@@ -280,6 +280,14 @@ Each cost real time. They recur in new code, so they are worth knowing.
   where the known failure is an order-of-magnitude subset. They write with
   `write_jsonl_atomic`, so a crash mid-write cannot leave a truncated corpus
   that reads as valid.
+- **Corpora are content-pinned.** `rules.jsonl` and `glossary.jsonl` in
+  `common.CR_PIN`; `card_chunks.jsonl` and `ruling_chunks.jsonl` in
+  `common.CARD_PIN`, checked by `verify_card_pin` from `CardIndex.__init__` —
+  the chokepoint eleven call sites reach card text through. Scryfall is a live
+  API, so a re-fetch returns errata'd oracle text at an unchanged record count.
+  Re-pin with `python scripts/chunk_cards.py --update-pin`. Both pins share
+  `_verify_pin`; do not write a third copy. Note `ruling_chunks.jsonl` is
+  currently read by no script.
 - **`rules.jsonl` and `glossary.jsonl` are content-pinned** in `common.CR_PIN`,
   checked by `common.verify_cr_pin` from `load_rule_ids` (the chokepoint seven
   of nine readers reach) and directly from `chunk.py`/`chunk_cards.py`, which

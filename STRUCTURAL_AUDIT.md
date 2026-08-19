@@ -67,18 +67,23 @@ not show up in the numbers, and a bigger machine buys nothing.
 Working from the inputs outward. For each layer: what could be silently wrong,
 and what check would catch it.
 
-### 1. Corpora
+### 1. Corpora — **done** (Section 21.16)
 
-| Artifact | Guarded? | Gap |
-| --- | --- | --- |
-| `rules.jsonl` / `glossary.jsonl` | **yes** — sha256 content pin, `verify_cr_pin` | — |
-| `oracle_cards.jsonl` | count only | no content pin; a re-fetch can change card text silently |
-| `rulings.jsonl` | count only | same |
+| Artifact | Guarded by |
+| --- | --- |
+| `rules.jsonl` / `glossary.jsonl` | `CR_PIN`, via `verify_cr_pin` from `load_rule_ids` |
+| `card_chunks.jsonl` | `CARD_PIN`, via `verify_card_pin` from `CardIndex.__init__` |
+| `ruling_chunks.jsonl` | `CARD_PIN` (opt-in second check) |
 
-**Action:** extend the `CR_PIN` pattern to cards and rulings. The rules pin
-exists because a parse that keeps the rule count and changes the text is
-invisible to `guard_shrink` and to git. Cards have exactly the same exposure and
-34,933 of them.
+The *processed* corpora are pinned rather than the raw dumps, matching how
+`rules.jsonl` is pinned rather than the raw CR text: it is the layer everything
+downstream reads, and it catches a chunker change as well as a re-fetch.
+Verified by simulating errata — one word changed at an unchanged record count is
+refused, and a non-canonical `--chunks` path is still allowed.
+
+**`ruling_chunks.jsonl` is read by no script.** 19,726 chunks ingested and never
+wired into retrieval. It backs no published number; it is simply not doing
+anything.
 
 ### 2. Derived artifacts — **already done; this entry was wrong**
 
@@ -206,12 +211,21 @@ Sequenced by (what it unblocks) × (what it costs):
    copy of the corpus.
 6. ~~**Prompt hash beside the adapter**~~ — **done**, Section 21.15. Also
    established that runs 1–3 were trained under the current prompts.
-7. **Card and ruling content pins** — lowest urgency; these corpora change rarely.
+7. ~~**Card and ruling content pins**~~ — **done**, Section 21.16.
 
-Only item 7 and the judge work remain. Nothing on this list needed new hardware,
-and items 2–6 turned up three defects that no amount of memory would have fixed:
-a run-killing crash on malformed judge JSON, 16 eval questions inside a pending
-retrain, and a report claiming a judge prompt that had not run.
+**Every item on this list is now closed except the judge work**, and none of
+them needed new hardware. Between them they turned up four defects that no
+amount of memory would have fixed:
+
+- a run-killing crash on valid JSON of the wrong shape (21.12)
+- 16 eval questions inside a pending retrain, past an assertion that said there
+  were none (21.13)
+- a report naming a judge prompt that had not run, and averaging 14 of 99
+  questions without saying so (21.14)
+- a live-API corpus with no content pin (21.16)
+
+That leaves the judge, which was always the item that decides the migration
+question.
 
 ---
 

@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import CARD_CHUNKS_PATH as CARD_CHUNKS
-from common import iter_jsonl
+from common import iter_jsonl, verify_card_pin
 
 BRACKET_RE = re.compile(r"\[\[(.*?)\]\]")
 
@@ -39,6 +39,11 @@ def normalize(name: str) -> str:
 
 class CardIndex:
     def __init__(self, chunks_path: Path = CARD_CHUNKS):
+        # The chokepoint for the card corpus, the way `load_rule_ids` is for
+        # rules: eleven call sites reach card text through this constructor, so
+        # one check covers them. Only the canonical path is verified, so
+        # `--chunks somewhere_else` stays a deliberate act.
+        verify_card_pin(chunks_path)
         self.by_name: dict[str, dict] = {}
         self.by_norm: dict[str, dict] = {}
         for c in iter_jsonl(chunks_path):
