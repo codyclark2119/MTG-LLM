@@ -269,7 +269,26 @@ def parse_output(text: str) -> ParsedOutput:
     """
     out = ParsedOutput()
     in_fence = False
-    lines = (text or "").splitlines()
+    text = text or ""
+    # A reasoning model emits its scratchpad in <think>...</think> before the
+    # answer. That is prose, and prose about a play parses AS that play, so
+    # without this a thinking model's deliberation becomes its move list.
+    #
+    # Measured on Qwen3-14B: the think block alone ran past 900 tokens, and the
+    # two actions the parser recovered came out of the middle of the reasoning
+    # rather than from a conclusion — right answer, wrong reason to trust it.
+    #
+    # An UNCLOSED block means the model was still thinking when it hit the token
+    # limit. Everything is then reasoning and nothing is an action, which is the
+    # honest reading: it never answered. That shows up as a Gate 1 parse
+    # failure rather than as a silently invented play.
+    if "</think>" in text:
+        head, _, text = text.rpartition("</think>")
+        out.ignored.extend(ln.strip() for ln in head.splitlines() if ln.strip())
+    elif "<think>" in text:
+        out.ignored.extend(ln.strip() for ln in text.splitlines() if ln.strip())
+        text = ""
+    lines = text.splitlines()
     marker = next((i for i, ln in enumerate(lines) if _ACTIONS_HEADER_RE.match(ln)), None)
     if marker is not None:
         out.ignored.extend(ln.strip() for ln in lines[:marker] if ln.strip())

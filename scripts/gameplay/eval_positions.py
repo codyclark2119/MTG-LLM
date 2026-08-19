@@ -200,6 +200,17 @@ def main() -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--positions", type=Path, default=POSITIONS_PATH)
     parser.add_argument("--limit", type=int, default=None)
+    # Comparing two BASE MODELS needs the adapter arm dropped -- a LoRA trained
+    # on Qwen2.5-7B cannot be applied to a different base at all. But Section
+    # 21.5 established that arm count changes every arm's score, because the
+    # judge grades all candidates in one batched call. So the baseline has to be
+    # re-run at the SAME reduced arm count rather than compared against the
+    # existing four-arm numbers. This flag is what makes that matched pair
+    # possible; it is not a convenience.
+    parser.add_argument("--arms", nargs="+", default=None,
+                        metavar="NAME",
+                        help="run only these arms (default: all). Comparing across runs "
+                             "requires the same arm COUNT — see Section 21.5.")
     parser.add_argument("--base-model", default=None,
                         help="defaults to eval.BASE_MODEL_ID; a larger 4-bit model fits "
                              "at 36GB for inference")
@@ -262,6 +273,12 @@ def main() -> None:
         if args.limit:
             positions = positions[:args.limit]
         arms = [a for a in ARMS if not (args.no_retrieval and a["retrieval"])]
+        if args.arms:
+            known = {a["name"] for a in ARMS}
+            unknown = [n for n in args.arms if n not in known]
+            if unknown:
+                raise SystemExit(f"unknown arm(s): {unknown}. Known: {sorted(known)}")
+            arms = [a for a in arms if a["name"] in set(args.arms)]
         print(f"{len(positions)} positions x {len(arms)} arms")
 
         contexts = [None] * len(positions)
