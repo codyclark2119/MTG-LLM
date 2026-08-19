@@ -28,6 +28,11 @@ convention for explaining *why* something non-obvious is the way it is. Keep it.
 `eval/*.jsonl`, and the adapters in `models/` back published numbers. Before
 touching any of them, check `git diff --quiet` on the gold set and say so.
 
+**Never train on the eval set.** 72 of the 1,202 RulesGuru candidates are
+promoted into `gold_questions.jsonl`. `build_sft_verified.py` excludes them by
+id and *asserts* it, because contamination is the one failure that invalidates
+everything downstream and looks like an improvement while doing it.
+
 **Report negative results as negative.** This project's value is that
 "fine-tuning did not beat retrieval" and "two judges disagree enough to reverse
 the ranking" are written down plainly. Do not soften a result, and do not
@@ -102,6 +107,14 @@ record has `key_points`. V1 was removed in the Section 17 review.
 identical answers (Section 9.9) and reversed two of three gameplay gates
 (Section 16.12). Vary the judge and *nothing else* — that is what
 `--rescore-from` is for. A number from one judge is a statement about the judge.
+
+**Comparing runs requires the same arm count.** `judge_batch_rubric` grades
+every candidate for a question in ONE batched call — that is what makes the
+anonymized A/B/C/D design work — so a fifth arm is not a fifth independent
+grading, it is a fifth answer in the same prompt. Measured: adding one arm moved
+a byte-identical arm's blunder rate 23 points (Section 21.5). An arm cannot be
+added and compared against a run without it. Use `--arms` to match counts; never
+run five and compare four of them against an old four-arm run.
 
 **The judge is deterministic.** Re-judging identical inputs reproduces exactly.
 So a number that moved means something real changed; there is no sampling noise
@@ -200,6 +213,19 @@ Each cost real time. They recur in new code, so they are worth knowing.
   priority", which failed Gate 1 on a mulligan — the one position where the two
   readings come apart (Section 16.13). The two meanings always agree until they
   suddenly don't, so the bug ships looking correct.
+- **A rubric with no entry for the most likely wrong answer.** 69% of model
+  answers to a board contain at most one action, so on a two-step line the
+  likely failure is doing half of it. Four positions had no entry for that and
+  carried 11 of 31 disputed judge calls; the one that had it drew zero. The
+  lint cannot help — it checks the lines that are there, and this is a missing
+  one.
+- **Prose about a play parsing AS that play.** "Play Mountain first would strand
+  Shock in hand" became a `PLAY` action with a garbage operand, silently, with
+  no `ParseFailure`. Any arm asked to reason would have had its legality
+  destroyed by its own explanation, and it would have read as "reasoning makes
+  the model play worse". Reasoning is bounded by an `ACTIONS:` marker and
+  `<think>` blocks now, but the general shape recurs: free text in a field that
+  is later parsed.
 - **A helper duplicated with a guard in only some copies.** Five jsonl readers,
   three of which crashed on a trailing blank line.
 

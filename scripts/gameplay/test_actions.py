@@ -232,6 +232,65 @@ That should be lethal next turn.
     failed += not check("every grammar line names a known verb", unmatched, [])
     failed += not check("every parser verb is documented", set(VERBS) - documented, set())
 
+    # ---- reasoning-model output -------------------------------------------
+    # Prose about a play parses AS that play, measured: "Play Mountain first
+    # would strand Shock in hand" became a PLAY action with a garbage operand,
+    # silently and with no ParseFailure. Two boundaries stop that, and both are
+    # only useful if they keep working.
+    marked = parse_output(
+        "Play Mountain first would strand Shock in hand.\n"
+        "Block Grizzly Bears with Wall of Omens is safe.\n"
+        "ACTIONS:\n"
+        "CAST Shock TARGET Grizzly Bears\n"
+        "PASS"
+    )
+    failed += not check("ACTIONS: marker hides the reasoning above it",
+                        [a.key() for a in marked.actions],
+                        ["CAST Shock TARGET Grizzly Bears", "PASS"])
+    failed += not check("reasoning above the marker is kept as prose",
+                        len(marked.ignored), 2)
+
+    thought = parse_output(
+        "<think>\nPlay Mountain would strand Shock.\n</think>\n"
+        "BLOCK Fog Bank -> Vampire Nighthawk\nPASS"
+    )
+    failed += not check("closed <think> block is not parsed as actions",
+                        [a.key() for a in thought.actions],
+                        ["BLOCK Fog Bank -> Vampire Nighthawk", "PASS"])
+
+    # An unclosed block means the model hit the token limit mid-reasoning. That
+    # is "never answered", which must fail Gate 1 rather than yield a play the
+    # model never committed to.
+    truncated = parse_output("<think>\nPlay Mountain would strand Shock in hand.")
+    failed += not check("unclosed <think> yields no actions",
+                        [a.key() for a in truncated.actions], [])
+    failed += not check("unclosed <think> is not ok (Gate 1 sees the failure)",
+                        truncated.ok, False)
+
+    plain = parse_output("CAST Shock TARGET Grizzly Bears\nPASS")
+    failed += not check("output with neither marker nor think is unchanged",
+                        [a.key() for a in plain.actions],
+                        ["CAST Shock TARGET Grizzly Bears", "PASS"])
+
+    # ---- once-per-turn actions --------------------------------------------
+    # legal_actions is a SET test and cannot see "how many times". A land drop
+    # is once per turn (305.2), so two is illegal however it is spelled.
+    dup = legality(parse_output("PLAY Swamp\nPLAY Swamp\nPASS"), ["PLAY Swamp", "PASS"])
+    failed += not check("repeated land drop is illegal", dup["all_legal"], False)
+    two_lands = legality(parse_output("PLAY Swamp\nPLAY Forest\nPASS"),
+                         ["PLAY Swamp", "PLAY Forest", "PASS"])
+    failed += not check("two different land drops are illegal too",
+                        two_lands["all_legal"], False)
+    one = legality(parse_output("PLAY Swamp\nPASS"), ["PLAY Swamp", "PASS"])
+    failed += not check("a single land drop stays legal", one["all_legal"], True)
+
+    # The collapse that hid it must still work for what it was FOR: a model
+    # emitting PASS 190 times has looped, not acted.
+    looped = parse_output("PASS\n" * 8)
+    failed += not check("repeated PASS still collapses", len(looped.actions), 1)
+    failed += not check("repeated PASS still reads as degenerate",
+                        looped.degenerate, True)
+
     if failed:
         print(f"\n{failed} check(s) FAILED")
         raise SystemExit(1)

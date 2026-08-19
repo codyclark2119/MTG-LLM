@@ -50,6 +50,43 @@ The form warns when it catches this, but the check is deliberately conservative
 — it only fires on a **verbatim** restatement and will miss subtler overlap. A
 clean form means "no obvious defect", not "good rubric".
 
+### If the line has two steps, stopping after the first is a blunder
+
+Measured in Section 21.3, and it was the single largest source of judge
+disagreement on the first real gate run.
+
+**69% of model answers contain at most one real action.** Emitting one play and
+passing is what these models *do*. So on a position whose correct line needs two
+steps, the most likely wrong answer is the first half of the right one — and if
+the blunder list has no entry for that, the answer commits no listed error and
+scores as clean.
+
+That is exactly what happened. On a board where the line was "Shock the blocker,
+then attack for exactly lethal", the answer was:
+
+```
+CAST Shock TARGET Grizzly Bears
+PASS
+```
+
+Half the line. Lethal left on an empty board. One judge fired no errors, which
+is *correct by the rubric* and scores a thrown-away win as un-blundered; the
+other fired all three to signal the answer was bad. Four of the five multi-step
+positions had this gap and carried 11 of 31 disputed calls between them. The
+fifth already had a partial-execution entry — and drew **zero** disputes.
+
+So: **every multi-step line needs an entry for abandoning it halfway.** Where
+the board is lethal, say so in those terms — leaving the winning step untaken
+hands a beaten opponent another turn, which in play is a fatal blunder rather
+than a missed optimisation. Where the board is *not* lethal, write the smaller
+loss it actually is; borrowing severity makes the rubric describe a different
+board.
+
+Note this is the **inverse** of the defect above. That one is an entry whose
+opening clause is also true of the correct line. This one is a real failure mode
+with no entry at all, and the lint cannot see it — a missing line never trips a
+check on the lines that are there.
+
 ### An error must be a play someone would actually make
 
 `common_errors` are traps, not negations of the key points. "Fails to cast
@@ -114,10 +151,25 @@ than none. It is the position analogue of `definition recall` in the rules set.
 ## Workflow
 
 ```bash
-# author in the console, then:
+# author in the console, or draft a batch and promote it:
+python scripts/gameplay/positions.py --ingest drafts.jsonl --dry-run
+python scripts/gameplay/positions.py --ingest drafts.jsonl --author "Your Name"
+
 python scripts/gameplay/positions.py                     # validate everything
-python scripts/gameplay/eval_positions.py                # scores with TWO judges
+python scripts/gameplay/eval_positions.py --second-judge mlx-community/Meta-Llama-3.1-8B-Instruct-4bit
 ```
+
+`--ingest` refuses three things, each a measurement it would otherwise corrupt:
+an id that already exists (a "rewrite" is a different board wearing an old id,
+and every score filed under it would then describe a board that no longer
+exists), a record carrying `seed_note`, and any batch where a single record
+fails validation. `--dry-run` renders every incoming board, because a position
+can only be reviewed as the model will see it.
+
+**Comparing two runs requires the same arm count.** The judge grades every
+candidate for a position in one batched call, so adding an arm changes every
+other arm's score — measured in Section 21.5, where a byte-identical arm moved
+23 points. Use `--arms` to match counts rather than ignoring a column.
 
 **Run both judges from the first position, not at the end.** Gates 2 and 3 both
 reversed between judges on byte-identical answers. The gate is specified as
