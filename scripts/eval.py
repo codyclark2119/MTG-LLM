@@ -182,6 +182,103 @@ JUDGE_SYSTEM_PROMPT_V3 = (
 )
 
 
+# v4 judge. Kappa on the blunder call between two judges is +0.24 (Section
+# 20.3) -- weak, 31 of 88 calls disputed -- and every other number in the
+# project is read through the judge, so that caps everything.
+#
+# Section 21.3 found the mechanism on the worst position. The candidate answered
+# "CAST Shock TARGET Grizzly Bears / PASS", committing NONE of the three
+# enumerated errors. One judge correctly reported none. The other reported ALL
+# THREE. It was not reading errors off the answer; it was signalling that the
+# answer was bad.
+#
+# So V4 asks for the receipt. Every claimed point_hit and errors_made must come
+# with a QUOTE from the candidate, and the quote is then checked in Python
+# against the candidate's actual text. A claim whose quote does not appear is
+# DROPPED, and the drop count is reported -- which turns "did the judge invent
+# this?" from a question about the judge into a string containment test.
+#
+# Same philosophy as V3: ask for something checkable, then do the arithmetic in
+# Python. V3 removed the judge's discretion over the SCORE; V4 removes its
+# discretion over whether the evidence exists.
+#
+# The quote does NOT have to lexically match the rubric line. V3's
+# paraphrase-tolerance is deliberate and preserved -- a point can be stated in
+# any wording, and the quote is only required to be real text from the answer.
+# Requiring lexical overlap would trade one bias for another.
+JUDGE_SYSTEM_PROMPT_V4 = (
+    "You are an expert Magic: The Gathering rules judge.\n\n"
+    "You get a QUESTION, a numbered list of KEY POINTS (facts a correct "
+    "answer must state), an optional numbered list of COMMON ERRORS (false "
+    "claims a correct answer must avoid), and several CANDIDATE answers "
+    "labeled A, B, C, D.\n\n"
+    "For each candidate, report:\n"
+    "  points_hit  — for each KEY POINT the candidate asserts, its number AND "
+    "a short VERBATIM quote from that candidate showing where. Count a point "
+    "as hit if the candidate states it in ANY wording, including paraphrase or "
+    "implication; the quote does not need to match the rubric's words, it only "
+    "needs to be the part of the answer that carries the claim.\n"
+    "  errors_made — for each COMMON ERROR the candidate actually commits, its "
+    "number AND a short VERBATIM quote from that candidate showing where.\n"
+    "  citation    — 1-5 on whether cited comprehensive-rule numbers are real "
+    "and relevant: 5 = correct relevant rule cited, 3 = cites nothing, "
+    "1 = fabricated, wrong, or self-contradicting citation.\n\n"
+    "CRITICAL:\n"
+    "- Every quote must be copied EXACTLY from that candidate's text. Do not "
+    "paraphrase the quote, do not quote the rubric, and do not quote a "
+    "different candidate. A claim you cannot quote will be discarded.\n"
+    "- If the candidate does not commit any listed error, return an EMPTY "
+    "errors_made list. Do not list errors to signal that an answer is poor.\n"
+    "- Length, verbosity, tone, and formatting are IRRELEVANT. A one-sentence "
+    "answer that states every key point hits every key point.\n"
+    "- Extra correct information neither adds nor removes points.\n\n"
+    "Output ONLY a JSON object mapping each label to "
+    '{"points_hit": [{"n": <number>, "quote": "<verbatim>"}], '
+    '"errors_made": [{"n": <number>, "quote": "<verbatim>"}], '
+    '"citation": <1-5>, "note": "<short phrase>"}. No other text.'
+)
+
+
+def _normalize_for_quote(s: str) -> str:
+    """Collapse whitespace and case so a quote survives reformatting."""
+    return " ".join((s or "").split()).lower()
+
+
+def verify_quoted_claims(claims, answer: str, n_max: int) -> tuple[list[int], int]:
+    """Keep only claims whose quote really appears in the answer.
+
+    Returns (kept_numbers, n_dropped). Accepts the V3 shape (bare integers) too,
+    so a mixed or partially-malformed response degrades to V3 behaviour rather
+    than to nothing -- an unquoted claim is kept, because V3 never asked for a
+    quote and dropping it would silently penalize a judge that answered the
+    older question.
+    """
+    kept: list[int] = []
+    dropped = 0
+    hay = _normalize_for_quote(answer)
+    for c in claims or []:
+        if isinstance(c, int):
+            if 1 <= c <= n_max:
+                kept.append(c)
+            continue
+        if not isinstance(c, dict):
+            continue
+        n = c.get("n")
+        if not isinstance(n, int) or not (1 <= n <= n_max):
+            continue
+        quote = c.get("quote")
+        if not isinstance(quote, str) or not quote.strip():
+            kept.append(n)
+            continue
+        # Short quotes match too easily to be evidence of anything.
+        needle = _normalize_for_quote(quote)
+        if len(needle) >= 12 and needle not in hay:
+            dropped += 1
+            continue
+        kept.append(n)
+    return kept, dropped
+
+
 def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int) -> dict:
     """Turn rubric extraction into a 1-5 correctness score, in Python.
 
@@ -234,8 +331,15 @@ def judge_batch_rubric(
     lm_generate, judge_model, judge_tokenizer, question: str,
     key_points: list[str], common_errors: list[str],
     candidates: dict[str, str], max_tokens: int, rng: random.Random,
+    judge_version: str = "v3",
 ) -> dict:
-    """Score against an enumerated rubric behind randomized A/B/C/D labels."""
+    """Score against an enumerated rubric behind randomized A/B/C/D labels.
+
+    `judge_version` selects the prompt. "v3" is the default and is unchanged, so
+    every published number reproduces. "v4" additionally requires a verbatim
+    quote behind each claimed point or error and discards claims whose quote is
+    not in the candidate's text (Section 21.7).
+    """
     arms = list(candidates)
     rng.shuffle(arms)
     label_to_arm = dict(zip((chr(ord("A") + i) for i in range(len(arms))), arms))
@@ -249,7 +353,8 @@ def judge_batch_rubric(
 
     messages = [
         {"role": "system", "content": judge_prompt_for(
-            JUDGE_SYSTEM_PROMPT_V3, list(label_to_arm))},
+            JUDGE_SYSTEM_PROMPT_V4 if judge_version == "v4" else JUDGE_SYSTEM_PROMPT_V3,
+            list(label_to_arm))},
         {"role": "user", "content": user},
     ]
     prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
@@ -268,10 +373,21 @@ def judge_batch_rubric(
         entry = scored.get(label)
         if not isinstance(entry, dict):
             continue
+        raw_points = entry.get("points_hit") or []
+        raw_errors = entry.get("errors_made") or []
+        drops = 0
+        if judge_version == "v4":
+            # The receipt check. A claim the judge cannot quote from THIS
+            # candidate is discarded, and the count is carried so fabrication
+            # is a reported number rather than an impression.
+            answer_text = candidates[arm]
+            raw_points, d1 = verify_quoted_claims(raw_points, answer_text, len(key_points))
+            raw_errors, d2 = verify_quoted_claims(raw_errors, answer_text, len(common_errors))
+            drops = d1 + d2
         computed = rubric_correctness(
-            entry.get("points_hit") or [], entry.get("errors_made") or [],
-            len(key_points), len(common_errors),
+            raw_points, raw_errors, len(key_points), len(common_errors),
         )
+        computed["quote_drops"] = drops
         citation = entry.get("citation")
         out[arm] = {
             **computed,
@@ -384,12 +500,14 @@ def load_gold_questions(path: Path, limit: int | None = None, stratify: bool = T
 
 
 def score_one_question(lm_generate, judge_model, judge_tokenizer, q: dict,
-                       candidates: dict[str, str], max_tokens: int, rng: random.Random) -> dict:
+                       candidates: dict[str, str], max_tokens: int, rng: random.Random,
+                       judge_version: str = "v3") -> dict:
     """Route to the rubric judge when a rubric exists, else the V2 judge."""
     if q.get("key_points"):
         return judge_batch_rubric(
             lm_generate, judge_model, judge_tokenizer, q["question"],
             q["key_points"], q.get("common_errors") or [], candidates, max_tokens, rng,
+            judge_version=judge_version,
         )
     return judge_batch_anonymized(
         lm_generate, judge_model, judge_tokenizer, q["question"], q["reference"],
@@ -664,6 +782,7 @@ def rescore(args) -> None:
         # dropping back to prose comparison.
         judged = score_one_question(
             lm_generate, judge_model, judge_tokenizer, r, candidates, args.judge_max_tokens, rng,
+            judge_version=args.judge_prompt,
         )
         for arm, data in r["arms"].items():
             entry = judged.get(arm, {})
@@ -793,6 +912,10 @@ def main() -> None:
                         help="model used as judge. Defaults to --base-model — which is ALSO the "
                              "'base' arm under test, so an independent judge is needed to rule out "
                              "self-preference bias (Section 9.9).")
+    parser.add_argument("--judge-prompt", choices=("v3", "v4"), default="v3",
+                        help="v4 requires a verbatim quote behind every claimed point "
+                             "or error and discards claims it cannot verify (Section 21.7). "
+                             "v3 is the default so published numbers reproduce.")
     parser.add_argument("--rescore-from", type=Path, default=None,
                         help="re-judge stored answers from a previous results file instead of regenerating")
     args = parser.parse_args()
