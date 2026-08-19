@@ -23,7 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from eval_positions import (  # noqa: E402
     GATE2_MIN_FRACTION,
     GATE2_MIN_SPREAD,
+    GATE3_MAX_BLUNDER,
     gate2_discrimination,
+    gate3_blunder,
 )
 
 CHECKS_RUN = 0
@@ -122,6 +124,47 @@ def test_gate2() -> int:
     return failed
 
 
+def brows(*specs):
+    """Rows of (difficulty, blundered_per_arm) for Gate 3."""
+    return [{"difficulty": d,
+             "arms": {f"arm{i}": {"blundered": b} for i, b in enumerate(bs)}}
+            for d, bs in specs]
+
+
+def test_gate3() -> int:
+    failed = 0
+
+    # Gate 3 reads the BEST arm, over basic+intermediate only.
+    r = brows(("basic", (True, False)), ("basic", (True, False)))
+    failed += not check("best arm wins", gate3_blunder(r, ARMS), ("arm1", 0.0))
+
+    r = brows(("basic", (True, True)), ("basic", (False, True)))
+    failed += not check("best arm is the lower rate", gate3_blunder(r, ARMS), ("arm0", 0.5))
+
+    # Advanced positions are excluded: the gate is about whether the model is
+    # reliable on the ordinary boards, not the hard ones.
+    r = brows(("basic", (False, False)), ("advanced", (True, True)))
+    failed += not check("advanced excluded", gate3_blunder(r, ARMS)[1], 0.0)
+
+    r = brows(("intermediate", (True, True)), ("advanced", (False, False)))
+    failed += not check("intermediate included", gate3_blunder(r, ARMS)[1], 1.0)
+
+    # An unjudged call is dropped, not counted clean. Counting it clean would
+    # let a judge that failed to parse push the blunder rate DOWN and the gate
+    # toward PASS — the direction that manufactures a good result.
+    r = brows(("basic", (None, True)), ("basic", (True, True)))
+    failed += not check("unjudged dropped, not scored clean",
+                        gate3_blunder(r, ARMS), ("arm0", 1.0))
+
+    # No usable positions at all must not report 0% and PASS.
+    failed += not check("no easy positions -> no arm", gate3_blunder(brows(("advanced", (False,))), ARMS),
+                        (None, 1.0))
+    failed += not check("empty input -> no arm", gate3_blunder([], ARMS), (None, 1.0))
+
+    failed += not check("threshold is 25%", GATE3_MAX_BLUNDER, 0.25)
+    return failed
+
+
 def test_gate2_against_stored_runs() -> int:
     """The numbers Section 21.18 publishes, recomputed from the stored runs.
 
@@ -154,6 +197,7 @@ def test_gate2_against_stored_runs() -> int:
 def main() -> None:
     failed = 0
     for name, fn in (("gate2_discrimination", test_gate2),
+                     ("gate3_blunder", test_gate3),
                      ("gate2 vs stored runs", test_gate2_against_stored_runs)):
         print(f"{name} ...")
         failed += fn()

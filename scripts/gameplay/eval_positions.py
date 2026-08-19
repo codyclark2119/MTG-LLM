@@ -181,6 +181,44 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
                          f"{sum(y for _, y in sub) / len(sub):.0%} | "
                          f"{sum(1 for x, y in sub if x == y) / len(sub):.0%} |")
 
+    # ---- do the GATES survive the judge swap? ------------------------------
+    # kappa and per-arm rates were already here, but nothing compared the thing
+    # the run actually publishes: the gate verdicts. Section 16.12 reported two
+    # of three gates reversing between judges and left it at that; this makes it
+    # a standing readout, so a reversal is visible in the run that caused it
+    # rather than found later by hand.
+    rows_a, rows_b = [a[i] for i in shared_ids], [b[i] for i in shared_ids]
+    lines.append("\n## Gate verdicts under each judge\n")
+    lines.append(f"| Gate | {path_a.stem} | {path_b.stem} | |")
+    lines.append("| --- | --- | --- | --- |")
+
+    (_, _, f_a, g2a), (_, _, f_b, g2b) = (gate2_discrimination(rows_a, arms),
+                                          gate2_discrimination(rows_b, arms))
+    lines.append(f"| 2 — discriminates | {f_a:.0%} {'PASS' if g2a else 'FAIL'} | "
+                 f"{f_b:.0%} {'PASS' if g2b else 'FAIL'} | "
+                 f"{'**REVERSES**' if g2a != g2b else 'agree'} |")
+
+    (arm_a, r3a), (arm_b, r3b) = gate3_blunder(rows_a, arms), gate3_blunder(rows_b, arms)
+    p3a, p3b = r3a <= GATE3_MAX_BLUNDER, r3b <= GATE3_MAX_BLUNDER
+    lines.append(f"| 3 — blunder ≤{GATE3_MAX_BLUNDER:.0%} | {r3a:.0%} ({arm_a}) "
+                 f"{'PASS' if p3a else 'FAIL'} | {r3b:.0%} ({arm_b}) "
+                 f"{'PASS' if p3b else 'FAIL'} | "
+                 f"{'**REVERSES**' if p3a != p3b else 'agree'} |")
+
+    # Agreeing is not the same as being stable. Gate 3 currently agrees only
+    # because both judges land far from the threshold; the SWING between them
+    # is what says whether the verdict would survive a better model. Measured on
+    # the 5-arm run: 65% vs 27% against a 25% threshold — one judge 40 points
+    # from passing, the other 2.
+    swing = abs(r3a - r3b)
+    if p3a == p3b and swing > GATE3_MAX_BLUNDER / 2:
+        lines.append(
+            f"\n> **Gate 3 agrees but is not stable.** The two judges are {swing:.0%} apart "
+            f"on the same answers, against a {GATE3_MAX_BLUNDER:.0%} threshold. It returns "
+            "the same verdict only because both land far from the line — the agreement is a "
+            "fact about how far the model is from passing, not about the metric. Expect it "
+            "to reverse as soon as an arm gets close.")
+
     disputed = [(rid, arm) for x, y, rid, arm in pairs if x != y]
     if disputed:
         lines.append(f"\n## {len(disputed)} disputed calls\n")
@@ -384,6 +422,7 @@ def _write_results(results: list[dict], out: Path) -> None:
 
 GATE2_MIN_SPREAD = 0.5      # points on the 1-5 correctness scale
 GATE2_MIN_FRACTION = 0.50   # of judged positions
+GATE3_MAX_BLUNDER = 0.25    # best arm, basic+intermediate positions
 
 
 def gate2_discrimination(results, arm_names) -> tuple[int, int, float, bool]:
@@ -408,6 +447,37 @@ def gate2_discrimination(results, arm_names) -> tuple[int, int, float, bool]:
         sep += (max(cs) - min(cs)) >= GATE2_MIN_SPREAD
     frac = sep / tot if tot else 0.0
     return sep, tot, frac, (tot > 0 and frac >= GATE2_MIN_FRACTION)
+
+
+def gate3_blunder(results, arm_names) -> tuple[str | None, float]:
+    """(best arm, its blunder rate) over basic+intermediate positions.
+
+    Extracted for the same reason as `gate2_discrimination`, and used by the
+    judge-agreement report to show the verdict under each judge rather than
+    only under whichever one ran last.
+
+    Ties go to the FIRST arm in `arm_names` (`<`, not `<=`). That is what the
+    inline version did, so every published Gate 3 line reproduces — and it is
+    the better rule anyway, since `arm_names` is ordered and the alternative
+    silently renames the reported arm when two tie.
+
+    `best` starts unset rather than at 1.0, so a run where EVERY arm blunders on
+    every position still names an arm. The inline version seeded it at 1.0 and
+    used `<`, so that case printed "Best arm `None` at 100%" — the verdict was
+    right and the sentence was not. Only reachable at exactly 100%, and no
+    stored run hits it.
+    """
+    easy = [r for r in results if r.get("difficulty") in ("basic", "intermediate")]
+    best_arm, best = None, None
+    for arm in arm_names:
+        vals = [(r["arms"].get(arm) or {}).get("blundered") for r in easy]
+        vals = [v for v in vals if v is not None]
+        if not vals:
+            continue
+        rate = sum(bool(v) for v in vals) / len(vals)
+        if best is None or rate < best:
+            best_arm, best = arm, rate
+    return best_arm, (1.0 if best is None else best)
 
 
 def _write_report(results, positions, arm_names, closed_arms, args,
@@ -516,16 +586,9 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                          "excluded from the count above rather than scored as ties.")
 
     easy = [r for r in results if r["difficulty"] in ("basic", "intermediate")]
-    best_arm, best_rate = None, 1.0
-    for arm in arm_names:
-        vals = [r["arms"][arm]["blundered"] for r in easy
-                if r["arms"][arm]["blundered"] is not None]
-        if vals:
-            v = sum(vals) / len(vals)
-            if v < best_rate:
-                best_arm, best_rate = arm, v
-    g3 = best_arm is not None and best_rate <= 0.25
-    lines.append(f"\n**Gate 3 — blunder rate ≤25% on basic+intermediate: "
+    best_arm, best_rate = gate3_blunder(results, arm_names)
+    g3 = best_arm is not None and best_rate <= GATE3_MAX_BLUNDER
+    lines.append(f"\n**Gate 3 — blunder rate ≤{GATE3_MAX_BLUNDER:.0%} on basic+intermediate: "
                  f"{'PASS' if g3 else 'FAIL'}.** Best arm `{best_arm}` at {best_rate:.0%} "
                  f"over {len(easy)} positions."
                  + (" Seed fixtures cannot settle this gate — it needs judge-authored positions."

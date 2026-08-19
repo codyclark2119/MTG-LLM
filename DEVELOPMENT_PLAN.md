@@ -2989,3 +2989,49 @@ is no longer the place that disagreement gets amplified into a reversed verdict.
 Blunder rate stays in the report as a diagnostic. It is the interpretable number
 and the one that matches how the position set was authored — failing to take the
 winning line is fatal, not a rounding error. It is simply too coarse to gate on.
+
+### 21.19 Gate 1 is judge-independent; Gate 3 agrees only because the model is bad
+
+With Gate 2 rebuilt (21.18), the obvious question is whether the other two gates
+have the same defect. Measured across three run pairs — **identical stored
+answers, judge varied and nothing else**:
+
+| Pair | Gate 1 (parse / legality) | Gate 2 old | Gate 2 new | Gate 3 |
+| --- | --- | --- | --- | --- |
+| `pos_qwen25_3arm` | 100/100, 64/64 | 9% → 26% **reverses** | 82% → 84% | 71% → 53% |
+| `positions_n22` | 77/77, 36/36 | 32% → 36% | 86% → 82% | 47% → 47% |
+| `positions_n22_think` | 77/77, 23/23 | 23% → 50% | 91% → 85% | 65% → 27% |
+
+**Gate 1 is bit-identical under both judges**, on every pair. It should be — it
+is computed by the action parser, which never sees the judge — and confirming it
+is the positive control for this whole comparison. A difference there would have
+meant judge output was leaking into a parser-derived metric.
+
+**Gate 3 never reverses, and that is not reassuring.** Look at the swing: 71→53
+and 65→27, against a **25%** threshold. On the think run, one judge puts the best
+arm 40 points from passing and the other 2 points. The gate agrees only because
+both land far from the line — the agreement is a fact about how far the model is
+from passing, not about the metric. It will start reversing at exactly the moment
+an arm gets good enough for the verdict to matter.
+
+So the judge-agreement report now prints **both judges' gate verdicts side by
+side**, flags a reversal, and flags this second case: agreeing while more than
+half the threshold apart. Section 16.12 recorded "two of three gates reversed"
+as a one-off observation; it is a standing readout now, visible in the run that
+caused it rather than found by hand later.
+
+#### Extracting Gate 3 created the duplicated-helper trap, and the test caught it
+
+`gate3_blunder` was written for the agreement report while the original stayed
+inline in `_write_report` — two implementations of one gate, exactly the trap
+CLAUDE.md lists. They had already diverged on tie-breaking (`<` vs `<=`), which
+silently renames the reported arm when two arms tie. The new test failed on the
+first run, which is the whole argument for writing it.
+
+Now one implementation, called from both. Verified output-preserving: all five
+stored runs regenerate byte-identical reports.
+
+One real edge case surfaced on the way. The inline version seeded the best rate
+at 1.0 and used `<`, so a run where *every* arm blunders on *every* easy position
+printed "Best arm `None` at 100%" — the FAIL verdict was right and the sentence
+was not. `best` now starts unset. No stored run reaches it.

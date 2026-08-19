@@ -63,7 +63,7 @@ a GPU:
 python scripts/test_imports.py                    # every script resolves every name it uses
 python scripts/test_eval.py                       # the scoring arithmetic (96)
 python scripts/gameplay/test_actions.py           # the action grammar (84)
-python scripts/gameplay/test_eval_positions.py    # the gameplay gates (24)
+python scripts/gameplay/test_eval_positions.py    # the gameplay gates (32)
 ```
 
 `test_eval.py` covers the code that turns judge JSON into published numbers, and
@@ -140,6 +140,15 @@ record has `key_points`. V1 was removed in the Section 17 review.
 identical answers (Section 9.9) and reversed two of three gameplay gates
 (Section 16.12). Vary the judge and *nothing else* — that is what
 `--rescore-from` is for. A number from one judge is a statement about the judge.
+
+The judge-agreement report prints **both judges' gate verdicts side by side** and
+flags two failures: a reversal, and — subtler — a gate that *agrees* while the
+judges sit more than half the threshold apart (Section 21.19). Gate 3 currently
+does the latter: 65% vs 27% against a 25% bar, so it agrees only because the
+model is far from passing, and will start reversing when an arm gets close.
+**Gate 1 is bit-identical under both judges** on every run pair, as it must be —
+it comes from the action parser, which never sees the judge. That is the positive
+control for the whole comparison.
 
 **Comparing runs requires the same arm count.** `judge_batch_rubric` grades
 every candidate for a question in ONE batched call — that is what makes the
