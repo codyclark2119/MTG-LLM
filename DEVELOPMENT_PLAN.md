@@ -2344,3 +2344,64 @@ fluent reasoning that does not reach a better play, and licenses plays the
 terse arm never attempted. That is a negative result for the prompt-level fix,
 and it is the strongest available argument for testing a reasoning-capable base
 model instead — the thing a prompt cannot install.
+
+### 21.6 Eighteen percent of the SFT set taught the model to refuse
+
+Section 21.4 argued from provenance that a set synthesized by the model being
+trained cannot lift it. Reading the actual training targets found something more
+specific and worse. The first line of `data/datasets/train.jsonl`:
+
+```
+assistant: The rules provided do not contain specific information about the card
+Mishra, artificer prodigy. Therefore, I cannot answer the question based solely
+on the given rules text.
+```
+
+That is a refusal, used as a training target. Measured across both splits:
+
+| | synthetic (`data/datasets/`) | verified (`gold_candidates`) |
+| --- | --- | --- |
+| examples | 2,971 | 1,130 |
+| **refusal-shaped targets** | **523 (18%)** | **1 (0.1%)** |
+| targets citing a rule id | 87% | **100%** |
+| mean target length | 618 chars | 277 chars |
+
+**Roughly one training example in five explicitly taught the adapter to
+decline.** That is a sufficient explanation on its own for the two things every
+run since Section 9 has reported about the fine-tuned arm: it scores lowest on
+correctness — a refusal scores 1 against any rubric — and it produces the
+shortest answers of the four.
+
+This reframes the whole fine-tuning result. Sections 8, 9, 18 and 19 all
+concluded "fine-tuning did not beat retrieval", and that conclusion stands as
+measured. But the cause was never established, and "the training data taught it
+to refuse 18% of the time" is a much narrower and more fixable diagnosis than
+"fine-tuning does not help here".
+
+`scripts/build_sft_verified.py` builds the replacement:
+
+```
+candidates              : 1202
+  excluded (in gold set): 72
+  usable                : 1130
+  refusal-shaped answers: 1 (0.1%)
+  citing a rule inline  : 1130 (100%)
+split: train=1019 valid=111
+```
+
+Three things it does deliberately:
+
+- **Contamination is an assertion, not a comment.** 72 candidates are already in
+  the n=99 eval set; training on them would make every downstream number
+  meaningless *and would look like an improvement*. The builder aborts if an
+  excluded id survives, and writes `excluded_ids.jsonl` so the exclusion is
+  auditable rather than trusted.
+- **No retrieved context is attached.** These questions carry their own card
+  references and the verified answer cites its own rules; injecting retrieval
+  would train the model to expect a context block the answer does not depend on.
+- **Epoch count is printed, not inherited.** This repo has already shipped a
+  config comment claiming ~1 epoch for a run that did 0.45. At 1,019 training
+  examples the v2 recipe's 600 iterations at batch 4 is **2.36 epochs**, not the
+  ~1 it was on 2,644 — and Section 8 overfit badly at 569 examples. The
+  iteration count has to come down, and the builder puts that arithmetic in
+  front of whoever runs it.
