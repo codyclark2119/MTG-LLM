@@ -2124,3 +2124,153 @@ Only `base_closed` moves, because the other arms' offending answers were already
 illegal for other reasons. Gate 1's verdict is unchanged — the closed-arm bar is
 ≥95% and 82% already failed it — but the number it fails by is now honest, and
 the check is in place before the set grows to 40.
+
+---
+
+## 21. Improving the metrics: four changes, in order
+
+Section 20 left three problems, and Section 19.1 a fourth. This section is the
+work on them. Nothing here is a change to how a number is *presented* to make it
+read better — the point of the repo is that "fine-tuning did not beat retrieval"
+is written down plainly, so the failure mode being avoided throughout is making
+the numbers look better without changing anything real.
+
+### 21.1 The models are not deliberating (new arm, not a replacement)
+
+Measured on the n=22 run:
+
+| Arm | prose lines / answer | chars / answer | answers with any reasoning |
+| --- | --- | --- | --- |
+| `base_open` | 0.0 | 39 | **0%** |
+| `base_closed` | 0.2 | 109 | 18% |
+| `base_cards_open` | 0.3 | 134 | 32% |
+| `ft_cards_open` | 3.0 | 410 | 45% |
+
+`base_open` — the best arm — answers every board in a mean of **39 characters**
+with zero lines of reasoning on 22 of 22 positions. It is not deliberating; it
+is emitting a plausible action. `GAMEPLAY_SYSTEM_PROMPT` ends with "Give your
+reasoning first if you want to", which is permission, and nothing takes it.
+
+`base_open_think` appends `GAMEPLAY_DELIBERATE_INSTRUCTION`, making it an
+instruction with a shape. It is **added**, not substituted: `base_open` and
+`base_open_think` differ in the system prompt and nothing else — the user
+message is byte-identical — so the pair isolates one variable, and every
+previously measured arm is untouched.
+
+**Pre-registered prediction.** If deliberation is the missing thing, Gate 3's
+blunder rate falls *and* Gate 2's spread narrows, because part of the current
+separation between arms is verbosity rather than judgement. If blunder rate does
+not move, the problem is knowledge, not deliberation.
+
+Two harness bugs would have corrupted this before it produced a number, and both
+were found by checking rather than by running:
+
+**Prose about a play parses as that play.** `"Play Mountain first would strand
+Shock in hand"` became `PLAY Mountain first would strand Shock in hand` —
+silently, with no `ParseFailure`, an action with a garbage operand. Any arm
+asked to reason would have had its action count inflated and its legality
+destroyed by its own explanation, and the result would have read as *reasoning
+makes the model play worse*. `parse_output` now honours an `ACTIONS:` marker;
+outputs without one are unaffected.
+
+**Both judge prompts hardcode "labeled A, B, C, D"** while the labels are
+generated as `chr(ord("A") + i)` over however many arms exist. At four they
+agree; at five the judge would see CANDIDATE A–E and be told in the same
+sentence that there are four. `judge_prompt_for()` rewrites the phrase only when
+the count is not four, so every four-arm run — which is all of them — reproduces
+byte for byte.
+
+### 21.2 Grounding, reported beside the score
+
+Covered in Section 19.1: `base` scores highest while grounding its answers half
+as often as `base_rag`. The report now prints grounding as a column and emits a
+warning when the top-scoring arm is not the least-fabricating one, so the
+misreading cannot survive a future run unnoticed. Not folded into correctness —
+that would rebuild the confounded single number V3 exists to take apart.
+
+### 21.3 The disputed calls were a missing rubric entry, not a wording defect
+
+Section 20.3 left 31 of 88 blunder calls disputed between judges, and Section
+16.12's protocol says a disputed position is a position to rewrite. The
+disputes localize hard: **11 of 31 sit on three positions**, and four positions
+drew none at all.
+
+Reading the worst two settles what is actually wrong, and it is not the Section
+16.12 defect. On `pos-combat-math-0005` the model answered:
+
+```
+CAST Shock TARGET Grizzly Bears
+PASS
+```
+
+That is *half* the correct line — it kills the blocker and never attacks,
+leaving exactly lethal on an empty board. It commits **none** of the three
+enumerated errors, because none of them describes stopping early. Judge 2
+correctly fired no errors, which scores a wasted win as un-blundered. Judge 1
+fired all three, papering over the gap. The two judges were not disagreeing
+about the answer; they were disagreeing about what to do with a rubric that had
+no entry for what the answer did.
+
+Measured, and the reason this generalizes:
+
+- **69% of all answers (61/88) contain at most one real action.** Emitting a
+  single play and passing is the dominant model behaviour on a board.
+- **5 of 22 positions need two steps.** Four had no partial-execution entry.
+- The fifth, `pos-removal-timing-0002`, already had one ("casts it in the window
+  but declines the block") — and it is one of only **four positions in the set
+  with zero disputes**.
+
+| Multi-step position | disputes | had a partial-execution error? |
+| --- | --- | --- |
+| `pos-combat-math-0002` | 4/4 | no |
+| `pos-combat-math-0005` | 4/4 | no |
+| `pos-combat-math-0004` | 2/4 | no |
+| `pos-combat-math-0001` | 1/4 | no |
+| `pos-removal-timing-0002` | **0/4** | **yes** |
+
+So the fix is one line per affected position, leading with the omission so the
+16.12 lint stays quiet. This is the inverse of the 16.12 defect: not an error
+whose opening clause is also true of the correct line, but a real failure mode
+with no entry at all.
+
+Because this edits rubrics that back published numbers, the n=22 results are
+re-scored from the **stored answers** rather than regenerated — the judge is
+deterministic and the answers do not change, so the only thing that moves is
+what the rubric asked.
+
+### 21.4 The SFT set was written by the model being trained
+
+Section 9.4's standing instruction — fix the data, not the hyperparameters — is
+now well supported: run 3's full epoch moved `finetuned_rag` by +0.04 while
+control arms with byte-identical answers moved up to 0.23 on judge variance
+alone. Hyperparameters are exhausted.
+
+The constraint is that the ~2,646 SFT examples were **synthesized by
+Qwen2.5-7B-Instruct — the same model the adapter is trained on top of.** A
+student cannot exceed its teacher, and the distillation visibly lost information:
+fine-tuned answers run 521 characters against `base_rag`'s 1104, and score
+lower. What the adapter reliably learned was brevity.
+
+`data/gold/gold_candidates.jsonl` holds 1,202 RulesGuru records with
+human-verified answers. Removing the 72 already promoted into the gold eval set
+leaves **1,130 uncontaminated training pairs**, and they have the property the
+synthetic set structurally cannot:
+
+- **100% cite a rule id inline**, in the exact form `score_citations` validates
+- median answer 242 characters, but claim-dense rather than vague — the shape is
+  `Yes. <claim>. (rule) <claim>. (rule)`, which is what a rubric judge scores
+- 1,128 of 1,130 carry a resolved card list
+
+Grounding is the largest and cleanest effect measured anywhere in this project
+(86/99 vs 45/99, Section 19.1), and it is exactly what human-authored answers
+carry and model-authored ones do not.
+
+Two risks to hold, rather than discover after a training run:
+
+- **1,130 is fewer than 2,646.** Section 8 overfit badly on 569. The mitigation
+  is that these are not interchangeable examples — but the epoch count needs
+  re-deriving from `iters × batch / len(train)` rather than inherited, which is
+  a documented trap in this repo.
+- **Contamination is the failure that would invalidate everything downstream.**
+  The 72 overlapping ids must be excluded by id, and the exclusion asserted in
+  the builder rather than done once by hand.
