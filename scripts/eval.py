@@ -244,6 +244,37 @@ def _normalize_for_quote(s: str) -> str:
     return " ".join((s or "").split()).lower()
 
 
+def _as_claim_list(v) -> list:
+    """A judge's `points_hit`/`errors_made` field, coerced to a list.
+
+    Valid JSON of the wrong SHAPE — `"points_hit": 3` where `[3]` was asked
+    for — parses cleanly and then raises TypeError inside the set
+    comprehension below, killing a multi-hour run at whatever question the
+    judge happened to fumble. Neither `json.loads` guard catches it: the JSON
+    was fine, and only the shape was not.
+
+    A bare scalar is wrapped rather than discarded. Discarding would score that
+    answer 1.0 and write the number to the results file as though it were
+    measured, which is worse than the crash it replaces — the crash at least
+    announces itself.
+    """
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple, set)):
+        return list(v)
+    return [v]
+
+
+def _claim_index(i, n_max: int) -> bool:
+    """A usable 1-based rubric index.
+
+    `bool` is a subclass of `int`, so a judge answering `"points_hit": true`
+    would otherwise be read as claiming point 1 — a fabricated claim, awarded
+    silently, from a response that named no point at all.
+    """
+    return isinstance(i, int) and not isinstance(i, bool) and 1 <= i <= n_max
+
+
 def verify_quoted_claims(claims, answer: str, n_max: int) -> tuple[list[int], int]:
     """Keep only claims whose quote really appears in the answer.
 
@@ -256,15 +287,15 @@ def verify_quoted_claims(claims, answer: str, n_max: int) -> tuple[list[int], in
     kept: list[int] = []
     dropped = 0
     hay = _normalize_for_quote(answer)
-    for c in claims or []:
-        if isinstance(c, int):
+    for c in _as_claim_list(claims):
+        if isinstance(c, int) and not isinstance(c, bool):
             if 1 <= c <= n_max:
                 kept.append(c)
             continue
         if not isinstance(c, dict):
             continue
         n = c.get("n")
-        if not isinstance(n, int) or not (1 <= n <= n_max):
+        if not _claim_index(n, n_max):
             continue
         quote = c.get("quote")
         if not isinstance(quote, str) or not quote.strip():
@@ -290,8 +321,8 @@ def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int) ->
     reason, and that is meaningfully better than an answer that gets the
     ruling wrong, but clearly worse than a clean one.
     """
-    hit = {i for i in points_hit if isinstance(i, int) and 1 <= i <= n_points}
-    err = {i for i in errors_made if isinstance(i, int) and 1 <= i <= n_errors}
+    hit = {i for i in _as_claim_list(points_hit) if _claim_index(i, n_points)}
+    err = {i for i in _as_claim_list(errors_made) if _claim_index(i, n_errors)}
     fraction = len(hit) / n_points if n_points else 0.0
     if err:
         fraction *= 0.5

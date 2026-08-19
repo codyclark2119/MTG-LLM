@@ -120,20 +120,23 @@ Contamination is the one that must be an assertion rather than a report. It is
 the only failure here that invalidates everything downstream *and looks like an
 improvement while doing it*.
 
-### 5. Harness
+### 5. Harness — **done** (Section 21.12)
 
-`test_actions.py` covers the parser at 84 assertions. **`eval.py` has no tests
-at all**, and it holds the code that turns judge output into numbers:
-`rubric_correctness`, `verify_quoted_claims`, `score_citations`,
-`judge_prompt_for`, the label mapping.
+`test_eval.py` covers the scoring arithmetic at 96 assertions, in the priority
+order this section originally set out: `rubric_correctness`, `score_citations`,
+`verify_quoted_claims`, `judge_prompt_for`, plus `stratified_sample`,
+`pearson_r`, `_author_of`, and `judge_batch_rubric` end to end with the model
+stubbed out — which is what finally covers the **label mapping**, where an
+off-by-one would attribute every arm's score to a different arm and look
+entirely normal doing it.
 
-**Action:** `test_eval.py`, same style — plain asserts, runnable. Priority order,
-by how badly a silent bug would corrupt results:
-
-1. `rubric_correctness` — the arithmetic every rubric score comes from
-2. `score_citations` — grounding, now a first-class metric
-3. `verify_quoted_claims` — V4's whole mechanism
-4. `judge_prompt_for` — must be byte-identical at four arms
+Writing them found one defect: valid JSON of the wrong *shape*
+(`"points_hit": 3` for `[3]`) parsed cleanly past both `json.loads` guards and
+then raised `TypeError`, with no handler between it and `main()` in any of the
+four callers — a multi-hour run dying at whatever question the judge fumbled.
+Fixed in `_as_claim_list` / `_claim_index`, verified not to move any published
+number: 1,190 + 821 exhaustive well-formed inputs and all 1,782 stored rubric
+scores recompute identically.
 
 ### 6. Judge
 
@@ -148,16 +151,17 @@ Beyond the positive controls above:
   run to date. The Llama second judge partly covers this; a third family would
   settle it.
 
-### 7. Evaluation data
+### 7. Evaluation data — **done** (Section 21.11)
 
-Positions: 10 of 24 discriminate (Section 21.9). The equivalent audit has
-**never been run on the 99 rules rubrics** — we do not know how many of them
-separate the arms either.
+Positions: 10 of 24 discriminate (Section 21.9). The same audit over `gold_n99`
+came back the other way — **9% of rules questions contribute nothing against
+58% of positions**, 74% separate the arms by ≥1.0 point, mean spread 1.83.
 
-**Action:** run the same per-record discrimination analysis over `gold_n99`.
-Expect it to reclassify some of the gold set as uninformative, and to say which
-categories are worth growing. Same shape as the position finding, applied to the
-larger and more consequential set.
+The expectation written here was wrong: this did *not* reclassify part of the
+gold set as uninformative, and there is no dead category to grow. It relocated
+the problem. Rules eval is constrained by the **judge** (r = +0.49 between two
+judges on identical answers); gameplay eval is constrained by the **positions**,
+which no judge improvement can fix.
 
 ---
 
@@ -166,10 +170,12 @@ larger and more consequential set.
 Sequenced by (what it unblocks) × (what it costs):
 
 1. **Positive controls on the judge** — decides whether anything else is
-   measurable. One eval run.
-2. **`test_eval.py`** — the measurement arithmetic is currently untested. Hours.
-3. **Discrimination audit of the 99 rules rubrics** — pure analysis over stored
-   runs, no GPU.
+   measurable. One eval run. *(queued behind the Qwen3 position rerun)*
+2. ~~**`test_eval.py`**~~ — **done**, Section 21.12. Found a run-killing shape
+   bug; no published number moved.
+3. ~~**Discrimination audit of the 99 rules rubrics**~~ — **done**, Section
+   21.11. The rules set is healthy (74% separate the arms, mean spread 1.83);
+   the *gameplay* set is the one that does not discriminate.
 4. **`audit_sft.py` with contamination as an assertion** — before any retrain.
 5. **Embedding/chunk fingerprint** — before any RAG number is trusted again.
 6. **Prompt hash beside the adapter** — before the next fine-tune.

@@ -2558,3 +2558,67 @@ two judges — rests on a set where 74% of questions actively separate the arms
 and the mean spread is 1.83 points, which is comfortably larger than the effect
 being claimed. The instrument problems found today are real, but they are
 concentrated in the gameplay track, and none of them touch that comparison.
+
+### 21.12 The scoring arithmetic had no tests, and a shape error could kill a run
+
+`test_actions.py` covers the action parser at 84 assertions. `eval.py` — which
+holds the code that turns a judge's JSON into every number this project
+publishes — had none. That is the wrong way round: a parser bug shows up as a
+bad legality rate, which looks wrong, while a bug in `rubric_correctness` shows
+up as a plausible score, which does not.
+
+`scripts/test_eval.py` covers the four functions in the Section 21 audit's
+priority order — `rubric_correctness`, `verify_quoted_claims`,
+`judge_prompt_for`, `score_citations` — plus `stratified_sample` (which decides
+which questions an eval asks), `pearson_r` (the statistic Section 14.6's
++0.30 → +0.62 result is stated in), and `_author_of`. 96 assertions, no model,
+no GPU.
+
+`judge_batch_rubric` is exercised end to end with a stub `lm_generate`, which is
+what finally covers the **label mapping**. Candidates are shuffled behind
+A/B/C/D and mapped back afterward; an off-by-one there would attribute every
+arm's score to a different arm, and the report would look entirely normal while
+being exactly wrong. The test replays the shuffle for six seeds, awards points
+to whichever label carries `base_rag`, and asserts `base_rag` is the arm that
+comes back scored — across those seeds the target lands on all four labels, so
+the check is not passing by accident. Three degradation cases sit beside it:
+unparseable judge output returns `{}` rather than a partial score, and an arm
+the judge simply omitted is **absent** rather than defaulted to 1.0, which would
+have read as "this arm answered badly".
+
+**Writing them found one defect and corrected one belief.**
+
+The defect: valid JSON of the wrong *shape* crashed the run. A judge that emits
+`"points_hit": 3` where `[3]` was asked for produces JSON that parses cleanly,
+so neither `json.loads` guard catches it — and then `{i for i in 3}` raises
+`TypeError` inside `rubric_correctness`. There is no handler anywhere between
+that line and `main()`, in any of the four callers (`eval.py` main, `rescore`,
+`calibrate_judge.py`, `eval_positions.py`). A multi-hour run dies at whatever
+question the judge happens to fumble.
+
+`_as_claim_list` wraps a bare scalar rather than discarding it, because
+discarding would score that answer 1.0 and write the number to the results file
+as though it were measured — worse than the crash it replaces, since the crash
+at least announces itself. `_claim_index` additionally rejects `bool`, which is
+a subclass of `int`: `"points_hit": true` would otherwise have been read as
+"hit point 1", a fabricated claim awarded silently from a response that named
+no point at all.
+
+**No published number moves.** Verified three ways rather than argued:
+
+| Check | Result |
+| --- | --- |
+| `rubric_correctness`, exhaustive over well-formed inputs | 1,190 inputs, **0 differ** |
+| `verify_quoted_claims`, exhaustive over claim permutations | 821 inputs, **0 differ** |
+| every stored rubric score in `eval/runs/*.jsonl`, recomputed | 1,782 scores, **0 differ** |
+
+The corrected belief: the first version of the `judge_prompt_for` test asserted
+that a five-arm prompt no longer contains `"labeled A, B, C, D"`. It does — the
+replacement produces `"labeled A, B, C, D and E"`, which contains the old phrase
+as a prefix. The code was right and the test was wrong. The assertion that
+survives is the one with teeth: a *three*-arm prompt must not mention a fourth
+label, since a judge told about a candidate it was never shown has an entry to
+fill and nothing to fill it from — and `judge_batch_rubric` reads scores back by
+label, so the invented entry would be dropped silently rather than raising. Two
+supporting assertions check that the phrase appears in each of V2/V3/V4 exactly
+once, so the `str.replace` can never become a silent no-op.

@@ -136,7 +136,7 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 Beyond explaining rules: give the model a board and let it choose a play. See [DEVELOPMENT_PLAN.md §16](DEVELOPMENT_PLAN.md).
 
 ```bash
-python scripts/gameplay/test_actions.py                 # parser assertions (73)
+python scripts/gameplay/test_actions.py                 # parser assertions (84)
 python scripts/gameplay/positions.py                    # validate the 22-position set
 python scripts/gameplay/positions.py --render pos-blocking-0001 --closed   # see the prompt
 python scripts/gameplay/eval_positions.py --second-judge mlx-community/Meta-Llama-3.1-8B-Instruct-4bit

@@ -52,8 +52,20 @@ source mlx_env/bin/activate     # every command below assumes this
 imported directly: `mlx-lm`, `mlx-embeddings`, `numpy`, `datasets`, `fastapi`,
 `uvicorn`.
 
-No pytest. Tests are runnable scripts with plain asserts:
-`python scripts/gameplay/test_actions.py`.
+No pytest. Tests are runnable scripts with plain asserts, and none of them need
+a GPU:
+
+```bash
+python scripts/test_imports.py            # every script resolves every name it uses
+python scripts/test_eval.py               # the scoring arithmetic (96)
+python scripts/gameplay/test_actions.py   # the action grammar (84)
+```
+
+`test_eval.py` covers the code that turns judge JSON into published numbers.
+Add a case there whenever you touch `rubric_correctness`, `verify_quoted_claims`,
+`score_citations`, `judge_prompt_for`, or `stratified_sample` — a bug in those
+surfaces as a *plausible* score rather than an obvious failure, which is why
+they are tested more heavily than anything else in the repo.
 
 ## Architecture
 
