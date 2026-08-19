@@ -271,7 +271,54 @@ def validate_position(pos: dict, card_index=None,
             if cite not in rule_ids:
                 problems.append(f"rule id does not resolve against the pinned CR: {cite}")
 
+    problems.extend(timing_problems(pos, card_index))
     return [f"[{rid}] {p}" for p in problems]
+
+
+# Steps in which only instant-speed spells may be cast. A sorcery-speed spell
+# needs your own main phase with an empty stack (307.1).
+_COMBAT_STEPS = ("upkeep", "draw", "beginning of combat", "declare attackers",
+                 "declare blockers", "combat damage", "end of combat", "end step",
+                 "cleanup", "opening hand")
+
+
+def timing_problems(pos: dict, card_index=None) -> list[str]:
+    """Catch a `legal_action` that could not legally be taken in this step.
+
+    Found the hard way. A board was drafted offering `CAST Pacifism` during the
+    opponent's declare-attackers step, and everything passed: the card name
+    resolves against Oracle, the action parses, the rule ids check out. Pacifism
+    is an Aura, so it is sorcery-speed and cannot be cast then at all — the
+    position asked for a decision that could not be made.
+
+    Nothing else validates this. `validate_position` checks that a card EXISTS
+    and that an action PARSES; neither is a claim about when it may be played.
+    A position offering an illegal play is worse than a malformed one, because
+    it looks correct all the way to the scores.
+
+    Deliberately narrow: only CAST is checked, and only for the clear case of a
+    non-instant without flash outside a main phase. Activated abilities carry
+    their own timing restrictions in their text and are not parsed here.
+    """
+    if card_index is None:
+        return []
+    phase = (pos.get("phase") or "").lower()
+    if not any(step in phase for step in _COMBAT_STEPS):
+        return []
+    out = []
+    for line in pos.get("legal_actions") or []:
+        parsed = parse_line(line)
+        if not isinstance(parsed, Action) or parsed.verb != "CAST" or not parsed.args:
+            continue
+        card, how = card_index.resolve(parsed.args[0])
+        if card is None or how != "exact":
+            continue  # the name check already reports this
+        text, type_line = card.get("text") or "", card.get("type_line") or ""
+        if "Instant" in type_line or "Flash" in text:
+            continue
+        out.append(f"legal_action {line!r} is sorcery-speed ({type_line}) but the "
+                   f"position is in {pos.get('phase')!r} — it could not be cast then")
+    return out
 
 
 def ingest(drafts: list[dict], existing: list[dict], author: str = "",
