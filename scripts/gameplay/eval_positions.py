@@ -399,9 +399,18 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                      "Section 14.6 measured hand-authored rubrics beating machine drafts "
                      "(inter-judge r +0.30 → +0.62).\n")
 
-    lines.append("\n| Arm | Blunder rate | Correctness | Parsed ok | Actions/answer "
-                 "| All legal | Degenerate |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+    # Errors/answer is reported BESIDE blunder rate, not instead of it. Gate 3 is
+    # defined on the binary and stays that way. But the binary discards real
+    # information: measured on the n=22 3-arm run, 6 of the 12 positions where
+    # every arm blundered had DIFFERENT error counts across arms. Half the
+    # positions the gate reads as uninformative are not.
+    #
+    # It does not rescue Gate 2 at this sample size — the per-arm means came out
+    # 2.09 / 2.09 / 2.23, because the per-position differences point in different
+    # directions and cancel. Reported so that is visible rather than assumed.
+    lines.append("\n| Arm | Blunder rate | Errors/answer | Correctness | Parsed ok "
+                 "| Actions/answer | All legal | Degenerate |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
     summary = {}
     for arm in arm_names:
         blunder, n_b = rate(arm, "blundered")
@@ -412,10 +421,13 @@ def _write_report(results, positions, arm_names, closed_arms, args,
         all_legal, _ = rate(arm, "all_legal")
         degen, _ = rate(arm, "degenerate")
         acts = sum(r["arms"][arm]["n_actions"] for r in results) / len(results)
-        summary[arm] = {"blunder": blunder, "corr": corr, "parsed_ok": parsed_ok,
+        err_counts = [len(r["arms"][arm].get("errors_made") or []) for r in results
+                      if r["arms"][arm].get("blundered") is not None]
+        errs = sum(err_counts) / len(err_counts) if err_counts else float("nan")
+        summary[arm] = {"blunder": blunder, "errs": errs, "corr": corr, "parsed_ok": parsed_ok,
                         "all_legal": all_legal, "n_judged": n_b, "degenerate": degen}
-        lines.append(f"| {arm} | {blunder:.0%} (n={n_b}) | {corr:.2f} | {parsed_ok:.0%} "
-                     f"| {acts:.1f} | {all_legal:.0%} | {degen:.0%} |")
+        lines.append(f"| {arm} | {blunder:.0%} (n={n_b}) | {errs:.2f} | {corr:.2f} "
+                     f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} | {degen:.0%} |")
 
     # ---- the three gates ---------------------------------------------------
     lines.append("\n## Gates\n")

@@ -2451,3 +2451,74 @@ holds arm count fixed and moves only the rubric. Queued.
 This is the third time in this section that a number moved for a reason that had
 nothing to do with the models. Generation has been deterministic throughout;
 every one of them was the instrument.
+
+### 21.9 Only 10 of 22 positions separate the arms, and correcting a rubric cost two more
+
+Before authoring another 18 positions, the question worth answering is which of
+the existing 22 do anything. Measured on the 3-arm run, per position, asking
+whether the three arms got different blunder calls:
+
+| Category | discriminating | flat |
+| --- | --- | --- |
+| race vs stabilize | **2/2** | 0 |
+| blocking | **3/4** | 1 |
+| removal timing | **2/3** | 1 |
+| trigger ordering | 1/2 | 1 |
+| combat math | 2/6 | 4 |
+| mulligan | 0/2 | 2 |
+| land sequencing | 0/3 | 3 |
+
+**10 of 22 discriminate. 12 do not. Zero are too easy** — every non-discriminating
+position is one where *all* arms blundered.
+
+That is directly actionable for authoring: `race vs stabilize`, `blocking` and
+`removal timing` earn their slots; `mulligan` and `land sequencing` currently
+contribute nothing at all, and `combat math` is the weakest of the productive
+categories despite having the most positions.
+
+**The rubric correction cost two positions their discrimination.** The four
+combat-math boards that gained a partial-execution error in Section 21.3, read
+across the same three arms:
+
+| Position | old rubric | new rubric |
+| --- | --- | --- |
+| `pos-combat-math-0001` | **discriminating** | flat |
+| `pos-combat-math-0004` | **discriminating** | flat |
+| `pos-combat-math-0002` | flat | flat |
+| `pos-combat-math-0005` | flat | flat |
+
+Across all 22 the count moved 11 → 10. The added error is *correct* — abandoning
+a won position is a fatal blunder, and that was the right call. But because 69%
+of answers stop after one action, nearly every arm commits it, and a position
+every arm fails stops separating anything.
+
+**Rubric accuracy and discriminating power are not the same property, and they
+can trade off.** That is worth stating plainly because the instinct on seeing a
+flat position is to weaken the rubric, and that instinct is wrong: the rubric is
+right and the metric is lossy.
+
+### 21.10 The binary blunder call throws away half of what is there
+
+If every arm blundered but one committed one error and another committed three,
+blunder rate records them as identical. Measured on the 12 flat positions:
+
+**6 of 12 have different error COUNTS across arms.** Half the positions Gate 3
+reads as uninformative are not.
+
+```
+pos-mulligan-0001        binary [T, T, T] -> counts [1, 3, 3]
+pos-combat-math-0004     binary [T, T, T] -> counts [4, 2, 5]
+pos-land-sequencing-0002 binary [T, T, T] -> counts [3, 1, 2]
+pos-blocking-0003        binary [T, T, T] -> counts [4, 2, 4]
+```
+
+Errors per answer is now reported beside blunder rate. It is **not** a
+replacement: Gate 3 is defined on the binary and stays that way, and this does
+**not** rescue Gate 2 at this sample size — the per-arm means came out 2.09 /
+2.09 / 2.23, because the per-position differences point in different directions
+and cancel in the mean.
+
+So the honest statement is narrow: the information exists in half the discarded
+positions, it is now visible, and a *paired* per-position analysis could use it
+where a mean cannot. Reporting it is what makes that checkable rather than
+assumed.
