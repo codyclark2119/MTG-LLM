@@ -60,16 +60,20 @@ No pytest. Tests are runnable scripts with plain asserts, and none of them need
 a GPU:
 
 ```bash
-python scripts/test_imports.py            # every script resolves every name it uses
-python scripts/test_eval.py               # the scoring arithmetic (96)
-python scripts/gameplay/test_actions.py   # the action grammar (84)
+python scripts/test_imports.py                    # every script resolves every name it uses
+python scripts/test_eval.py                       # the scoring arithmetic (96)
+python scripts/gameplay/test_actions.py           # the action grammar (84)
+python scripts/gameplay/test_eval_positions.py    # the gameplay gates (24)
 ```
 
-`test_eval.py` covers the code that turns judge JSON into published numbers.
-Add a case there whenever you touch `rubric_correctness`, `verify_quoted_claims`,
-`score_citations`, `judge_prompt_for`, or `stratified_sample` — a bug in those
-surfaces as a *plausible* score rather than an obvious failure, which is why
-they are tested more heavily than anything else in the repo.
+`test_eval.py` covers the code that turns judge JSON into published numbers, and
+`test_eval_positions.py` covers the gate arithmetic. Add a case whenever you
+touch `rubric_correctness`, `verify_quoted_claims`, `score_citations`,
+`judge_prompt_for`, `stratified_sample`, or `gate2_discrimination` — a bug in
+those surfaces as a *plausible* number or a bold PASS rather than an obvious
+failure, which is why they are tested more heavily than anything else here.
+`test_eval_positions.py` also re-derives Section 21.18's published table from
+the stored runs, so a gate change that contradicts the documentation fails.
 
 ## Architecture
 

@@ -382,6 +382,34 @@ def _write_results(results: list[dict], out: Path) -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
+GATE2_MIN_SPREAD = 0.5      # points on the 1-5 correctness scale
+GATE2_MIN_FRACTION = 0.50   # of judged positions
+
+
+def gate2_discrimination(results, arm_names) -> tuple[int, int, float, bool]:
+    """(separating, judged, fraction, passed) for Gate 2.
+
+    A pure function so the gate's arithmetic is testable — see
+    `test_eval_positions.py`. It was inline in a 200-line report builder, which
+    is how it went four revisions without anyone noticing it measured the spread
+    of arm MEANS over a binary, losing separation twice (Sections 21.17, 21.18).
+
+    A position with any unjudged arm is EXCLUDED, not counted as a tie. Scoring
+    it as a tie would let a judge that fails to parse drive the gate toward FAIL
+    and make "the positions do not discriminate" the reported conclusion of a
+    judge-capacity problem — which is exactly what the n=9 Qwen3 run looked like.
+    """
+    sep = tot = 0
+    for r in results:
+        cs = [(r["arms"].get(a) or {}).get("correctness") for a in arm_names]
+        if any(c is None for c in cs):
+            continue
+        tot += 1
+        sep += (max(cs) - min(cs)) >= GATE2_MIN_SPREAD
+    frac = sep / tot if tot else 0.0
+    return sep, tot, frac, (tot > 0 and frac >= GATE2_MIN_FRACTION)
+
+
 def _write_report(results, positions, arm_names, closed_arms, args,
                   base_model, adapter_path, judge_model_id, report_out) -> None:
     # ---- aggregate ---------------------------------------------------------
@@ -472,16 +500,7 @@ def _write_report(results, positions, arm_names, closed_arms, args,
         # has an effective n of 11, well under the ~40 this project's own note
         # requires for a proportion. Below 50% the set is not worth its nominal
         # size whatever it scores.
-        sep = tot = 0
-        for r in results:
-            cs = [r["arms"][a]["correctness"] for a in arm_names
-                  if r["arms"][a]["correctness"] is not None]
-            if len(cs) < len(arm_names):
-                continue                      # an unjudged arm is not a tie
-            tot += 1
-            sep += (max(cs) - min(cs)) >= 0.5
-        frac = sep / tot if tot else 0.0
-        g2 = tot > 0 and frac >= 0.50
+        sep, tot, frac, g2 = gate2_discrimination(results, arm_names)
         spread = max(blunders) - min(blunders)
         lines.append(f"\n**Gate 2 — the eval discriminates: {'PASS' if g2 else 'FAIL'}.** "
                      f"**{sep}/{tot} positions ({frac:.0%}) separate the arms** by ≥0.5 on the "
