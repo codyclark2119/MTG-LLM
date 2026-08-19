@@ -2005,12 +2005,30 @@ list" from "picks the first plausible entry".
 | trigger ordering | 2 | 50% | 100% | 100% | 100% |
 
 **`land sequencing` is arm-invariant at 100%** — every arm blunders every one of
-its three positions. That is the seed set's pathology surviving in one category,
-and it means those three positions currently contribute nothing to Gate 2. Two
-readings are available and they need different fixes: either the models are
-uniformly bad at land sequencing, or the three rubrics demand a specific
-sequence that no reasonable answer phrases the way the key points do. The second
-is the likelier and is checkable by hand.
+its three positions. Two readings were available: the models are uniformly bad
+at land sequencing, or the three rubrics demand a phrasing no reasonable answer
+uses. **The second was recorded here as "the likelier" and it was wrong.**
+
+Reading the stored answers settles it. On `pos-land-sequencing-0001` the best
+arm answered:
+
+```
+PLAY Swamp
+PLAY Swamp
+CAST Vampire Nighthawk
+ATTACK Vampire Nighthawk, (opponent)
+```
+
+Two land drops in one turn, a three-mana creature cast off two lands on turn
+one, and an attack with a creature that entered this turn. The other two are the
+same shape — one of them emits `CAST Temple of Silence`, casting a land, and
+then `KEEP BOTTOM` on a turn-one board. These are not rubrics failing to
+recognize a good answer. They are catastrophically bad answers, and 100% blunder
+is the correct measurement.
+
+The lesson is the one the repo keeps relearning: a hypothesis about why a number
+looks wrong is worth exactly what it costs to check, and checking cost one read
+of the stored answers.
 
 The **basic band varies across arms** (50/75/62/75), which answers the bet made
 when those four were drafted: a basic position built on one rules fact is *not*
@@ -2035,3 +2053,51 @@ Kappa did improve on the seed set's disputed-call concentration, but not enough
 to call blunder rate a settled instrument. Gate 3's 47% is far enough from 25%
 that judge noise does not explain it away; a Gate 3 result *near* the boundary
 would not be trustworthy at this kappa.
+
+
+### 20.4 The legality check could not see a second land drop
+
+Following the land-sequencing answers down found a harness gap. `legal_actions`
+is a **set** membership test — it answers "may this be done?" and carries no
+notion of *how many times*. A land drop is once per turn (305.2), so naming two
+is illegal, and the check could not see it. Two separate routes through:
+
+```
+PLAY Swamp / PLAY Swamp     consecutive duplicates were COLLAPSED, so the
+                            harness saw one land drop and never knew
+PLAY Swamp / PLAY Forest    not duplicates, both in legal_actions, so
+                            all_legal came back True
+```
+
+Measured before fixing: **10 of 88 answers named more than one `PLAY`**, and
+none were scored illegal for it.
+
+The collapse itself is correct for its own purpose — a model emitting `PASS` 190
+times has looped, not acted, and `repeats_collapsed` exists to say so. But that
+field had quietly taken on two meanings: "degenerated into a loop" and "took a
+once-per-turn action twice." Those want opposite treatment, which is the
+`CROSS_REF_RE` / `JUDGE_SYSTEM_PROMPT` / `PASS` trap for the fourth time.
+
+`ONCE_PER_TURN` verbs are now exempt from collapsing and are checked by
+`rule_illegalities()`. Only `PLAY` is listed: it is unambiguous, whereas `ATTACK`
+is also declared once but the grammar asks for all attackers on one line, so
+flagging a split declaration would punish formatting rather than play.
+
+`eval_positions.py` was computing `all_legal` inline instead of calling
+`legality()` — a second copy of the rule, which would have missed the new check
+entirely. That is the "helper duplicated with a guard in only some copies" trap,
+and it is now routed through the one definition.
+
+Recomputed over the stored n=22 answers, the correction is real but small:
+
+| Arm | all_legal before | after |
+| --- | --- | --- |
+| `base_open` | 68% | 68% |
+| `base_closed` | 82% | **73%** |
+| `base_cards_open` | 64% | 64% |
+| `ft_cards_open` | 36% | 36% |
+
+Only `base_closed` moves, because the other arms' offending answers were already
+illegal for other reasons. Gate 1's verdict is unchanged — the closed-arm bar is
+≥95% and 82% already failed it — but the number it fails by is now honest, and
+the check is in place before the set grows to 40.

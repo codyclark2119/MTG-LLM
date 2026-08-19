@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from actions import match_to_legal, parse_output  # noqa: E402
+from actions import legality, match_to_legal, parse_output  # noqa: E402
 from common import (  # noqa: E402
     POSITIONS_PATH,
     REPO_ROOT,
@@ -316,6 +316,11 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
         for arm in arm_names:
             parsed = parse_output(candidates[arm])
             legal_set = pos.get("legal_actions") or []
+            # Goes through legality() rather than re-deriving all_legal here.
+            # The inline version was a second copy of the rule and missed the
+            # once-per-turn check entirely when that was added to actions.py --
+            # the "helper duplicated with a guard in only some copies" trap.
+            legal_info = legality(parsed, legal_set)
             matched = [a for a in parsed.actions if match_to_legal(a, legal_set)]
             j = judged.get(arm, {})
             per_arm[arm] = {
@@ -333,7 +338,8 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 "degenerate": parsed.degenerate,
                 "repeats_collapsed": parsed.repeats_collapsed,
                 "n_legal": len(matched),
-                "all_legal": bool(parsed.actions) and len(matched) == len(parsed.actions),
+                "all_legal": legal_info["all_legal"],
+                "illegal": legal_info["illegal"],
                 "actions": parsed.keys(),
             }
         results.append({"id": pos["id"], "category": pos["category"],

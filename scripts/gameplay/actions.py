@@ -259,7 +259,13 @@ def parse_output(text: str) -> ParsedOutput:
         elif isinstance(result, Action):
             # Collapse a run of the same action: repeating it is not doing it
             # more than once, and unbounded repetition is a decode failure.
-            if out.actions and out.actions[-1].key() == result.key():
+            #
+            # ONCE_PER_TURN verbs are exempt, because for them repeating the
+            # line IS doing it more than once and that is an illegal play, not
+            # a decode loop. Collapsing "PLAY Swamp / PLAY Swamp" hid a second
+            # land drop from the legality check entirely — see rule_illegalities.
+            if (out.actions and out.actions[-1].key() == result.key()
+                    and result.verb not in ONCE_PER_TURN):
                 out.repeats_collapsed += 1
             else:
                 out.actions.append(result)
@@ -299,13 +305,55 @@ def match_to_legal(action: Action, legal_actions: list[str]) -> str | None:
     return None
 
 
+# Actions the rules allow at most once per turn. Membership in `legal_actions`
+# is a SET test — it answers "may this be done?" and has no notion of "how many
+# times", so two land drops both match and both score legal.
+#
+# Measured on the n=22 run before this existed: 10 of 88 answers named more than
+# one PLAY, and none were scored illegal for it. Two different routes through:
+#
+#   PLAY Swamp / PLAY Swamp    consecutive duplicates are COLLAPSED, so the
+#                              harness sees one land drop and never knows
+#   PLAY Swamp / PLAY Forest   not duplicates, both in legal_actions, so
+#                              all_legal comes back True
+#
+# The collapse is right for its own purpose — a model emitting PASS 190 times
+# has looped, not acted — but `repeats_collapsed` was carrying two meanings at
+# once: "degenerated into a loop" and "took a once-per-turn action twice". Those
+# want opposite treatment, which is the trap this repo keeps rediscovering.
+#
+# Only PLAY is listed. It is unambiguous (305.2: one land per turn). ATTACK is
+# also declared once, but the grammar asks for all attackers on ONE line, and a
+# model splitting one declaration across two lines would be punished for
+# formatting rather than for play — so it is deliberately left out.
+ONCE_PER_TURN = ("PLAY",)
+
+
+def rule_illegalities(parsed: ParsedOutput) -> list[str]:
+    """Illegal plays visible from the output alone, independent of legal_actions.
+
+    Deliberately narrow: this is not a rules engine. It catches the one class of
+    illegality that the enumerated-set check structurally cannot see, which is
+    doing a once-per-turn thing more than once.
+    """
+    out: list[str] = []
+    for verb in ONCE_PER_TURN:
+        n = sum(1 for a in parsed.actions if a.verb == verb)
+        if n > 1:
+            out.append(f"{verb} taken {n} times; it is allowed once per turn")
+    return out
+
+
 def legality(parsed: ParsedOutput, legal_actions: list[str]) -> dict:
     """How much of an output names an action from the enumerated legal set."""
     matched = [a for a in parsed.actions if match_to_legal(a, legal_actions)]
+    rule_bad = rule_illegalities(parsed)
     return {
         "n_actions": len(parsed.actions),
         "n_legal": len(matched),
         "n_failures": len(parsed.failures),
-        "all_legal": bool(parsed.actions) and len(matched) == len(parsed.actions),
-        "illegal": [a.key() for a in parsed.actions if not match_to_legal(a, legal_actions)],
+        "all_legal": (bool(parsed.actions) and len(matched) == len(parsed.actions)
+                      and not rule_bad),
+        "illegal": [a.key() for a in parsed.actions if not match_to_legal(a, legal_actions)]
+                   + rule_bad,
     }
