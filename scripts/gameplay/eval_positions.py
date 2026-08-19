@@ -454,12 +454,47 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                      f"(`{arm_names[0]}`) in this run, so there is no spread to measure. "
                      "Gate 2 needs at least two arms.")
     else:
+        # Measured PER POSITION on correctness, not on the spread of arm means
+        # over the binary blunder call. Section 21.17 measured what the old
+        # definition cost, on two stored runs at different arm counts:
+        #
+        #     separate the arms on correctness   82% / 86%
+        #     separate on the binary blunder     45% / 55%
+        #
+        # Two independent losses, and the old gate took both. The binary
+        # discards about half the separation the judge already produced; then
+        # aggregating to arm means before comparing cancels the rest, because
+        # per-position differences point in different directions — the failure
+        # the comment above the summary table already describes.
+        #
+        # The threshold is set on sample-size grounds, not to clear the current
+        # number: at n≈22 a set where only half the positions separate anything
+        # has an effective n of 11, well under the ~40 this project's own note
+        # requires for a proportion. Below 50% the set is not worth its nominal
+        # size whatever it scores.
+        sep = tot = 0
+        for r in results:
+            cs = [r["arms"][a]["correctness"] for a in arm_names
+                  if r["arms"][a]["correctness"] is not None]
+            if len(cs) < len(arm_names):
+                continue                      # an unjudged arm is not a tie
+            tot += 1
+            sep += (max(cs) - min(cs)) >= 0.5
+        frac = sep / tot if tot else 0.0
+        g2 = tot > 0 and frac >= 0.50
         spread = max(blunders) - min(blunders)
-        g2 = spread >= 0.15
         lines.append(f"\n**Gate 2 — the eval discriminates: {'PASS' if g2 else 'FAIL'}.** "
-                     f"Blunder rate spans {min(blunders):.0%}–{max(blunders):.0%} "
-                     f"(spread {spread:.0%}). A spread near zero means the positions are not "
-                     "separating the arms, and more positions will not fix that.")
+                     f"**{sep}/{tot} positions ({frac:.0%}) separate the arms** by ≥0.5 on the "
+                     f"1–5 correctness scale (need ≥50%). Compare the rules gold set at 74% "
+                     f"(Section 21.11).")
+        lines.append(f"\n> Blunder-rate spread across arms is {spread:.0%} "
+                     f"({min(blunders):.0%}–{max(blunders):.0%}), reported as a diagnostic "
+                     "rather than as the gate. Section 21.17: the binary call separates the "
+                     "arms on roughly half as many positions as correctness does, and "
+                     "averaging it per arm before comparing cancels what survives.")
+        if tot < len(results):
+            lines.append(f"\n> {len(results) - tot} position(s) had an unjudged arm and are "
+                         "excluded from the count above rather than scored as ties.")
 
     easy = [r for r in results if r["difficulty"] in ("basic", "intermediate")]
     best_arm, best_rate = None, 1.0

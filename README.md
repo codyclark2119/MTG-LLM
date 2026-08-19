@@ -159,6 +159,8 @@ A position is a gold record whose question is a board, so `key_points` is the co
 
 `eval_positions.py` scores with **two judges** by default. On the seed set, swapping the judge reversed two of the three gates on byte-identical answers (kappa +0.48 on the blunder call), so a one-judge verdict is a statement about the judge.
 
+**Gate 2 is measured per position on correctness** — what fraction separate the arms by ≥0.5 on the 1–5 scale, needing ≥50% — not on the spread of per-arm blunder rates ([§21.18](DEVELOPMENT_PLAN.md)). The old definition collapsed the score to a yes/no and then averaged per arm before comparing, losing separation twice; it read 9% under one judge and 26% under another on **identical answers**, which is a FAIL and a PASS. The per-position figure moves 2 points across the same swap. Blunder rate is still reported, as a diagnostic.
+
 `data/gold/positions_seed.jsonl` is machine-drafted plumbing verification, kept separate from `data/gold/positions.jsonl`; Section 14.6's result says the gate needs hand-authored rubrics.
 
 ## Local web console

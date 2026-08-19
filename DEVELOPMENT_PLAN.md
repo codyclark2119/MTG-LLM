@@ -2931,3 +2931,61 @@ metric collapses to a yes/no.
 The 21.11 claim that survives intact is the other half: the rules eval's
 constraint is judge agreement (r = +0.49). Both tracks are judge/metric bound.
 Neither is data bound.
+
+### 21.18 Gate 2 rebuilt, and the old one reversed between judges
+
+Section 21.17 established that Gate 2 was measuring the wrong thing. Rebuilding
+it turned up a second, sharper reason the old definition had to go.
+
+**The old gate took two independent losses.** It computed each arm's aggregate
+blunder rate, then took the spread across arms. So it first collapsed a 1–5
+score to a yes/no — which separates the arms on about half as many positions —
+and then averaged per arm before comparing, which cancels what survives, since
+per-position differences point in different directions. The comment above the
+summary table already described the cancellation; it was not connected to the
+gate sitting twenty lines below it.
+
+**The new gate is per position:** what fraction separate the arms by ≥0.5 on the
+correctness scale, needing ≥50%. The threshold is set on sample-size grounds
+rather than to clear the current number — at n≈22, a set where only half the
+positions separate anything has an effective n of 11, well under the ~40 this
+project's own note requires for a proportion.
+
+Replayed over every stored run:
+
+| Run | Arms | New Gate 2 | Old (blunder spread) |
+| --- | --- | --- | --- |
+| `pos_qwen25_3arm` | 3 | PASS 18/22 (82%) | 9% → FAIL |
+| `pos_qwen25_3arm_judge2` | 3 | PASS 16/19 (84%) | 26% → PASS |
+| `positions_n22` | 4 | PASS 19/22 (86%) | 32% → PASS |
+| `positions_n22_think` | 5 | PASS 20/22 (91%) | 23% → PASS |
+| `pos_qwen3_14b_3arm` | 3 | **FAIL 2/9 (22%)** | 11% → FAIL |
+
+It is not a gate rewritten to pass. The invalid Qwen3 run — the one whose judge
+collapsed on 13 of 22 positions — still fails, and the report now says how many
+positions were excluded rather than scoring an unjudged arm as a tie.
+
+#### The finding: the old metric reversed between judges
+
+Rows one and two are the **same answers judged twice**, varying nothing but the
+judge model — the comparison Section 9.9 requires:
+
+| Metric | Qwen judge | Llama judge | Old gate verdict |
+| --- | --- | --- | --- |
+| blunder-rate spread | 9% | 26% | **FAIL → PASS** |
+| positions separating | 82% | 84% | PASS → PASS |
+
+**The old Gate 2 reverses on identical answers.** Section 16.12 reported that
+two judges reversed two of three gameplay gates and treated it as a fact about
+judge disagreement. Part of it was the metric: a spread of two aggregate
+proportions is a difference of differences, so both judges' noise lands in it
+twice, and at these sample sizes that swamps the signal. The per-position
+fraction moves 2 points across the same judge swap.
+
+This does not make the judges agree — kappa on the blunder call is still +0.24,
+and that is still the binding constraint on the gameplay track. It means Gate 2
+is no longer the place that disagreement gets amplified into a reversed verdict.
+
+Blunder rate stays in the report as a diagnostic. It is the interpretable number
+and the one that matches how the position set was authored — failing to take the
+winning line is fatal, not a rounding error. It is simply too coarse to gate on.
