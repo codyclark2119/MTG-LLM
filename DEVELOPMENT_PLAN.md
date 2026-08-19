@@ -2522,3 +2522,39 @@ So the honest statement is narrow: the information exists in half the discarded
 positions, it is now visible, and a *paired* per-position analysis could use it
 where a mean cannot. Reporting it is what makes that checkable rather than
 assumed.
+
+### 21.11 The rules eval discriminates; the gameplay eval is the one that does not
+
+Section 21.9 found only 10 of 24 positions separating the arms. The same audit
+had never been run on the 99 rules rubrics. It has now, over the stored `gold_n99`
+answers, measuring the spread in correctness across the four arms per question:
+
+| | rules gold (n=99) | positions (n=24) |
+| --- | --- | --- |
+| contribute nothing (zero spread) | **9 (9%)** | 14 (58%) |
+| separate arms by ≥1.0 point | **73 (74%)** | — |
+| mean spread across arms | **1.83 points** | — |
+
+**The rules set is healthy and the gameplay set is not.** Three quarters of gold
+questions separate the arms by a full point or more, and the 9 flat ones are
+spread evenly across categories — 0 to 2 per category, no dead category anywhere.
+Compare `land sequencing` and `mulligan` in the position set, which are
+arm-invariant at 100%.
+
+This matters for where the structural work goes. The two tracks have different
+problems and the same fix would not serve both:
+
+- **Rules eval:** the *data* is doing its job. The constraint is judge agreement
+  (r = +0.49 between two judges on identical answers). Work here is judge work —
+  the positive controls, V4, possibly a stronger judge model.
+- **Gameplay eval:** the *positions* are the constraint. 58% contribute nothing,
+  Gate 2's earlier pass turned out to be carried by the fine-tuned arm being
+  broken (Section 21.8), and no amount of judge improvement fixes a position
+  every arm fails identically.
+
+It also puts the A3 result on firmer ground than the last few sections have
+implied. The n=99 verdict — fine-tuning trails retrieval by 0.50 and 0.80 under
+two judges — rests on a set where 74% of questions actively separate the arms
+and the mean spread is 1.83 points, which is comfortably larger than the effect
+being claimed. The instrument problems found today are real, but they are
+concentrated in the gameplay track, and none of them touch that comparison.
