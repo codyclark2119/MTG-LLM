@@ -2274,3 +2274,73 @@ Two risks to hold, rather than discover after a training run:
 - **Contamination is the failure that would invalidate everything downstream.**
   The 72 overlapping ids must be excluded by id, and the exclusion asserted in
   the builder rather than done once by hand.
+
+### 21.5 Adding a fifth arm moved the other four — the judge is not per-candidate
+
+The deliberation run was designed to be additive: `base_open_think` was **added**
+to the arm list, nothing else touched, so the four existing arms should have
+reproduced. They did not.
+
+| Arm | 4-arm run | 5-arm run |
+| --- | --- | --- |
+| `base_open` blunder | 50% | **73%** |
+| `base_open` correctness | 2.62 | **1.94** |
+| `ft_cards_open` actions/answer | 4.7 | **10.7** |
+
+Checked before theorizing: **`base_open`'s answers are byte-identical across the
+two runs, 22 of 22.** Generation is deterministic, and the judge is
+deterministic. Nothing about that arm changed.
+
+What changed is the judge *call*. `judge_batch_rubric` scores every candidate
+for a position in ONE batched request — that is what makes the anonymized A/B/C/D
+design work. So a fifth candidate is not a fifth independent grading. It is a
+fifth answer in the same prompt, changing the context in which the other four
+are read, plus the label-list phrase the prompt states.
+
+**Consequence, and it is a constraint on every future experiment: runs with
+different arm counts are not comparable.** An arm cannot be added to a batched
+judge and compared against a run without it. Only *within-run* comparisons hold.
+
+This does not touch any published number — every prior run used exactly four
+arms, including the A3 n=99 result — but it invalidates the obvious way anyone
+would try to extend one, which is why it is recorded here rather than in a
+commit message.
+
+The valid comparison for the deliberation question is therefore inside the
+5-arm run, where both arms sat in the same judge call:
+
+| | `base_open` | `base_open_think` |
+| --- | --- | --- |
+| blunder rate | 73% | **86%** |
+| correctness | 1.94 | **2.19** |
+| all legal | 68% | **23%** |
+| chars / answer | 39 | **1112** |
+
+**The pre-registered prediction was that blunder rate would fall and Gate 2's
+spread would narrow. Half of it held.** The spread narrowed (32% → 23%), which
+is consistent with some of the arm separation having been verbosity. Blunder
+rate did not fall — it rose 13 points. Correctness rose slightly.
+
+The instruction plainly worked as an instruction: mean answer length went from
+39 characters to 1112, and the reasoning follows the requested shape ("If you do
+nothing, the opponent will likely attack with Grizzly Bears..."). The model is
+now deliberating. It is not thereby playing better.
+
+Two distinct causes sit behind the legality collapse, and only one is a harness
+artifact:
+
+- **3 of 22 answers never emitted the `ACTIONS:` marker**, so their reasoning
+  was parsed as plays — exactly the failure the marker was added to prevent,
+  which the marker only prevents when the model complies.
+- **The rest are genuinely illegal plays.** On `pos-trigger-ordering-0001`,
+  where the only legal actions are the two trigger orderings, the deliberating
+  model reasoned its way to `CAST Doom Blade TARGET Grizzly Bears`. On
+  `pos-land-sequencing-0001` it concluded with `CAST Vampire Nighthawk` — a
+  three-mana creature on turn one. Deliberation made it *more* ambitious and no
+  more legal.
+
+So the honest reading: on a 2024-era 7B, being told to think first produces
+fluent reasoning that does not reach a better play, and licenses plays the
+terse arm never attempted. That is a negative result for the prompt-level fix,
+and it is the strongest available argument for testing a reasoning-capable base
+model instead — the thing a prompt cannot install.
