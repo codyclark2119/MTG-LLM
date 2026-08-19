@@ -794,6 +794,12 @@ def rescore(args) -> None:
                 data["points_hit"] = entry.get("points_hit")
                 data["points_total"] = entry.get("points_total")
                 data["errors_made"] = entry.get("errors_made")
+                # The V4 signal. Computed in judge_batch_rubric and previously
+                # dropped here, which would have made the whole point of the V4
+                # run — how often the judge claims something it cannot quote —
+                # unrecoverable from the stored results.
+                if entry.get("quote_drops") is not None:
+                    data["quote_drops"] = entry["quote_drops"]
         if i % 20 == 0 or i == len(results):
             print(f"  re-scored {i}/{len(results)}")
 
@@ -837,6 +843,21 @@ def rescore(args) -> None:
     # filename (cards_n100_judge2.md), which puts the single
     # most important variable of a two-judge study outside the document.
     lines.append(f"- judge: `{args.judge_model}`\n")
+
+    # V4 only: how many claims the judge made and could not back with a quote
+    # from the candidate. This is the number the V4 prompt exists to produce —
+    # fabrication measured rather than inferred.
+    drops = [d.get("quote_drops") for r in results for d in r["arms"].values()
+             if d.get("quote_drops") is not None]
+    if drops:
+        n_claims_dropped = sum(drops)
+        n_answers_affected = sum(1 for d in drops if d)
+        lines.append(
+            f"- **unverifiable claims discarded: {n_claims_dropped}** across "
+            f"{n_answers_affected}/{len(drops)} arm-answers. Each was a key point or "
+            "common error the judge asserted and then could not quote from the "
+            "candidate it was grading (V4, Section 21.7).\n"
+        )
     lines.append("| Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |")
     lines.append("| --- | --- | --- | --- |")
     for arm in arms:

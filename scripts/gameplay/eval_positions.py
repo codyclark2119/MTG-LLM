@@ -428,12 +428,23 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                     if g1_closed else "; no closed arm in this run") + ".")
 
     blunders = [summary[a]["blunder"] for a in arm_names]
-    spread = max(blunders) - min(blunders)
-    g2 = spread >= 0.15
-    lines.append(f"\n**Gate 2 — the eval discriminates: {'PASS' if g2 else 'FAIL'}.** "
-                 f"Blunder rate spans {min(blunders):.0%}–{max(blunders):.0%} "
-                 f"(spread {spread:.0%}). A spread near zero means the positions are not "
-                 "separating the arms, and more positions will not fix that.")
+    # Gate 2 asks whether the positions SEPARATE the arms, which is not a
+    # question one arm can answer. With a single arm the spread is 0 by
+    # construction, and reporting that as FAIL would read as "the positions do
+    # not discriminate" when nothing was there to discriminate between. Say so
+    # instead of returning a number that means something else.
+    if len(arm_names) < 2:
+        g2 = False
+        lines.append(f"\n**Gate 2 — the eval discriminates: N/A.** Only one arm "
+                     f"(`{arm_names[0]}`) in this run, so there is no spread to measure. "
+                     "Gate 2 needs at least two arms.")
+    else:
+        spread = max(blunders) - min(blunders)
+        g2 = spread >= 0.15
+        lines.append(f"\n**Gate 2 — the eval discriminates: {'PASS' if g2 else 'FAIL'}.** "
+                     f"Blunder rate spans {min(blunders):.0%}–{max(blunders):.0%} "
+                     f"(spread {spread:.0%}). A spread near zero means the positions are not "
+                     "separating the arms, and more positions will not fix that.")
 
     easy = [r for r in results if r["difficulty"] in ("basic", "intermediate")]
     best_arm, best_rate = None, 1.0

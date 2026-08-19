@@ -405,7 +405,16 @@ def main() -> None:
         print(f"(skipping citation checks: {exc})")
 
     if args.ingest:
-        ingest(read_jsonl(args.ingest), positions, author=args.author,
+        # A missing file used to read as an empty list and report "0 positions
+        # parsed", exiting 0. A typo'd filename then looked exactly like a
+        # successful promotion of nothing, which is the quietest way to lose a
+        # batch of hand-authored work — the author believes it landed.
+        if not args.ingest.exists():
+            raise SystemExit(f"no such file: {args.ingest}")
+        drafts = read_jsonl(args.ingest)
+        if not drafts:
+            raise SystemExit(f"{args.ingest} contains no records — nothing to ingest")
+        ingest(drafts, positions, author=args.author,
                card_index=card_index, rule_ids=rule_ids,
                dry_run=args.dry_run, path=args.positions)
         return
