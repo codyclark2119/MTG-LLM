@@ -1,0 +1,129 @@
+# mlx_lm.lora settings for the Phase 1 adapter, run 4.
+#
+# PURPOSE: change the DATA, and only the data.
+#
+# Runs 1-3 all trained on `data/datasets`, which was synthesized by
+# Qwen2.5-7B-Instruct — the same model this adapter is trained on top of.
+# Section 21.6 measured what that cost:
+#
+#                           synthetic    verified
+#   examples                    2,971       1,130
+#   refusal-shaped targets   523 (18%)    1 (0.1%)
+#   citing a rule id              87%        100%
+#   mean target length      618 chars   277 chars
+#
+# Roughly one training example in five explicitly taught the adapter to answer
+# "The rules provided do not contain specific information about ... I cannot
+# answer." That alone accounts for the two things every run since Section 9 has
+# reported about the fine-tuned arm: lowest correctness, since a refusal scores
+# 1 against any rubric, and the shortest answers of the four.
+#
+# This run trains on `data/datasets/verified` — 1,019 train / 111 valid built by
+# `scripts/build_sft_verified.py` from human-written RulesGuru answers, with the
+# 72 records that are in the n=99 gold eval set excluded by id and the exclusion
+# asserted in the builder.
+#
+# ---------------------------------------------------------------------------
+# THE EPOCH ARITHMETIC, RECOMPUTED RATHER THAN INHERITED
+#
+# `phase1_lora_v2.yaml` claimed ~1 epoch and ran 0.45, because batch_size was
+# halved during the Section 8.7 crash fixes and `iters` was never raised. That
+# is a documented trap in this repo, and copying v3's `iters: 1322` here would
+# walk straight back into it: the dataset is now 2.6x smaller, so the same
+# iteration count would train 2.6x longer.
+#
+# Measured against the real dataset (1,019 train lines, batch 2):
+#
+#   iters  510  ->  1.00 epochs
+#   iters 1019  ->  2.00 epochs   <- this run
+#   iters 1322  ->  2.59 epochs   <- what copying v3 would have done
+#
+# 2 epochs rather than 1 is a deliberate bracket, not a preference. Section 8's
+# run 1 overfit badly at 1.41 epochs over 569 examples; Section 18.2's run 3 saw
+# no overfitting at 1.00 epoch over 2,644 with nothing seen twice. Neither
+# settles a 1,019-example set. `save_every: 100` gives ten checkpoints spanning
+# 0.2 to 2.0 epochs, so the overfitting question is answered by the curve rather
+# than assumed in advance — and the promoted checkpoint is chosen by the
+# Section 9 JUDGE EVAL across several of them, not by val loss.
+#
+# ---------------------------------------------------------------------------
+# val_batches: -1 — THE ONE THING v3 SAID RUN 4 MUST FIX
+#
+# v3 ran `val_batches: 8` at batch 2, scoring 16 of 327 validation examples. It
+# also noted that mlx-lm sorts the dataset by length and then permutes UNSEEDED,
+# so every pass scores a different 16 from different length strata. Measured at
+# a frozen checkpoint, eight draws spanned 0.256 while the whole curve past
+# iteration 600 spanned 0.113 — the noise was larger than the signal, and
+# Section 18.2 had to warn against reading that curve finely.
+#
+# `-1` scores the whole validation set, so the curve becomes readable. With 111
+# valid examples at batch 2 that is ~55 batches per eval instead of 8, which is
+# why `steps_per_eval` stays at 150 rather than dropping.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY UNCHANGED FROM v3
+#
+# Model, LoRA geometry, batch size, learning rate, sequence length, seed. The
+# edited values are `data`, `iters`, `val_batches` and `adapter_path`, and three
+# of those four are forced by the change of dataset.
+#
+# This keeps the comparison honest in the one direction that matters: if this
+# adapter beats v2-best on the judge eval, the data is why, because nothing
+# else moved.
+#
+# ---------------------------------------------------------------------------
+# WHAT TO EXPECT, STATED IN ADVANCE
+#
+# PREDICTED, and recorded here so it can be wrong in public:
+#
+#   1. Refusal rate in generated answers falls sharply. This is the most direct
+#      consequence and the easiest to check — grep the eval run for "cannot
+#      answer" / "do not contain".
+#   2. Grounding rises. 100% of these targets cite a rule id inline, against 87%
+#      of the synthetic ones, and grounding is the largest clean effect measured
+#      anywhere in this project (86/99 vs 45/99, Section 19.1).
+#   3. Mean answer length FALLS further, not rises. The verified targets average
+#      277 chars against the synthetic set's 618. If the rubric judge rewards
+#      claim density rather than length this is fine; if correctness drops while
+#      grounding rises, that tension is the finding.
+#
+# What this run CANNOT settle: whether fine-tuning beats retrieval. Sections 19
+# and 20 answered that with the old data, and one better dataset does not make
+# the comparison new. It can only establish whether the refusal defect was the
+# binding constraint.
+#
+# Usage:
+#   mlx_env/bin/python3 -m mlx_lm lora -c configs/phase1_lora_v4_verified.yaml
+# Then evaluate several checkpoints before promoting any of them:
+#   python scripts/eval.py --adapter-path models/mtg-rules-adapter-v4/0000500_adapters.safetensors ...
+
+model: mlx-community/Qwen2.5-7B-Instruct-4bit
+train: true
+data: ./data/datasets/verified
+adapter_path: ./models/mtg-rules-adapter-v4
+
+fine_tune_type: lora
+num_layers: 16
+lora_parameters:
+  rank: 16
+  dropout: 0.0
+  scale: 20.0
+
+# Unchanged from v2/v3 — measured, not guessed: batch 2 peaks at 9.2GB and
+# sustains ~0.066 it/s, and raising it to 4 lost more to per-step cost than it
+# won back in throughput.
+batch_size: 2
+grad_checkpoint: true
+clear_cache_threshold: 8
+iters: 1019
+learning_rate: 1.0e-4
+max_seq_length: 2048
+
+# -1, not 8. See the header: the v3 curve was unreadable because 8 batches
+# sampled 16 of 327 examples under an unseeded permutation.
+val_batches: -1
+steps_per_report: 10
+steps_per_eval: 150
+save_every: 100
+
+seed: 42

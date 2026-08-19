@@ -97,11 +97,13 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | Cards | 34,933 playable | Scryfall Oracle | chunks only |
 | Official rulings | 77,918 across 19,726 cards | WotC via Scryfall | chunks only |
 | SFT training set | 2,644 train / 327 valid | synthesized, RAG-grounded | yes |
+| SFT set — verified | 1,019 train / 111 valid | human-written RulesGuru answers | yes |
 | Eval — synthetic | 70 | generated from rules | yes |
 | Eval — Reddit | 200 + 100 card-focused | r/MTGRules, LLM-filtered | yes |
 | RulesGuru snapshot | 1,402 verified Q&A | rulesguru.org API | yes |
 | RulesGuru candidates | 1,202 (drafted rubrics) | derived | yes |
-| **Gold set** | **39** (human-reviewed rubrics) | RulesGuru + judge sources | yes |
+| **Gold set** | **99** (human-reviewed rubrics) | RulesGuru + CR glossary | yes |
+| **Positions** | **22** (18 hand-adjudicated) | authored boards | yes |
 | Judge worksheets | 39 scenarios | Competitive REL sims | yes |
 
 ## Scripts
@@ -134,12 +136,24 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 Beyond explaining rules: give the model a board and let it choose a play. See [DEVELOPMENT_PLAN.md §16](DEVELOPMENT_PLAN.md).
 
 ```bash
-python scripts/gameplay/test_actions.py                 # parser assertions (70)
-python scripts/gameplay/make_seed_positions.py          # -> positions_seed.jsonl (8 fixtures)
-python scripts/gameplay/positions.py --positions data/gold/positions_seed.jsonl
-python scripts/gameplay/positions.py --render pos-seed-0002 --closed   # see the prompt
-python scripts/gameplay/eval_positions.py --positions data/gold/positions_seed.jsonl
+python scripts/gameplay/test_actions.py                 # parser assertions (73)
+python scripts/gameplay/positions.py                    # validate the 22-position set
+python scripts/gameplay/positions.py --render pos-blocking-0001 --closed   # see the prompt
+python scripts/gameplay/eval_positions.py --second-judge mlx-community/Meta-Llama-3.1-8B-Instruct-4bit
+
+# promote a reviewed batch of drafts (dry run first — it renders every board)
+python scripts/gameplay/positions.py --ingest drafts.jsonl --dry-run
+python scripts/gameplay/positions.py --ingest drafts.jsonl --author "Your Name"
 ```
+
+`data/gold/positions_seed.jsonl` holds 8 machine-drafted plumbing fixtures. They
+are **not** gate evidence and the report warns when one is present in a scored
+run; regenerate with `make_seed_positions.py`.
+
+**Comparing runs requires the same arm count.** The judge grades every candidate
+for a position in one batched call, so adding an arm changes every other arm's
+score — measured in [§21.5](DEVELOPMENT_PLAN.md). Use `--arms` to match counts
+rather than ignoring a column.
 
 A position is a gold record whose question is a board, so `key_points` is the correct line and **`common_errors` is the blunder list** — `eval.py`'s rubric judge scores it unchanged, and blunder rate is just how often `errors_made` is non-empty. Author them at `#/position` in the web console; see [data/gold/POSITIONS.md](data/gold/POSITIONS.md).
 
