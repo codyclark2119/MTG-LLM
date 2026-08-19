@@ -35,7 +35,8 @@ This walkthrough covers everything from base model selection through ingesting t
 - [x] Gold set grown 39 → **99, all hand-authored**, in five reviewed batches — 330 key points, 264 common errors, every category at 9–13, 0 lint warnings. `definition recall` was filled from the CR glossary, since RulesGuru is a scenario database and never asks "what does X mean?". Player normalization was retired back to a miss-rather-than-guess rule after `_PLAYER_PREP` turned "refers to Sand Warriors" into a player named Sand.
 - [x] **A3 run at n=99 under both judges (Section 19) — the Phase 1 verdict.** `finetuned_rag` trails `base_rag` by **0.50** under Qwen (1.88 vs 2.38) and **0.80** under Llama (2.36 vs 3.16), and **both judges produce the same arm ranking**. That is well outside the 0.4-point effect Section 14.6 sized this sample to resolve. **Fine-tuning did not beat retrieval** — now a measurement at adequate sample size on hand-authored rubrics, not the n=8 and n=16 gestures that had to be walked back twice. Inter-judge r = +0.49 over 367 pairs. Caveat that must travel with the table: `base` scores nominally highest under Qwen while fabricating a citation on **35 of 99** questions, because the rubric judge does not price fabrication (Section 19.1).
 - [x] Gave positions a reviewed batch path (`positions.py --ingest`) and pinned `ORDER TRIGGERS`' operand order, which meant "resolution order" in the grammar shown to the model and merely "order matters" in the parser's own docs — the `CROSS_REF_RE`/`PASS` trap again, caught on the first position that ever used the verb.
-- [ ] **Next:** (a) author ~40 positions for Gate 3, since Gate 2 cannot be settled on machine-drafted seeds (Section 18.4) — 18 drafted and adjudicated, 4 basic / 9 intermediate / 5 advanced across all seven categories; (b) decide whether the rubric judge should price fabricated citations, given Section 19.1; (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk; (e) Section 9.4's standing instruction is unchanged and now well-supported — **fix the SFT data, not the hyperparameters**.
+- [x] Built the position set and ran the gates on it (Section 20) — 22 positions, 18 hand-adjudicated, under both judges. **Gate 2 PASSES for the first time**: blunder rate spans 50–82% (Qwen) and 45–82% (Llama) against the seed set's zero spread, so hand-authored positions do separate the arms. Gates 1 and 3 fail on the models, not the harness. The fine-tuned arm is worst on every measure, matching Section 19. Two open problems: the closed arm makes the model *worse* (Section 20.1), and `land sequencing` is arm-invariant at 100% (Section 20.2).
+- [ ] **Next:** (a) grow the position set toward ~40 and rewrite the 31 disputed calls and the 3 land-sequencing rubrics (Section 20.2, 20.3); (b) decide whether the rubric judge should price fabricated citations, given Section 19.1; (c) use the rulings corpus for eval references and SFT targets; (d) rebuild the synthetic eval so it stops testing retrieval of its own source chunk; (e) Section 9.4's standing instruction is unchanged and now well-supported — **fix the SFT data, not the hyperparameters**.
 
 **Phase 2 (Card Data):** started early, ahead of finishing Phase 1 — see Section 13. The Standard-only pool proved far too narrow (it covered just 4% of cards players actually ask about), so the corpus is now Scryfall's full Oracle set: 34,933 playable cards chunked and linked to the rules governing their keywords, with card names resolved by lookup at 99%.
 
@@ -1932,3 +1933,105 @@ was not.
 The header is now derived: it counts `scored_by` across the run, names the V3
 rubric judge, the V2 prose judge, or the mix, and states explicitly that only
 the model differs when that is true.
+
+---
+
+## 20. The first gate run on hand-authored positions
+
+Sections 16.11 and 18.4 both ran the gates on the 8 machine-drafted seed
+fixtures and both said the same thing: the eval did not discriminate. Every arm
+blundered at exactly 75%, and the band split added in Section 19 shows why that
+was worse than it looked — the four arms were identical in *every* difficulty
+band, which is the signature of a judge grading the position rather than the
+answer.
+
+`data/gold/positions.jsonl` now exists: 22 positions, 18 with the line
+adjudicated by hand, 8 basic / 9 intermediate / 5 advanced across all seven
+categories. Run through both judges.
+
+| Arm | Blunder (Qwen) | Blunder (Llama) | Correctness | Parsed ok | All legal |
+| --- | --- | --- | --- | --- | --- |
+| `base_open` | **50%** | **45%** | 2.62 | 100% | 68% |
+| `base_closed` | 77% | 82% | 2.55 | 100% | 82% |
+| `base_cards_open` | 64% | 50% | 2.14 | 100% | 64% |
+| `ft_cards_open` | 82% | 64% | 1.95 | 77% | 36% |
+
+**Gate 2 PASSES, for the first time in the project.** Blunder rate spans 50–82%
+under Qwen and 45–82% under Llama — a 32- and 37-point spread against the seed
+set's zero. The positions separate the arms. That is the single thing
+hand-authoring was supposed to buy and it is the first direct evidence that it
+does.
+
+Gate 1 **fails**: `ft_cards_open` parses 77% against a ≥90% bar, and closed-arm
+legality is 82% against ≥95%. Gate 3 **fails**: the best arm blunders 47% on
+basic+intermediate against a ≤25% bar. Both are real failures of the models,
+not of the harness — Gate 1 passed on the seeds after the Section 16.13 fix, and
+what breaks it here is `ft_cards_open` emitting 4.7 actions per answer with only
+36% of them legal.
+
+The arm ranking is the same under both judges and matches Section 19: the
+fine-tuned arm is worst on every measure — highest blunder rate, lowest
+correctness, worst parse rate, worst legality. Two independent instruments, a
+rules exam and a gameplay eval, now agree.
+
+### 20.1 The closed arm makes the model worse, not better
+
+`base_closed` blunders **77%** where `base_open` blunders 50%, and 82% vs 45%
+under Llama. Handing the model an enumerated list of the legal plays makes it
+play *worse*, consistently, under both judges.
+
+This inverts the arm's design intent. The closed arm exists to separate "does
+not know what is possible" from "does not know what is good" (Section 16), on
+the assumption that removing the search problem could only help. It does lift
+legality — 82% of named actions are legal versus 68% open — so the model is
+choosing from the list. It just chooses badly, and more confidently.
+
+The likeliest reading is that the list crowds out reasoning: given three
+candidate plays the model picks one rather than working out what the board
+demands. That is a hypothesis, not a finding, and it is testable — a closed arm
+whose list is deliberately ordered worst-first would separate "picks from the
+list" from "picks the first plausible entry".
+
+### 20.2 What the per-category table says about the positions
+
+| Category | n | base_open | base_closed | base_cards_open | ft_cards_open |
+| --- | --- | --- | --- | --- | --- |
+| blocking | 4 | 25% | 75% | 25% | 25% |
+| combat math | 6 | 83% | 67% | 83% | 100% |
+| land sequencing | 3 | **100%** | **100%** | **100%** | **100%** |
+| mulligan | 2 | 0% | 100% | 50% | 50% |
+| race vs stabilize | 2 | 0% | 50% | 0% | 100% |
+| removal timing | 3 | 33% | 67% | 67% | 100% |
+| trigger ordering | 2 | 50% | 100% | 100% | 100% |
+
+**`land sequencing` is arm-invariant at 100%** — every arm blunders every one of
+its three positions. That is the seed set's pathology surviving in one category,
+and it means those three positions currently contribute nothing to Gate 2. Two
+readings are available and they need different fixes: either the models are
+uniformly bad at land sequencing, or the three rubrics demand a specific
+sequence that no reasonable answer phrases the way the key points do. The second
+is the likelier and is checkable by hand.
+
+The **basic band varies across arms** (50/75/62/75), which answers the bet made
+when those four were drafted: a basic position built on one rules fact is *not*
+automatically arm-invariant. Basic meaning "one fact" rather than "no decision"
+survives its first test.
+
+### 20.3 The blunder call is still not a reliable per-question metric
+
+Cohen's kappa on the blunder call between the two judges is **+0.24** (raw
+agreement 65%, chance 54%), with **31 of 88 arm-position calls disputed**.
+That is weak agreement — usable for large effects only.
+
+So the honest statement of this run has two halves. The *aggregate* is sound
+enough to rank arms: both judges order the four arms identically and both give
+Gate 2 a comfortable pass. The *individual call* is not: on roughly a third of
+arm-position pairs the two judges disagree about whether a blunder happened at
+all. Section 16.12's protocol applies — a disputed position is a position to
+rewrite, and the 31 are enumerated in
+`eval/reports/positions_n22_AGREEMENT.md`.
+
+Kappa did improve on the seed set's disputed-call concentration, but not enough
+to call blunder rate a settled instrument. Gate 3's 47% is far enough from 25%
+that judge noise does not explain it away; a Gate 3 result *near* the boundary
+would not be trustworthy at this kappa.
