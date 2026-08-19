@@ -2405,3 +2405,49 @@ Three things it does deliberately:
   ~1 it was on 2,644 — and Section 8 overfit badly at 569 examples. The
   iteration count has to come down, and the builder puts that arithmetic in
   front of whoever runs it.
+
+### 21.8 Gate 2's pass was carried by the fine-tuned arm being bad
+
+Dropping `ft_cards_open` for the base-model comparison — it has to go, since a
+LoRA trained on Qwen2.5-7B cannot be applied to a different base — produced a
+result worth recording on its own.
+
+`base_open`'s answers are **byte-identical across all three runs** (4-arm, 5-arm
+and 3-arm, 22 of 22 each, verified), despite `max_tokens` moving 400 → 2000.
+Generation is fully deterministic and the token budget changes nothing for an
+arm that stops after 39 characters. So every difference below is the *judge*.
+
+| Run | arms | rubrics | `base_open` blunder | Gate 2 spread |
+| --- | --- | --- | --- | --- |
+| `positions_n22` | 4 | old | 50% | 32% **PASS** |
+| `positions_n22_think` | 5 | old | 73% | 23% **PASS** |
+| `pos_qwen25_3arm` | 3 | new | 73% | **9% FAIL** |
+
+**Gate 2 now fails.** In the 4-arm run the blunder spread was 50–82%; with the
+fine-tuned arm removed the three base arms sit at 73%, 82%, 73% — a 9-point
+spread, under the 15-point bar.
+
+The honest reading is that Section 20's "Gate 2 PASSES for the first time" was
+**substantially carried by `ft_cards_open` being the worst arm on every measure**,
+not by the positions separating comparable systems. Hand-authored positions did
+fix the seed set's zero-spread pathology — that part stands, and the seed
+fixtures gave 0% spread across four arms including the fine-tuned one. But the
+claim that these 22 positions discriminate among *similar* systems is not
+supported. Discriminating a broken arm from three working ones is a much weaker
+property than the gate was meant to test.
+
+Two confounds sit in that table and only one is measured:
+
+- **Arm count.** The 4→5 comparison is clean — same rubrics, byte-identical
+  answers — and moved `base_open` 23 points (Section 21.5).
+- **Rubrics.** The 3-arm run is the first to use the partial-execution errors
+  added in Section 21.3, which can only *raise* blunder rates, and higher rates
+  compress the spread against the ceiling.
+
+So the 3-arm number cannot be attributed to arm count alone. Disentangling it
+needs one more rescore: the stored 4-arm answers against the new rubrics, which
+holds arm count fixed and moves only the rubric. Queued.
+
+This is the third time in this section that a number moved for a reason that had
+nothing to do with the models. Generation has been deterministic throughout;
+every one of them was the instrument.
