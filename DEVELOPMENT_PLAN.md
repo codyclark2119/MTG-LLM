@@ -2552,6 +2552,11 @@ problems and the same fix would not serve both:
   broken (Section 21.8), and no amount of judge improvement fixes a position
   every arm fails identically.
 
+> **This second bullet is wrong, and Section 21.17 corrects it.** The 58% was
+> measured on the binary blunder call, which is Gate 2's metric — not on the
+> positions. Scored on correctness the same positions separate the arms 82–86%
+> of the time. The constraint is the metric, not the authoring.
+
 It also puts the A3 result on firmer ground than the last few sections have
 implied. The n=99 verdict — fine-tuning trails retrieval by 0.50 and 0.80 under
 two judges — rests on a set where 74% of questions actively separate the arms
@@ -2877,3 +2882,52 @@ number, so nothing is wrong with any result; it is simply not doing anything.
 Pinned anyway, since the moment it gets wired in is the moment nobody will think
 to pin it. Recorded here rather than quietly fixed, because "is this corpus
 actually used" is a question worth asking of the others too.
+
+### 21.17 Correction: the positions discriminate. Gate 2's metric does not.
+
+Section 21.9 concluded "only 10 of 24 positions separate the arms", and 21.11
+built on it to say the gameplay track is constrained by its *positions* while
+the rules track is constrained by its *judge*. **The first is wrong, and it is
+wrong in a way that pointed the next block of work in the wrong direction** —
+toward authoring more positions, which would not have helped.
+
+21.9 measured discrimination on the **binary blunder call** — `errors_made`
+non-empty — because that is Gate 2's metric. It never measured the positions on
+the 1–5 correctness scale the same positions are also scored on. Doing that, over
+two independent stored runs at different arm counts:
+
+| Run | Arms | Separate on correctness | Separate on blunder |
+| --- | --- | --- | --- |
+| `pos_qwen25_3arm` | 3 | **18/22 (82%)** | 10/22 (45%) |
+| `positions_n22` | 4 | **19/22 (86%)** | 12/22 (55%) |
+
+82–86% against the rules gold set's 74% (Section 21.11). **The positions are not
+the weak instrument — they are marginally the stronger one.** What is weak is the
+binary call layered on top of them, which discards roughly half the separation
+the judge already produced.
+
+Section 21.10 predicted exactly this in words — "the binary blunder call throws
+away half of what is there" — and this measures it: 82% down to 45%, on the same
+answers, from the same judge, on the same run.
+
+The four positions that stay flat on correctness are also not "contributing
+nothing" in the way 21.9 implied. Under Qwen, three are flat because **every arm
+blunders** (`pos-removal-timing-0001`, `pos-combat-math-0002`,
+`pos-combat-math-0005`) and one because no arm does. A position every arm fails
+is a hard position, not a broken one; it stops discriminating only once the
+metric collapses to a yes/no.
+
+**What this changes:**
+
+- Gate 2 ("the eval discriminates") should be measured on correctness spread,
+  not on blunder-rate spread. It is currently failing a set that separates the
+  arms 82% of the time, which makes the gate a statement about the metric.
+- Blunder rate stays as a *reported* number — it is the interpretable one, and
+  the user's framing (failing to take the winning line is fatal) is a real
+  quality, not a proxy. It is just not sensitive enough to be a gate.
+- The next block of gameplay work is not authoring. It is Gate 2's definition
+  and the graded blunder severity sketched in 21.10.
+
+The 21.11 claim that survives intact is the other half: the rules eval's
+constraint is judge agreement (r = +0.49). Both tracks are judge/metric bound.
+Neither is data bound.

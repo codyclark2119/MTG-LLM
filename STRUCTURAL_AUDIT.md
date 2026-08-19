@@ -178,17 +178,26 @@ Beyond the positive controls above:
   run to date. The Llama second judge partly covers this; a third family would
   settle it.
 
-### 7. Evaluation data — **done** (Section 21.11)
+### 7. Evaluation data — **done** (Sections 21.11 and 21.17)
 
-Positions: 10 of 24 discriminate (Section 21.9). The same audit over `gold_n99`
-came back the other way — **9% of rules questions contribute nothing against
-58% of positions**, 74% separate the arms by ≥1.0 point, mean spread 1.83.
+Neither eval set is the constraint, which is the opposite of what this section
+expected and of what 21.11 first concluded.
 
-The expectation written here was wrong: this did *not* reclassify part of the
-gold set as uninformative, and there is no dead category to grow. It relocated
-the problem. Rules eval is constrained by the **judge** (r = +0.49 between two
-judges on identical answers); gameplay eval is constrained by the **positions**,
-which no judge improvement can fix.
+| Set | Separate the arms |
+| --- | --- |
+| rules gold (n=99), correctness | 74% by ≥1.0 point, mean spread 1.83 |
+| positions (n=22), correctness | **82–86%** |
+| positions (n=22), binary blunder | 45–55% |
+
+The "10 of 24 positions discriminate" figure was measured on the **binary
+blunder call**, which is Gate 2's metric — not on the positions. Scored on the
+same 1–5 scale the rules set uses, the positions are marginally the *stronger*
+instrument. Section 21.17 has the correction.
+
+So the gap is in the metrics and the judge, not the data: rules eval is
+constrained by judge agreement (r = +0.49 on identical answers), gameplay eval
+by a gate defined on a binary that discards half the separation the judge
+already produced.
 
 ---
 
