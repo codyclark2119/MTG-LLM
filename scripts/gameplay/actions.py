@@ -48,6 +48,10 @@ _BOLD_RE = re.compile(r"\*\*|__|`")
 # "Action: CAST ..." / "Play: ATTACK ..." — a label the model adds to its line.
 _LABEL_RE = re.compile(r"^\s*(?:action|play|step|move)\s*\d*\s*:\s*", re.I)
 _FENCE_RE = re.compile(r"^\s*```")
+# A line that is nothing but "ACTIONS:" — the boundary between reasoning and
+# plays. Tolerates the markdown and punctuation models decorate headers with.
+_ACTIONS_HEADER_RE = re.compile(
+    r"^\s*[#>\-*\s]*(?:\*\*|__)?\s*ACTIONS?\s*:?\s*(?:\*\*|__)?\s*:?\s*$", re.I)
 
 
 @dataclass(frozen=True)
@@ -244,10 +248,33 @@ def parse_line(line: str) -> Action | ParseFailure | None:
 
 
 def parse_output(text: str) -> ParsedOutput:
-    """Parse a full model response into actions, failures, and ignored prose."""
+    """Parse a full model response into actions, failures, and ignored prose.
+
+    If the output contains an `ACTIONS:` line, everything BEFORE it is prose and
+    only what follows is parsed. Without that marker the whole output is parsed,
+    exactly as before, so existing runs are unaffected.
+
+    The marker exists because prose about a play parses AS that play. Measured
+    on reasoning-style text before this was added:
+
+        "Play Mountain first would strand Shock in hand"
+            -> PLAY Mountain first would strand Shock in hand
+        "Block Grizzly Bears with Wall of Omens is the safe assignment"
+            -> BLOCK Wall of Omens is the safe assignment -> Grizzly Bears
+
+    Both parsed silently, with no ParseFailure, as actions with garbage
+    operands. Any arm asked to reason in prose would have had its action count
+    inflated and its legality destroyed by its own explanation — a harness
+    artifact that would have read as "reasoning makes the model play worse".
+    """
     out = ParsedOutput()
     in_fence = False
-    for line in (text or "").splitlines():
+    lines = (text or "").splitlines()
+    marker = next((i for i, ln in enumerate(lines) if _ACTIONS_HEADER_RE.match(ln)), None)
+    if marker is not None:
+        out.ignored.extend(ln.strip() for ln in lines[:marker] if ln.strip())
+        lines = lines[marker + 1:]
+    for line in lines:
         if _FENCE_RE.match(line):
             in_fence = not in_fence
             continue

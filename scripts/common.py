@@ -334,8 +334,35 @@ def render_position(pos: dict) -> str:
     return "\n".join(lines)
 
 
+# Measured on the n=22 run: `base_open`, the BEST arm, answered every position
+# in a mean of 39 characters with zero lines of reasoning on 22 of 22. It is not
+# deliberating about these boards at all, it is emitting a plausible action.
+#
+# GAMEPLAY_SYSTEM_PROMPT ends with "Give your reasoning first if you want to",
+# which is permission, and no arm takes it. This makes it an instruction and
+# gives it a shape. Appended rather than edited in, so the existing prompt is
+# untouched and the arms already measured stay reproducible.
+#
+# The ACTIONS: marker is load-bearing, not decoration. Prose about a play parses
+# AS that play ("Play Mountain first would strand Shock" -> PLAY with a garbage
+# operand), so without a boundary this arm would have its legality destroyed by
+# its own explanation. See actions.parse_output.
+GAMEPLAY_DELIBERATE_INSTRUCTION = (
+    "\n\nWork the position out in writing before you choose. This is required, "
+    "not optional. Cover, in this order:\n"
+    "1. What happens if you do nothing — what does the opponent attack with "
+    "next turn, and does it kill you?\n"
+    "2. Each play available to you, and what it costs you.\n"
+    "3. Which play is best, and why each of the others is worse.\n\n"
+    "Then write a line containing only ACTIONS: and give your actions after it, "
+    "one per line, in the grammar above. Nothing before that line is read as a "
+    "play, so put every action after it."
+)
+
+
 def build_position_messages(pos: dict, context: str | None = None,
-                            closed: bool = False) -> list[dict]:
+                            closed: bool = False,
+                            deliberate: bool = False) -> list[dict]:
     """Prompt for a board position — the gameplay analogue of build_rag_messages.
 
     `closed` shows the enumerated legal actions and asks the model to choose
@@ -363,6 +390,8 @@ def build_position_messages(pos: dict, context: str | None = None,
         parts.append("What do you do?")
 
     system = GAMEPLAY_SYSTEM_PROMPT
+    if deliberate:
+        system += GAMEPLAY_DELIBERATE_INSTRUCTION
     if context and "Cards referenced:" in context:
         system += (
             "\n\nThe card text provided is authoritative for what each card does."

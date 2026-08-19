@@ -206,6 +206,30 @@ def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int) ->
     }
 
 
+# The two judge system prompts above say "labeled A, B, C, D" in prose, while
+# the labels themselves are generated as chr(ord("A") + i) for however many
+# arms there are. At four arms those agree. At five they do not: the judge
+# would be shown CANDIDATE A through E and told in the same breath that there
+# are four, which is an invitation to silently drop the last one.
+#
+# Rewritten ONLY when the count is not four, so every published run -- all of
+# which used exactly four arms -- reproduces the prompt byte for byte and stays
+# comparable. Found while adding a fifth position arm, before it could score
+# anything.
+_FOUR_LABEL_PHRASE = "labeled A, B, C, D"
+
+
+def judge_prompt_for(base: str, labels: list[str]) -> str:
+    """The judge system prompt, with its label list matching the real one."""
+    if len(labels) == 4:
+        return base
+    if len(labels) == 1:
+        named = f"labeled {labels[0]}"
+    else:
+        named = "labeled " + ", ".join(labels[:-1]) + f" and {labels[-1]}"
+    return base.replace(_FOUR_LABEL_PHRASE, named)
+
+
 def judge_batch_rubric(
     lm_generate, judge_model, judge_tokenizer, question: str,
     key_points: list[str], common_errors: list[str],
@@ -224,7 +248,8 @@ def judge_batch_rubric(
     user += "\n" + "\n\n".join(f"CANDIDATE {label}:\n{candidates[arm]}" for label, arm in label_to_arm.items())
 
     messages = [
-        {"role": "system", "content": JUDGE_SYSTEM_PROMPT_V3},
+        {"role": "system", "content": judge_prompt_for(
+            JUDGE_SYSTEM_PROMPT_V3, list(label_to_arm))},
         {"role": "user", "content": user},
     ]
     prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
@@ -462,7 +487,8 @@ def judge_batch_anonymized(
     block = "\n\n".join(f"CANDIDATE {label}:\n{candidates[arm]}" for label, arm in label_to_arm.items())
     user = f"QUESTION:\n{question}\n\nREFERENCE ANSWER:\n{reference}\n\n{block}"
     messages = [
-        {"role": "system", "content": JUDGE_SYSTEM_PROMPT_V2},
+        {"role": "system", "content": judge_prompt_for(
+            JUDGE_SYSTEM_PROMPT_V2, list(label_to_arm))},
         {"role": "user", "content": user},
     ]
     prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
@@ -894,13 +920,16 @@ def main() -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     # Aggregate.
-    summary = {arm: {"scores": [], "fabricated": 0, "matches": 0, "match_total": 0} for arm in arm_names}
+    summary = {arm: {"scores": [], "fabricated": 0, "matches": 0, "match_total": 0,
+                     "cited_any": 0} for arm in arm_names}
     for r in results:
         for arm, data in r["arms"].items():
             if data["judge_score"] is not None:
                 summary[arm]["scores"].append(data["judge_score"])
             if data["citation"]["has_fabricated"]:
                 summary[arm]["fabricated"] += 1
+            if data["citation"]["cited"]:
+                summary[arm]["cited_any"] += 1
             if data["citation"]["matches_reference"] is not None:
                 summary[arm]["match_total"] += 1
                 if data["citation"]["matches_reference"]:
@@ -935,14 +964,46 @@ def main() -> None:
         )
     else:
         lines.append("")
-    lines.append("| Arm | Avg score (1-5) | N scored | Fabricated citation | Citation matches reference |")
-    lines.append("| --- | --- | --- | --- | --- |")
+    # Grounding is reported BESIDE the score, never folded into it. Section 19.1
+    # measured `base` scoring highest under Qwen while fabricating a rule id on
+    # 35 of 99 questions: the V3 judge scores which enumerated claims an answer
+    # made, and inventing a citation is not one of them, so fabrication is very
+    # nearly free under the score alone. Blending the two would re-create
+    # exactly the confounded single number V3 exists to take apart, so instead
+    # the column sits next to it and the check below refuses to let the score
+    # be read on its own.
+    #
+    # This costs no judge call and has no judge noise: a rule id either resolves
+    # against the pinned CR or it does not.
+    lines.append("| Arm | Avg score (1-5) | N scored | Grounded | Fabricated citation | "
+                 "Citation matches reference |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
     for arm in arm_names:
         s = summary[arm]
         avg = sum(s["scores"]) / len(s["scores"]) if s["scores"] else float("nan")
         match_rate = f"{s['matches']}/{s['match_total']}" if s["match_total"] else "n/a"
-        lines.append(f"| {arm} | {avg:.2f} | {len(s['scores'])}/{len(questions)} | {s['fabricated']}/{len(questions)} | {match_rate} |")
+        # Grounded: cited at least one rule id and fabricated none of them.
+        grounded = s["cited_any"] - s["fabricated"]
+        lines.append(f"| {arm} | {avg:.2f} | {len(s['scores'])}/{len(questions)} | "
+                     f"{grounded}/{len(questions)} | {s['fabricated']}/{len(questions)} | {match_rate} |")
     lines.append("")
+
+    # The Section 19.1 misreading, detected rather than left to the reader: if
+    # the top-scoring arm is not also the least-fabricating one, say so in the
+    # report instead of hoping whoever reads the table remembers.
+    scored_arms = [a for a in arm_names if summary[a]["scores"]]
+    if scored_arms:
+        top = max(scored_arms, key=lambda a: sum(summary[a]["scores"]) / len(summary[a]["scores"]))
+        cleanest = min(scored_arms, key=lambda a: summary[a]["fabricated"])
+        if top != cleanest and summary[top]["fabricated"] > summary[cleanest]["fabricated"]:
+            lines.append(
+                f"> **The highest-scoring arm is not the best-grounded one.** `{top}` scores "
+                f"best while fabricating {summary[top]['fabricated']}/{len(questions)} "
+                f"citations, against `{cleanest}`'s {summary[cleanest]['fabricated']}/{len(questions)}. "
+                "The rubric judge scores which enumerated claims an answer made; a "
+                "fabricated rule id is not one of them, so it costs almost nothing here. "
+                "Do not read the score column without this one (Section 19.1).\n"
+            )
     lines.append(f"Consistency (finetuned_rag, {len(consistency_idx)} questions rerun): {consistency_agree}/{len(consistency_idx)} identical on rerun.\n")
 
     if summary.get("finetuned_rag") and summary.get("base_rag"):

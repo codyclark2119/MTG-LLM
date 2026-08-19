@@ -49,6 +49,11 @@ ARMS = [
     {"name": "base_closed", "adapter": None, "retrieval": False, "closed": True},
     {"name": "base_cards_open", "adapter": None, "retrieval": True, "closed": False},
     {"name": "ft_cards_open", "adapter": "ADAPTER", "retrieval": True, "closed": False},
+    # Added, not substituted. base_open differs from this arm ONLY in the
+    # deliberation instruction, so the pair isolates one variable — the same
+    # control discipline the no-card subset gave the card experiment.
+    {"name": "base_open_think", "adapter": None, "retrieval": False, "closed": False,
+     "deliberate": True},
 ]
 
 
@@ -96,7 +101,9 @@ def generate(positions, arms, base_model_id, adapter_path, contexts, max_tokens)
             out = []
             for i, pos in enumerate(positions, 1):
                 ctx = contexts[i - 1] if arm["retrieval"] else None
-                messages = build_position_messages(pos, ctx, closed=arm["closed"])
+                messages = build_position_messages(
+                    pos, ctx, closed=arm["closed"],
+                    deliberate=arm.get("deliberate", False))
                 prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True)
                 out.append(lm_generate(model, tokenizer, prompt=prompt,
                                        max_tokens=max_tokens, verbose=False))

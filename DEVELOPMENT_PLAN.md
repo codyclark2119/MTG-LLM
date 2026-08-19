@@ -1899,6 +1899,29 @@ plausible-looking rule id is not one of the claims, so **fabrication is very
 nearly free under this metric**. Retrieval's measurable contribution shows up
 almost entirely in the citation columns and almost not at all in the score.
 
+Promoting the check from a column to a first-class metric changes what the run
+says. Grounding — cited at least one rule id and fabricated none — is computed
+mechanically against the pinned CR, with no judge call and therefore no judge
+noise:
+
+| Arm | Score | **Grounded** | Fabricated |
+| --- | --- | --- | --- |
+| `base_rag` | 2.38 | **86/99** | 1/99 |
+| `base` | **2.46** | 45/99 | 35/99 |
+| `finetuned_rag` | 1.88 | 68/99 | 4/99 |
+| `finetuned` | 1.69 | 62/99 | 9/99 |
+
+`base` wins the score column by 0.08 while grounding its answer *half as often*
+as `base_rag`. So retrieval's contribution is not small and inside the noise, as
+the score column suggests — it is 86 against 45, the largest and cleanest effect
+anywhere in this run, and the holistic score was hiding all of it.
+
+The report now prints this beside the score and refuses to let the score be read
+alone: when the top-scoring arm is not also the least-fabricating one, it says so
+in the output rather than trusting the reader to remember. Grounding is
+deliberately NOT folded into correctness — blending them would rebuild the
+confounded single number V3 exists to take apart.
+
 This is a property of the instrument, not a result about the models, and it is
 recorded here because the ranking invites exactly one misreading: that
 retrieval is unnecessary because `base` scored highest. Any reading of the score
