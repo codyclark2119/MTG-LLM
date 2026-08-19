@@ -247,6 +247,34 @@ def parse_line(line: str) -> Action | ParseFailure | None:
     return ParseFailure(line, f"unhandled verb {verb}")  # unreachable
 
 
+
+def visible_answer(text: str) -> str:
+    """The part of a model's output that is its ANSWER, not its scratchpad.
+
+    A reasoning model's <think> block is deliberation, and deliberation contains
+    every play it considered and REJECTED. Feeding that to a rubric judge asks
+    "which claims did this candidate make?" about text where the candidate
+    argued against half of them — an error the model reasoned its way out of
+    gets scored as an error it committed.
+
+    Measured on the first Qwen3-14B run: one answer carried 6,741 characters of
+    reasoning in front of 100 characters of actual play. The judge was given all
+    of it, and failed outright on 13 of 22 positions because three such
+    candidates in one batched call is ~16,000 characters of prompt.
+
+    Outputs with no <think> block are returned unchanged, so this is a no-op for
+    every non-reasoning model — verified: 66/66 Qwen3 answers carry the block,
+    0/66 Qwen2.5 answers do, so no existing baseline moves.
+    """
+    text = text or ""
+    if "</think>" in text:
+        return text.rpartition("</think>")[2].strip()
+    if "<think>" in text:
+        # Never closed: the model was still reasoning when it ran out of tokens,
+        # so there is no answer to score.
+        return ""
+    return text
+
 def parse_output(text: str) -> ParsedOutput:
     """Parse a full model response into actions, failures, and ignored prose.
 

@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from actions import legality, match_to_legal, parse_output  # noqa: E402
+from actions import legality, match_to_legal, parse_output, visible_answer  # noqa: E402
 from common import (  # noqa: E402
     POSITIONS_PATH,
     REPO_ROOT,
@@ -330,7 +330,10 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
     rng = random.Random(args.seed)
     results = []
     for i, pos in enumerate(positions):
-        candidates = {arm: answers[arm][i] for arm in arm_names}
+        # The judge scores the ANSWER, not the scratchpad. See
+        # actions.visible_answer -- a <think> block argues against plays the
+        # model then rejects, and scoring it counts those as claims made.
+        candidates = {arm: visible_answer(answers[arm][i]) for arm in arm_names}
         judged = rules_eval.judge_batch_rubric(
             lm_generate, judge_model, judge_tokenizer, render_position(pos),
             pos["key_points"], pos.get("common_errors") or [], candidates,
