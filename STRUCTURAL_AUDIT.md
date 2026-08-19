@@ -102,23 +102,23 @@ documented failure mode (Section 8.7), which cost a full re-run.
 directory at training time, and check it at eval time. Cheap, and it converts
 the single most expensive failure this project has had into an error message.
 
-### 4. Training data
+### 4. Training data — **done** (Section 21.13)
 
-The 18% refusal rate (Section 21.6) was found by reading the file, not by any
-check. Nothing audits training data before it is trained on.
+`audit_sft.py` reports refusals, inline citation, duplicates, length
+distribution, and contamination — the last as an assertion that exits non-zero.
 
-**Action:** a `audit_sft.py` reporting, for any dataset directory:
+**It found contamination on its first run, and the builder's own assertion had
+been passing.** 16 of the 99 gold eval questions were in the pending run-4
+training set: they were promoted into gold under a `qa-*` id while keeping their
+`rulesguru_id`, so `candidate["id"]` never equalled `gold["id"]`. Two more were
+duplicate RulesGuru entries that no id comparison can catch. The builder now
+filters on all three (72 + 16 + 2 = 90 excluded), and the set was rebuilt before
+being trained on — which is the entire point of running this before a retrain.
 
-- refusal-shaped targets (the regex already exists in `build_sft_verified.py`)
-- targets citing a rule id inline
-- duplicate and near-duplicate targets
-- length distribution
-- **contamination against every file in `eval/sets/` and the gold set**, by id
-  and by question text
-
-Contamination is the one that must be an assertion rather than a report. It is
-the only failure here that invalidates everything downstream *and looks like an
-improvement while doing it*.
+The synthetic set behind the published v2 adapter was audited retrospectively
+too: **44% duplicate lines** (1,478 unique behind 2,644) and three verbatim eval
+questions, on which the fine-tuned arms scored *worse* than their own average,
+so the A3 verdict is unchanged.
 
 ### 5. Harness — **done** (Section 21.12)
 
@@ -142,7 +142,13 @@ scores recompute identically.
 
 Beyond the positive controls above:
 
-- **V4 vs V3** — queued. Does requiring a quote lift kappa?
+- **V4 vs V3** — **ran, unusable** (Section 21.14). 86% of arm-answers came back
+  as unparseable JSON: requiring a quote per claim makes the required output
+  scale as arms × rubric items, and the judge runs out of tokens mid-JSON. Parse
+  rate falls 37% → 8% as rubrics grow from 4 to 7 items, so the 14 questions
+  that survived are selected by rubric size. Re-run with a much larger
+  `--judge-max-tokens` before drawing anything from V4 — the question of whether
+  a quote lifts kappa is still open, not answered.
 - **Batching** — a fifth arm moved a byte-identical arm 23 points (Section
   21.5). Worth measuring whether scoring candidates *singly* changes the
   ranking. If it does not, singly is safer and removes the arm-count constraint
@@ -176,7 +182,9 @@ Sequenced by (what it unblocks) × (what it costs):
 3. ~~**Discrimination audit of the 99 rules rubrics**~~ — **done**, Section
    21.11. The rules set is healthy (74% separate the arms, mean spread 1.83);
    the *gameplay* set is the one that does not discriminate.
-4. **`audit_sft.py` with contamination as an assertion** — before any retrain.
+4. ~~**`audit_sft.py` with contamination as an assertion**~~ — **done**, Section
+   21.13. Found 16 eval questions in the pending run-4 training set that the
+   builder's own assertion had passed.
 5. **Embedding/chunk fingerprint** — before any RAG number is trusted again.
 6. **Prompt hash beside the adapter** — before the next fine-tune.
 7. **Card and ruling content pins** — lowest urgency; these corpora change rarely.

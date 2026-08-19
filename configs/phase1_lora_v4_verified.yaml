@@ -7,10 +7,17 @@
 # Section 21.6 measured what that cost:
 #
 #                           synthetic    verified
-#   examples                    2,971       1,130
+#   examples                    2,971       1,112
 #   refusal-shaped targets   523 (18%)    1 (0.1%)
 #   citing a rule id              87%        100%
-#   mean target length      618 chars   277 chars
+#   mean target length      618 chars   278 chars
+#   duplicate lines         1,166 (44%)      0
+#
+# That last row was found by `audit_sft.py` and is not a rounding detail: the
+# synthetic set holds 1,478 UNIQUE lines behind its 2,644, so every epoch figure
+# quoted for runs 1-3 overstates how much distinct text the adapter actually
+# saw. It does not change those runs' conclusions, but it does mean "2,644
+# examples" was never 2,644 examples.
 #
 # Roughly one training example in five explicitly taught the adapter to answer
 # "The rules provided do not contain specific information about ... I cannot
@@ -18,10 +25,24 @@
 # reported about the fine-tuned arm: lowest correctness, since a refusal scores
 # 1 against any rubric, and the shortest answers of the four.
 #
-# This run trains on `data/datasets/verified` — 1,019 train / 111 valid built by
-# `scripts/build_sft_verified.py` from human-written RulesGuru answers, with the
-# 72 records that are in the n=99 gold eval set excluded by id and the exclusion
-# asserted in the builder.
+# This run trains on `data/datasets/verified` — 1,001 train / 111 valid built by
+# `scripts/build_sft_verified.py` from human-written RulesGuru answers.
+#
+# 90 candidates are excluded as eval questions, not the 72 an earlier version of
+# this header claimed. `audit_sft.py` found that matching on `id` alone missed
+# 18 of them, all genuinely the same question as a gold eval record:
+#
+#   72  same `id`                     the original filter
+#   16  same `rulesguru_id`           promoted into gold under a `qa-*` id, so
+#                                     "rg-1156" never compared equal to
+#                                     "qa-amy-casts-assassin-s-trophy-..."
+#    2  same question text            two different RulesGuru entries asking one
+#                                     question, and one gold record predating
+#                                     the pull with no rulesguru_id at all
+#
+# 16 of the 99 gold eval questions would otherwise have been trained on. Caught
+# before this run rather than after it, which is the entire reason the audit
+# runs before a retrain and not after.
 #
 # ---------------------------------------------------------------------------
 # THE EPOCH ARITHMETIC, RECOMPUTED RATHER THAN INHERITED
@@ -32,16 +53,22 @@
 # walk straight back into it: the dataset is now 2.6x smaller, so the same
 # iteration count would train 2.6x longer.
 #
-# Measured against the real dataset (1,019 train lines, batch 2):
+# Measured against the real dataset (1,001 train lines, batch 2):
 #
-#   iters  510  ->  1.00 epochs
-#   iters 1019  ->  2.00 epochs   <- this run
-#   iters 1322  ->  2.59 epochs   <- what copying v3 would have done
+#   iters  500  ->  1.00 epochs
+#   iters 1001  ->  2.00 epochs   <- this run
+#   iters 1322  ->  2.64 epochs   <- what copying v3 would have done
+#
+# Recomputed after the contamination fix shrank the split from 1,019 to 1,001.
+# `iters` moved with it — a stale 1019 here would be 2.04 epochs, which is
+# harmless this time and is exactly how v2's 0.45-epoch run happened.
 #
 # 2 epochs rather than 1 is a deliberate bracket, not a preference. Section 8's
 # run 1 overfit badly at 1.41 epochs over 569 examples; Section 18.2's run 3 saw
-# no overfitting at 1.00 epoch over 2,644 with nothing seen twice. Neither
-# settles a 1,019-example set. `save_every: 100` gives ten checkpoints spanning
+# no overfitting at 1.00 epoch over 2,644 — though `audit_sft.py` has since
+# shown only 1,478 of those were distinct, so "nothing seen twice" was wrong and
+# that run is weaker evidence than it looked. Neither settles a 1,001-example
+# set. `save_every: 100` gives ten checkpoints spanning
 # 0.2 to 2.0 epochs, so the overfitting question is answered by the curve rather
 # than assumed in advance — and the promoted checkpoint is chosen by the
 # Section 9 JUDGE EVAL across several of them, not by val loss.
@@ -115,7 +142,7 @@ lora_parameters:
 batch_size: 2
 grad_checkpoint: true
 clear_cache_threshold: 8
-iters: 1019
+iters: 1001
 learning_rate: 1.0e-4
 max_seq_length: 2048
 

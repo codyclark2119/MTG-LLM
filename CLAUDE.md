@@ -28,10 +28,14 @@ convention for explaining *why* something non-obvious is the way it is. Keep it.
 `eval/*.jsonl`, and the adapters in `models/` back published numbers. Before
 touching any of them, check `git diff --quiet` on the gold set and say so.
 
-**Never train on the eval set.** 72 of the 1,202 RulesGuru candidates are
-promoted into `gold_questions.jsonl`. `build_sft_verified.py` excludes them by
-id and *asserts* it, because contamination is the one failure that invalidates
-everything downstream and looks like an improvement while doing it.
+**Never train on the eval set.** 90 of the 1,202 RulesGuru candidates reach
+`gold_questions.jsonl`, and `build_sft_verified.py` excludes them on **three**
+keys — `id`, `rulesguru_id`, and question-token overlap — because matching on
+`id` alone missed 18 of them while asserting it had caught everything (Section
+21.13). Run `python scripts/audit_sft.py <dataset-dir>` before any retrain; it
+exits non-zero on contamination. Contamination is the one failure that
+invalidates everything downstream and looks like an improvement while doing it,
+so the check belongs before the training run, not after.
 
 **Report negative results as negative.** This project's value is that
 "fine-tuning did not beat retrieval" and "two judges disagree enough to reverse
@@ -240,6 +244,16 @@ Each cost real time. They recur in new code, so they are worth knowing.
   is later parsed.
 - **A helper duplicated with a guard in only some copies.** Five jsonl readers,
   three of which crashed on a trailing blank line.
+- **An identifier that changes when a record is promoted.** A RulesGuru
+  candidate is `rg-1156`; promoted into the gold set it becomes
+  `qa-amy-casts-assassin-s-trophy-...` and keeps `rulesguru_id: 1156`. The
+  contamination filter compared `id` to `id`, so 16 eval questions passed
+  straight through a check that *asserted* it had excluded them. Anything
+  joining two files on an id must first ask whether the id survived the trip.
+- **A number that never was.** `data/datasets` was described as 2,644 training
+  examples in three configs and two plan sections. It holds 1,478 distinct
+  lines; the rest are exact duplicates, question and answer both. Nothing lied —
+  nobody counted.
 
 ## Conventions
 

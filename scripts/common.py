@@ -86,6 +86,24 @@ RULE_ID_RE = re.compile(r"\b\d{3}\.\d+[a-z]?\b")
 # Validate that a whole string is exactly one rule id, e.g. from a `rule_citations` list.
 RULE_ID_EXACT_RE = re.compile(r"^\d{3}\.\d+[a-z]?$")
 
+# --- Refusal-shaped answers -------------------------------------------------
+#
+# Section 21.6 measured 18% of the synthetic SFT set as refusals — the adapter
+# was explicitly trained to decline one example in five, which is a sufficient
+# explanation on its own for the fine-tuned arm scoring lowest on correctness in
+# every run since Section 9.
+#
+# Here rather than in the builder because `audit_sft.py` reports the same number
+# for a dataset the builder did not write, and two copies of this pattern would
+# be the duplicated-helper trap on the statistic that condemned run 3.
+REFUSAL_RE = re.compile(
+    r"do(es)? not (contain|describe|provide|mention|specify)"
+    r"|cannot (answer|determine|be answered)"
+    r"|not (enough|sufficient) information"
+    r"|unable to (answer|determine)",
+    re.I,
+)
+
 # --- Prompts ----------------------------------------------------------------
 #
 # CHANGING THESE INVALIDATES THE TRAINED ADAPTER. The v2 adapter was trained

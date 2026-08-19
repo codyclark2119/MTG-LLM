@@ -850,10 +850,18 @@ def rescore(args) -> None:
     n_rubric = sum(1 for r in results for d in r["arms"].values()
                    if d.get("scored_by") == "rubric")
     n_prose = sum(len(r["arms"]) for r in results) - n_rubric
+    # ...and WHICH rubric prompt, which the derivation above still could not
+    # see: `scored_by` is "rubric" for V3 and V4 alike, so a `--judge-prompt v4`
+    # run produced a report headed "V3 rubric judge" that went on to claim the
+    # prompt was identical to the first pass. The same trap as the comment
+    # above, one level down. `args.judge_prompt` is known; use it.
+    vlabel = "V4" if args.judge_prompt == "v4" else "V3"
     if n_prose == 0:
-        how = ("the **V3 rubric judge**: the judge reports which enumerated key points "
+        how = (f"the **{vlabel} rubric judge**: the judge reports which enumerated key points "
                "and which common errors each answer made, and the score is computed in "
-               "Python from those counts")
+               "Python from those counts"
+               + (", and every claim must be backed by a verbatim quote from the "
+                  "candidate or it is discarded" if vlabel == "V4" else ""))
     elif n_rubric == 0:
         how = ("the **V2 prose judge**: correctness and citation scored separately, "
                "length/style explicitly excluded, candidates anonymized behind "
@@ -865,11 +873,20 @@ def rescore(args) -> None:
     lines.append(
         f"{len(results)} questions, re-scored from `{args.rescore_from.name}` with {how}.\n"
     )
-    lines.append(
-        "The judge PROMPT is identical to the first pass; only the judge MODEL differs. "
-        "That is what Section 9.9 requires — vary the judge and nothing else.\n"
-        if n_prose == 0 else ""
-    )
+    # This sentence is the whole justification for reading the rescore as a
+    # two-judge study, so it may only appear when it is TRUE. A V4 rescore
+    # varies the prompt as well as the model, which is the one thing Section 9.9
+    # says not to do — and the report used to print the reassurance anyway.
+    if n_prose == 0 and vlabel == "V3":
+        lines.append(
+            "The judge PROMPT is identical to the first pass; only the judge MODEL differs. "
+            "That is what Section 9.9 requires — vary the judge and nothing else.\n")
+    elif n_prose == 0:
+        lines.append(
+            "> **This rescore changed the judge PROMPT (V3 -> V4), not only the judge "
+            "model.** Section 9.9 asks for one variable at a time, so this is not a "
+            "two-judge agreement measurement and must not be read against a V3 run as "
+            "though it were.\n")
     # Name the judge in the body. The earlier reports recorded it only in the
     # filename (cards_n100_judge2.md), which puts the single
     # most important variable of a two-judge study outside the document.
@@ -889,6 +906,28 @@ def rescore(args) -> None:
             "common error the judge asserted and then could not quote from the "
             "candidate it was grading (V4, Section 21.7).\n"
         )
+    # How much of the set the judge actually graded. The per-arm "(n=)" below
+    # carries this, but as a parenthetical next to a mean, which reads as a
+    # footnote rather than as the headline it is: a V4 run scored 14 of 99 and
+    # the report presented four confident-looking averages over the 14. A
+    # judge's parse failures are not random — they track rubric size — so the
+    # graded subset is SELECTED, and a mean over it is a mean over easy
+    # questions. Same defect as the n=9 Qwen3 position run (Section 21.x).
+    n_unjudged = sum(1 for r in results for d in r["arms"].values()
+                     if d.get("correctness") is None)
+    n_total = sum(len(r["arms"]) for r in results)
+    if n_unjudged:
+        frac = n_unjudged / n_total
+        lines.append(
+            f"> **{n_unjudged} of {n_total} arm-answers ({frac:.0%}) went unjudged** — the "
+            "judge returned JSON that could not be parsed, usually by running out of "
+            "output tokens. They are excluded rather than counted as wrong.\n")
+        if frac >= 0.2:
+            lines.append(
+                "> The failures are not spread evenly: longer rubrics need longer judge "
+                "output, so what remains is a subset selected by rubric size rather than "
+                "by anything about the answers. **Read nothing into the means below** "
+                "until the run is repeated with a larger `--judge-max-tokens`.\n")
     lines.append("| Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |")
     lines.append("| --- | --- | --- | --- |")
     for arm in arms:

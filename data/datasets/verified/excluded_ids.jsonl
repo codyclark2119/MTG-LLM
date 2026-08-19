@@ -1,72 +1,90 @@
-{"id": "rg-2", "reason": "in gold eval set"}
-{"id": "rg-4", "reason": "in gold eval set"}
-{"id": "rg-6", "reason": "in gold eval set"}
-{"id": "rg-7", "reason": "in gold eval set"}
-{"id": "rg-8", "reason": "in gold eval set"}
-{"id": "rg-12", "reason": "in gold eval set"}
-{"id": "rg-17", "reason": "in gold eval set"}
-{"id": "rg-19", "reason": "in gold eval set"}
-{"id": "rg-22", "reason": "in gold eval set"}
-{"id": "rg-30", "reason": "in gold eval set"}
-{"id": "rg-31", "reason": "in gold eval set"}
-{"id": "rg-39", "reason": "in gold eval set"}
-{"id": "rg-40", "reason": "in gold eval set"}
-{"id": "rg-41", "reason": "in gold eval set"}
-{"id": "rg-45", "reason": "in gold eval set"}
-{"id": "rg-47", "reason": "in gold eval set"}
-{"id": "rg-49", "reason": "in gold eval set"}
-{"id": "rg-51", "reason": "in gold eval set"}
-{"id": "rg-67", "reason": "in gold eval set"}
-{"id": "rg-68", "reason": "in gold eval set"}
-{"id": "rg-69", "reason": "in gold eval set"}
-{"id": "rg-76", "reason": "in gold eval set"}
-{"id": "rg-80", "reason": "in gold eval set"}
-{"id": "rg-86", "reason": "in gold eval set"}
-{"id": "rg-100", "reason": "in gold eval set"}
-{"id": "rg-102", "reason": "in gold eval set"}
-{"id": "rg-103", "reason": "in gold eval set"}
-{"id": "rg-104", "reason": "in gold eval set"}
-{"id": "rg-109", "reason": "in gold eval set"}
-{"id": "rg-112", "reason": "in gold eval set"}
-{"id": "rg-113", "reason": "in gold eval set"}
-{"id": "rg-115", "reason": "in gold eval set"}
-{"id": "rg-117", "reason": "in gold eval set"}
-{"id": "rg-125", "reason": "in gold eval set"}
-{"id": "rg-140", "reason": "in gold eval set"}
-{"id": "rg-172", "reason": "in gold eval set"}
-{"id": "rg-189", "reason": "in gold eval set"}
-{"id": "rg-202", "reason": "in gold eval set"}
-{"id": "rg-204", "reason": "in gold eval set"}
-{"id": "rg-205", "reason": "in gold eval set"}
-{"id": "rg-212", "reason": "in gold eval set"}
-{"id": "rg-213", "reason": "in gold eval set"}
-{"id": "rg-223", "reason": "in gold eval set"}
-{"id": "rg-238", "reason": "in gold eval set"}
-{"id": "rg-272", "reason": "in gold eval set"}
-{"id": "rg-273", "reason": "in gold eval set"}
-{"id": "rg-279", "reason": "in gold eval set"}
-{"id": "rg-280", "reason": "in gold eval set"}
-{"id": "rg-282", "reason": "in gold eval set"}
-{"id": "rg-308", "reason": "in gold eval set"}
-{"id": "rg-1012", "reason": "in gold eval set"}
-{"id": "rg-1014", "reason": "in gold eval set"}
-{"id": "rg-1024", "reason": "in gold eval set"}
-{"id": "rg-1060", "reason": "in gold eval set"}
-{"id": "rg-1095", "reason": "in gold eval set"}
-{"id": "rg-1099", "reason": "in gold eval set"}
-{"id": "rg-1124", "reason": "in gold eval set"}
-{"id": "rg-1128", "reason": "in gold eval set"}
-{"id": "rg-1167", "reason": "in gold eval set"}
-{"id": "rg-1177", "reason": "in gold eval set"}
-{"id": "rg-1208", "reason": "in gold eval set"}
-{"id": "rg-1280", "reason": "in gold eval set"}
-{"id": "rg-1355", "reason": "in gold eval set"}
-{"id": "rg-1394", "reason": "in gold eval set"}
-{"id": "rg-1396", "reason": "in gold eval set"}
-{"id": "rg-1555", "reason": "in gold eval set"}
-{"id": "rg-1718", "reason": "in gold eval set"}
-{"id": "rg-1849", "reason": "in gold eval set"}
-{"id": "rg-1917", "reason": "in gold eval set"}
-{"id": "rg-1938", "reason": "in gold eval set"}
-{"id": "rg-2599", "reason": "in gold eval set"}
-{"id": "rg-4238", "reason": "in gold eval set"}
+{"id": "rg-2", "rulesguru_id": 2, "reason": "same id as a gold record"}
+{"id": "rg-4", "rulesguru_id": 4, "reason": "same id as a gold record"}
+{"id": "rg-6", "rulesguru_id": 6, "reason": "same id as a gold record"}
+{"id": "rg-7", "rulesguru_id": 7, "reason": "same id as a gold record"}
+{"id": "rg-8", "rulesguru_id": 8, "reason": "same id as a gold record"}
+{"id": "rg-12", "rulesguru_id": 12, "reason": "same id as a gold record"}
+{"id": "rg-17", "rulesguru_id": 17, "reason": "same id as a gold record"}
+{"id": "rg-19", "rulesguru_id": 19, "reason": "same id as a gold record"}
+{"id": "rg-22", "rulesguru_id": 22, "reason": "same id as a gold record"}
+{"id": "rg-30", "rulesguru_id": 30, "reason": "same id as a gold record"}
+{"id": "rg-31", "rulesguru_id": 31, "reason": "same id as a gold record"}
+{"id": "rg-39", "rulesguru_id": 39, "reason": "same id as a gold record"}
+{"id": "rg-40", "rulesguru_id": 40, "reason": "same id as a gold record"}
+{"id": "rg-41", "rulesguru_id": 41, "reason": "same id as a gold record"}
+{"id": "rg-45", "rulesguru_id": 45, "reason": "same id as a gold record"}
+{"id": "rg-47", "rulesguru_id": 47, "reason": "same id as a gold record"}
+{"id": "rg-49", "rulesguru_id": 49, "reason": "same id as a gold record"}
+{"id": "rg-51", "rulesguru_id": 51, "reason": "same id as a gold record"}
+{"id": "rg-67", "rulesguru_id": 67, "reason": "same id as a gold record"}
+{"id": "rg-68", "rulesguru_id": 68, "reason": "same id as a gold record"}
+{"id": "rg-69", "rulesguru_id": 69, "reason": "same id as a gold record"}
+{"id": "rg-76", "rulesguru_id": 76, "reason": "same id as a gold record"}
+{"id": "rg-80", "rulesguru_id": 80, "reason": "same id as a gold record"}
+{"id": "rg-86", "rulesguru_id": 86, "reason": "same id as a gold record"}
+{"id": "rg-100", "rulesguru_id": 100, "reason": "same id as a gold record"}
+{"id": "rg-102", "rulesguru_id": 102, "reason": "same id as a gold record"}
+{"id": "rg-103", "rulesguru_id": 103, "reason": "same id as a gold record"}
+{"id": "rg-104", "rulesguru_id": 104, "reason": "same id as a gold record"}
+{"id": "rg-109", "rulesguru_id": 109, "reason": "same id as a gold record"}
+{"id": "rg-112", "rulesguru_id": 112, "reason": "same id as a gold record"}
+{"id": "rg-113", "rulesguru_id": 113, "reason": "same id as a gold record"}
+{"id": "rg-115", "rulesguru_id": 115, "reason": "same id as a gold record"}
+{"id": "rg-117", "rulesguru_id": 117, "reason": "same id as a gold record"}
+{"id": "rg-125", "rulesguru_id": 125, "reason": "same id as a gold record"}
+{"id": "rg-140", "rulesguru_id": 140, "reason": "same id as a gold record"}
+{"id": "rg-172", "rulesguru_id": 172, "reason": "same id as a gold record"}
+{"id": "rg-189", "rulesguru_id": 189, "reason": "same id as a gold record"}
+{"id": "rg-202", "rulesguru_id": 202, "reason": "same id as a gold record"}
+{"id": "rg-204", "rulesguru_id": 204, "reason": "same id as a gold record"}
+{"id": "rg-205", "rulesguru_id": 205, "reason": "same id as a gold record"}
+{"id": "rg-212", "rulesguru_id": 212, "reason": "same id as a gold record"}
+{"id": "rg-213", "rulesguru_id": 213, "reason": "same id as a gold record"}
+{"id": "rg-223", "rulesguru_id": 223, "reason": "same id as a gold record"}
+{"id": "rg-238", "rulesguru_id": 238, "reason": "same id as a gold record"}
+{"id": "rg-272", "rulesguru_id": 272, "reason": "same id as a gold record"}
+{"id": "rg-273", "rulesguru_id": 273, "reason": "same id as a gold record"}
+{"id": "rg-279", "rulesguru_id": 279, "reason": "same id as a gold record"}
+{"id": "rg-280", "rulesguru_id": 280, "reason": "same id as a gold record"}
+{"id": "rg-282", "rulesguru_id": 282, "reason": "same id as a gold record"}
+{"id": "rg-308", "rulesguru_id": 308, "reason": "same id as a gold record"}
+{"id": "rg-777", "rulesguru_id": 777, "reason": "question text >=75% overlap with a gold record"}
+{"id": "rg-1012", "rulesguru_id": 1012, "reason": "same id as a gold record"}
+{"id": "rg-1014", "rulesguru_id": 1014, "reason": "same id as a gold record"}
+{"id": "rg-1024", "rulesguru_id": 1024, "reason": "same id as a gold record"}
+{"id": "rg-1060", "rulesguru_id": 1060, "reason": "same id as a gold record"}
+{"id": "rg-1095", "rulesguru_id": 1095, "reason": "same id as a gold record"}
+{"id": "rg-1099", "rulesguru_id": 1099, "reason": "same id as a gold record"}
+{"id": "rg-1124", "rulesguru_id": 1124, "reason": "same id as a gold record"}
+{"id": "rg-1128", "rulesguru_id": 1128, "reason": "same id as a gold record"}
+{"id": "rg-1156", "rulesguru_id": 1156, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1167", "rulesguru_id": 1167, "reason": "same id as a gold record"}
+{"id": "rg-1177", "rulesguru_id": 1177, "reason": "same id as a gold record"}
+{"id": "rg-1182", "rulesguru_id": 1182, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1208", "rulesguru_id": 1208, "reason": "same id as a gold record"}
+{"id": "rg-1215", "rulesguru_id": 1215, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1280", "rulesguru_id": 1280, "reason": "same id as a gold record"}
+{"id": "rg-1355", "rulesguru_id": 1355, "reason": "same id as a gold record"}
+{"id": "rg-1394", "rulesguru_id": 1394, "reason": "same id as a gold record"}
+{"id": "rg-1396", "rulesguru_id": 1396, "reason": "same id as a gold record"}
+{"id": "rg-1414", "rulesguru_id": 1414, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1469", "rulesguru_id": 1469, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1555", "rulesguru_id": 1555, "reason": "same id as a gold record"}
+{"id": "rg-1596", "rulesguru_id": 1596, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1718", "rulesguru_id": 1718, "reason": "same id as a gold record"}
+{"id": "rg-1784", "rulesguru_id": 1784, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1796", "rulesguru_id": 1796, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1836", "rulesguru_id": 1836, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-1849", "rulesguru_id": 1849, "reason": "same id as a gold record"}
+{"id": "rg-1917", "rulesguru_id": 1917, "reason": "same id as a gold record"}
+{"id": "rg-1938", "rulesguru_id": 1938, "reason": "same id as a gold record"}
+{"id": "rg-2599", "rulesguru_id": 2599, "reason": "same id as a gold record"}
+{"id": "rg-2735", "rulesguru_id": 2735, "reason": "question text >=75% overlap with a gold record"}
+{"id": "rg-2818", "rulesguru_id": 2818, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-2836", "rulesguru_id": 2836, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-2914", "rulesguru_id": 2914, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-3228", "rulesguru_id": 3228, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-3327", "rulesguru_id": 3327, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-3428", "rulesguru_id": 3428, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-3518", "rulesguru_id": 3518, "reason": "same rulesguru_id as a gold record"}
+{"id": "rg-4238", "rulesguru_id": 4238, "reason": "same id as a gold record"}

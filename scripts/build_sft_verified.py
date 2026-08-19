@@ -43,7 +43,6 @@ mismatch is the project's #1 documented failure mode (Section 8.7).
 import argparse
 import json
 import random
-import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -53,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from common import (  # noqa: E402
     GOLD_CANDIDATES_PATH,
     GOLD_PATH,
+    REFUSAL_RE,
     REPO_ROOT,
     RULE_ID_RE,
     build_rag_messages,
@@ -60,15 +60,11 @@ from common import (  # noqa: E402
     write_jsonl_atomic,
 )
 
-# Same test used to measure the synthetic set, kept here so the number in the
-# docstring can be reproduced rather than trusted.
-REFUSAL_RE = re.compile(
-    r"do(es)? not (contain|describe|provide|mention|specify)"
-    r"|cannot (answer|determine|be answered)"
-    r"|not (enough|sufficient) information"
-    r"|unable to (answer|determine)",
-    re.I,
-)
+# Imported from the auditor rather than redefined, so "what the builder
+# excludes" and "what the audit looks for" cannot drift into disagreeing —
+# a divergent copy of exactly this comparison is what let the five through.
+from audit_sft import jaccard as _jaccard  # noqa: E402
+from audit_sft import tokens as _tokens  # noqa: E402
 
 
 def build_examples(records: list[dict]) -> list[dict]:
@@ -112,21 +108,62 @@ def main() -> None:
                     help="records here are EXCLUDED — this is the eval set")
     ap.add_argument("--out-dir", type=Path, default=REPO_ROOT / "data/datasets/verified")
     ap.add_argument("--valid-frac", type=float, default=0.1)
+    ap.add_argument("--near-threshold", type=float, default=0.75,
+                    help="question-token overlap with a gold record at which a "
+                         "candidate is excluded as the same question reworded")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     candidates = read_jsonl(args.candidates)
-    gold_ids = {g["id"] for g in read_jsonl(args.gold)}
+    gold_records = read_jsonl(args.gold)
+    gold_ids = {g["id"] for g in gold_records}
 
-    kept = [c for c in candidates if c["id"] not in gold_ids]
+    # Three filters, because matching on `id` alone provably was not enough.
+    #
+    # `audit_sft.py` found five gold eval questions present verbatim in the
+    # training set, and the id filter had passed all five:
+    #
+    #   3 were promoted into gold under a `qa-*` id while keeping their
+    #     rulesguru_id (1156, 1796, 3518). `c["id"]` is "rg-1156" and
+    #     `g["id"]` is "qa-amy-casts-assassin-s-trophy-...", so they never
+    #     compared equal. Excluding on rulesguru_id catches these exactly.
+    #
+    #   2 are DIFFERENT RulesGuru entries that ask the same question — the
+    #     upstream database contains duplicates (rg-308 and rg-777 are both the
+    #     Serum Powder mulligan question), and one gold record predates the
+    #     RulesGuru pull entirely and carries no rulesguru_id. Nothing exact
+    #     can catch those, so question text is the third filter.
+    #
+    # The threshold is deliberately loose. Dropping a handful of extra training
+    # records costs almost nothing against 1,130; keeping one contaminated
+    # record invalidates every eval number a model trained here produces. The
+    # asymmetry is the whole argument, and it points one way.
+    gold_rg_ids = {str(g["rulesguru_id"]) for g in gold_records if g.get("rulesguru_id")}
+    gold_qtokens = [_tokens(g.get("question") or "") for g in gold_records]
+
+    kept, excluded = [], []
+    for c in candidates:
+        if c["id"] in gold_ids:
+            excluded.append((c, "same id as a gold record"))
+        elif c.get("rulesguru_id") and str(c["rulesguru_id"]) in gold_rg_ids:
+            excluded.append((c, "same rulesguru_id as a gold record"))
+        elif (ct := _tokens(c.get("question") or "")) and max(
+                (_jaccard(ct, gt) for gt in gold_qtokens), default=0.0) >= args.near_threshold:
+            excluded.append((c, f"question text >={args.near_threshold:.0%} overlap with a gold record"))
+        else:
+            kept.append(c)
+    dropped_by = Counter(r for _, r in excluded)
+
     removed = len(candidates) - len(kept)
     usable = [c for c in kept if (c.get("question") or "").strip()
               and (c.get("answer") or "").strip()]
 
     # Assertion, not a comment. If this ever fires, every eval number produced
     # by a model trained on this set describes questions it was trained on.
-    leaked = [c["id"] for c in usable if c["id"] in gold_ids]
+    leaked = [c["id"] for c in usable
+              if c["id"] in gold_ids
+              or (c.get("rulesguru_id") and str(c["rulesguru_id"]) in gold_rg_ids)]
     if leaked:
         raise SystemExit(f"CONTAMINATION: {len(leaked)} eval ids survived the filter: {leaked[:5]}")
 
@@ -134,7 +171,8 @@ def main() -> None:
     cited = sum(1 for c in usable if RULE_ID_RE.search(c["answer"]))
 
     print(f"candidates              : {len(candidates)}")
-    print(f"  excluded (in gold set): {removed}")
+    print(f"  excluded (in gold set): {removed}"
+          + (f"  [{', '.join(f'{k}={v}' for k, v in dropped_by.most_common())}]" if dropped_by else ""))
     print(f"  usable                : {len(usable)}")
     print(f"  refusal-shaped answers: {len(refusals)} ({len(refusals) / len(usable):.1%})")
     print(f"  citing a rule inline  : {cited} ({cited / len(usable):.0%})")
@@ -161,9 +199,14 @@ def main() -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl_atomic(args.out_dir / "train.jsonl", build_examples(train))
     write_jsonl_atomic(args.out_dir / "valid.jsonl", build_examples(valid))
+    # Every exclusion, with WHICH filter caught it. Recording only the `id`
+    # matches would leave the file describing 72 of the 90 — and an audit trail
+    # that silently omits the cases the audit was written to find is worse than
+    # none, because it reads as confirmation.
     write_jsonl_atomic(args.out_dir / "excluded_ids.jsonl",
-                       [{"id": c["id"], "reason": "in gold eval set"}
-                        for c in candidates if c["id"] in gold_ids])
+                       [{"id": c["id"], "rulesguru_id": c.get("rulesguru_id"),
+                         "reason": reason}
+                        for c, reason in excluded])
     print(f"\nwrote {len(train)} train / {len(valid)} valid -> {args.out_dir}")
     print("excluded_ids.jsonl records what was held out, so the exclusion is auditable")
 

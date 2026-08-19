@@ -2622,3 +2622,145 @@ fill and nothing to fill it from — and `judge_batch_rubric` reads scores back 
 label, so the invented entry would be dropped silently rather than raising. Two
 supporting assertions check that the phrase appears in each of V2/V3/V4 exactly
 once, so the `str.replace` can never become a silent no-op.
+
+### 21.13 The contamination filter missed 18 of the 90 records it was written to catch
+
+`build_sft_verified.py` excludes gold eval records from the training set and
+*asserts* the exclusion, because contamination is the one failure that
+invalidates everything downstream while looking like an improvement. The
+assertion passed. `scripts/audit_sft.py` — written to check exactly this, item 4
+of STRUCTURAL_AUDIT.md, run before the retrain rather than after — found it was
+passing on an incomplete comparison.
+
+**16 of the 99 gold eval questions were in the run-4 training set.**
+
+The filter compared `candidate["id"]` against `gold["id"]`. Sixteen gold records
+were promoted from RulesGuru under a `qa-*` id while keeping their
+`rulesguru_id`, so the candidate `rg-1156` and the gold record
+`qa-amy-casts-assassin-s-trophy-targeting-ni` are the same RulesGuru question
+and never compared equal:
+
+| Filter | Excluded | What it catches |
+| --- | --- | --- |
+| `id` | 72 | the original comparison |
+| `rulesguru_id` | **16** | promoted into gold under a renamed id |
+| question text ≥0.75 overlap | **2** | duplicate RulesGuru entries, and one gold record predating the pull with no `rulesguru_id` |
+| | **90** | |
+
+The last two are worth separating from the sixteen. `rg-308` and `rg-777` are
+*different* RulesGuru entries asking one question — the upstream database
+contains duplicates, so no id comparison of any kind can catch them. That is why
+the builder now also compares question text, at a deliberately loose threshold:
+dropping a few extra records costs nothing against 1,112, while keeping one
+contaminated record invalidates every number the resulting adapter produces. The
+asymmetry points one way.
+
+The text comparison alone would have caught only 5 of the 18, because the gold
+set is normalized to `Player A`/`Player B` while the candidates carry raw
+RulesGuru names, which drags overlap below threshold. Neither filter is
+sufficient; the finding is that both were needed and one was assumed to be
+enough.
+
+**No published number is affected.** The verified set has never been trained on
+— run 4 was pending, which is the whole reason the audit runs before a retrain.
+Rebuilt at 1,001 train / 111 valid, and `iters` moved 1019 → 1001 to hold 2.00
+epochs exactly, since a stale iteration count after a dataset change is how
+v2's 0.45-epoch run happened.
+
+#### The synthetic set, audited retrospectively
+
+`data/datasets` is what the *published* v2 adapter was trained on, so it was
+audited too. Three findings, in descending order of how much they matter:
+
+**44% of the training lines are duplicates.** 1,478 unique lines behind 2,644 —
+1,138 distinct targets repeated, up to six times each, with the *question*
+identical too in 100% of cases, so this is not paraphrase augmentation. Every
+epoch figure quoted for runs 1–3 overstates how much distinct text the adapter
+saw. Section 18.2's "1.00 epoch with nothing seen twice" was wrong on the second
+clause, which makes that run weaker evidence against overfitting than it looked.
+
+**Three eval questions are in it verbatim** — `gloss-companion`,
+`gloss-face-down`, `gloss-mutating-creature-spell`. The glossary feeds the
+training set and the gold set through the same "What does X mean?" template.
+
+This does not move the A3 verdict, and the direction is worth stating because
+the naive assumption is wrong. On those three questions the fine-tuned arms
+scored *worse* than their own average, not better:
+
+| Arm | All 99 | The 96 clean | The 3 contaminated |
+| --- | --- | --- | --- |
+| `base_rag` | 2.38 | 2.34 | 3.67 |
+| `base` | 2.46 | 2.50 | 1.33 |
+| `finetuned_rag` | 1.88 | 1.89 | 1.67 |
+| `finetuned` | 1.69 | 1.71 | **1.00** |
+
+The arm that gained was `base_rag`, which was never trained at all — glossary
+definitions simply retrieve well. Dropping all three moves every headline number
+by at most 0.04. The adapter was trained on those exact question/answer pairs
+and still scored 1.00 on them, which is a small piece of evidence about how
+little the fine-tune retained, consistent with everything else in Sections 19–21.
+
+**Validation loss is sound.** Only 4 of 327 validation lines (1%) appear in
+train, so the checkpoint selection in Section 8 was not measuring memorization.
+The verified set has zero overlap.
+
+### 21.14 The V4 judge run scored 14 of 99, and the report said it was V3
+
+The V4 quote-verification experiment (Section 21.7) completed against the n=99
+gold set. It is not usable, for a reason worth recording rather than retrying
+blindly.
+
+**86% of the run went unjudged.** 340 of 396 arm-answers came back as
+unparseable JSON — and because `judge_batch_rubric` grades every arm for a
+question in one call, all four arms fail together, so the survivors are 14 whole
+questions rather than a scattering of answers.
+
+The cause is the V4 prompt itself. V3 asks for `"points_hit": [1, 3]`; V4 asks
+for a verbatim quote behind every claim, so the required output grows as
+*arms × rubric items × quote length*. At the same `--judge-max-tokens` the judge
+runs out mid-JSON. Parse rate by rubric size:
+
+| Rubric items | Parsed / total | Rate |
+| --- | --- | --- |
+| 4 | 7 / 19 | 37% |
+| 5 | 1 / 14 | 7% |
+| 6 | 2 / 15 | 13% |
+| 7 | 4 / 50 | 8% |
+| 8 | 0 / 1 | 0% |
+
+Mean answer length is identical between the parsed and failed groups (821 vs
+822 characters), so this is not about the answers. It is the rubric, which is
+exactly what V4 made expensive.
+
+**So the 14 that survived are a subset selected by rubric size** — the questions
+with the least to check. The four means the report prints over them (2.04, 1.68,
+1.25, 1.04) describe the easiest gradable questions in the set and must not be
+compared to anything. This is the same defect as the n=9 Qwen3 position run, and
+it recurred within a day, in a different script, for a different underlying
+reason. Both times the report presented confident-looking averages with the
+sample size as a parenthetical.
+
+`rescore()` now states the unjudged count as a blockquote above the table, and
+adds an explicit "read nothing into the means below" warning past 20% — because
+"(n=14)" beside a mean reads as a footnote, and it is the headline.
+
+#### The header described a judge that had not run
+
+The same report was titled **"the V3 rubric judge"**, and asserted:
+
+> The judge PROMPT is identical to the first pass; only the judge MODEL differs.
+> That is what Section 9.9 requires — vary the judge and nothing else.
+
+Both false. The run was V4, so the prompt was the thing that changed.
+
+Section 19.2 already fixed this exact defect one level up: the header used to say
+"v2 judge" unconditionally, and was changed to *derive* the judge from the stored
+`scored_by` field. But `scored_by` is `"rubric"` for V3 and V4 alike, so the
+derivation could distinguish rubric from prose and not V3 from V4 — and the
+reassuring sentence about varying one thing at a time printed underneath a run
+that varied two. The header now reads `args.judge_prompt`, and the Section 9.9
+sentence is replaced by a warning when the prompt changed.
+
+The lesson is narrower than "derive, don't assume", which was already the lesson
+last time: a derivation is only as good as the field it derives from, and
+`scored_by` was never granular enough to answer the question being asked of it.
