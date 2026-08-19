@@ -243,6 +243,45 @@ def build_rag_messages(question: str, context: str | None = None,
     ]
 
 
+PROMPT_STAMP_FILE = "prompt_fingerprint.json"
+
+
+def prompt_fingerprint() -> dict:
+    """Identify the prompt shape an adapter was trained under.
+
+    An adapter is only valid for the format it saw. A prompt edit here silently
+    invalidates every adapter on disk, and the failure looks like a capability
+    result: the model appears to have got worse. That is the project's #1
+    documented failure mode (Section 8.7) and it cost a full re-run.
+
+    Hashes the three system prompts AND the assembled user-message shape, since
+    the Section 8.7 failure was a shape change — bare question at training,
+    "Rules text: ...\\n\\nQuestion: ..." at inference — with all three system
+    prompts untouched. Hashing only the system strings would have missed it,
+    which is the whole reason it is worth hashing anything.
+
+    Rendered with fixed placeholder text so the digest tracks the FORMAT and not
+    whatever question happened to be passed in.
+    """
+    shapes = [
+        "|".join(m["role"] + ":" + m["content"] for m in build_rag_messages("<Q>")),
+        "|".join(m["role"] + ":" + m["content"] for m in build_rag_messages("<Q>", "<CTX>")),
+        "|".join(m["role"] + ":" + m["content"]
+                 for m in build_rag_messages("<Q>", "Cards referenced:\n<CTX>", preformatted=True)),
+    ]
+    parts = {
+        "SYSTEM_PROMPT": SYSTEM_PROMPT,
+        "RAG_SYSTEM_PROMPT": RAG_SYSTEM_PROMPT,
+        "CARDS_RAG_SYSTEM_PROMPT": CARDS_RAG_SYSTEM_PROMPT,
+        "message_shapes": "\n----\n".join(shapes),
+    }
+    digests = {k: hashlib.sha256(v.encode()).hexdigest()[:16] for k, v in parts.items()}
+    combined = hashlib.sha256(
+        "\n".join(f"{k}={digests[k]}" for k in sorted(digests)).encode()
+    ).hexdigest()
+    return {"prompt_fingerprint": combined, "parts": digests}
+
+
 def _render_permanent(p: dict) -> str:
     """One battlefield entry: name, current P/T, counters, auras, tap state."""
     bits = [p["card"]]

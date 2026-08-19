@@ -112,6 +112,19 @@ directory. Paths a user passes on the command line stay relative to their cwd.
 the trained adapter — an adapter is only valid for the format it saw. This is
 the project's #1 documented failure mode (Section 8.7).
 
+`common.prompt_fingerprint()` hashes the three system prompts **and the
+assembled message shape**; Section 8.7 was a shape change with every prompt
+string untouched, so hashing the strings alone would pass through it. Stamp an
+adapter right after training and `eval.py` will refuse to evaluate across a
+prompt change:
+
+```bash
+python scripts/stamp_adapter.py models/mtg-rules-adapter-v4 --dataset data/datasets/verified
+```
+
+`--dataset` verifies the stamp against the training file rather than asserting
+it — that is what makes the stamp evidence.
+
 Three judge prompts exist. V2 (`judge_batch_anonymized`) is length-neutral and
 anonymized; V3 (`judge_batch_rubric`) asks which enumerated claims an answer
 made and computes the score in Python. `score_one_question` routes to V3 when a

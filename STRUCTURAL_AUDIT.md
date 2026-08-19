@@ -80,27 +80,43 @@ exists because a parse that keeps the rule count and changes the text is
 invisible to `guard_shrink` and to git. Cards have exactly the same exposure and
 34,933 of them.
 
-### 2. Derived artifacts
+### 2. Derived artifacts — **already done; this entry was wrong**
 
-`chunks.jsonl` → `chunk_embeddings.npz` is the dangerous edge. Nothing checks
-that the embeddings were built from the chunks currently on disk. Rebuild the
-chunks without re-embedding and retrieval silently returns vectors for text that
-no longer exists — every RAG arm degrades, and it looks like a model result.
+The claim here was that nothing checks the embeddings against the chunks on
+disk. That was written from a reading of the audit surface, not from the code:
+`rag.fingerprint` has existed all along, `build_index` writes both
+`chunks_fingerprint` and `model_id` into the `.npz`, and `rag.retrieve` raises
+on either mismatch *before* loading the embedding model.
 
-**Action:** write a fingerprint of the source chunks into the `.npz`, and have
-`rag.retrieve` refuse to run when it does not match. This is the same reasoning
-as the CR pin, applied one layer down.
+Verified by running rather than by reading a second time. A copy of
+`chunks.jsonl` with one word appended to one chunk — 448 chunks either way, so
+neither `guard_shrink` nor a line count would notice — is refused:
 
-### 3. Prompts
+    real corpus      -> retrieval runs
+    tampered corpus  -> ValueError: chunk_embeddings.npz is stale
 
-`build_rag_messages` is used by both training and inference, which is what stops
-them drifting. But **nothing records which prompt an adapter was trained under**,
-and a prompt change silently invalidates every adapter — the project's #1
-documented failure mode (Section 8.7), which cost a full re-run.
+The one residual gap is that both guards are conditional (`if stored_fp and
+...`), so an `.npz` predating them would pass silently. The only index in the
+repo carries both keys, so the guard is live today; a future rebuild that drops
+them would be undetectable.
 
-**Action:** write a hash of the prompt-defining strings into the adapter
-directory at training time, and check it at eval time. Cheap, and it converts
-the single most expensive failure this project has had into an error message.
+### 3. Prompts — **done** (Section 21.15)
+
+`scripts/stamp_adapter.py` writes `prompt_fingerprint.json` beside the weights;
+`eval.py` checks it before generating a single answer. A mismatch is fatal, a
+missing stamp is a warning.
+
+Two things worth keeping. The fingerprint covers the assembled **message
+shape**, not just the three system strings — the Section 8.7 failure was a shape
+change with every string untouched, so a hash of the strings alone would have
+passed through the exact failure it was written for. And `--dataset` verifies the
+stamp against the training data rather than asserting it, refusing to stamp a set
+built under a prompt the code no longer defines.
+
+The open question is also now answered: `data/datasets` and
+`data/datasets/verified` contain **only current prompts, byte-identical**, so
+runs 1–3 are valid for the prompts `eval.py` uses today. v2-best and
+v3-ckpt1322 are stamped.
 
 ### 4. Training data — **done** (Section 21.13)
 
@@ -185,11 +201,17 @@ Sequenced by (what it unblocks) × (what it costs):
 4. ~~**`audit_sft.py` with contamination as an assertion**~~ — **done**, Section
    21.13. Found 16 eval questions in the pending run-4 training set that the
    builder's own assertion had passed.
-5. **Embedding/chunk fingerprint** — before any RAG number is trusted again.
-6. **Prompt hash beside the adapter** — before the next fine-tune.
+5. ~~**Embedding/chunk fingerprint**~~ — **already existed**; the audit entry was
+   wrong. `rag.retrieve` refuses a stale index, verified by tampering with a
+   copy of the corpus.
+6. ~~**Prompt hash beside the adapter**~~ — **done**, Section 21.15. Also
+   established that runs 1–3 were trained under the current prompts.
 7. **Card and ruling content pins** — lowest urgency; these corpora change rarely.
 
-Items 1–4 need no new hardware and no new data authoring.
+Only item 7 and the judge work remain. Nothing on this list needed new hardware,
+and items 2–6 turned up three defects that no amount of memory would have fixed:
+a run-killing crash on malformed judge JSON, 16 eval questions inside a pending
+retrain, and a report claiming a judge prompt that had not run.
 
 ---
 

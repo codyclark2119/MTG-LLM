@@ -2704,16 +2704,31 @@ little the fine-tune retained, consistent with everything else in Sections 19–
 train, so the checkpoint selection in Section 8 was not measuring memorization.
 The verified set has zero overlap.
 
-### 21.14 The V4 judge run scored 14 of 99, and the report said it was V3
+### 21.14 The V4 judge cost 60–85 points of coverage and bought no agreement
 
 The V4 quote-verification experiment (Section 21.7) completed against the n=99
-gold set. It is not usable, for a reason worth recording rather than retrying
-blindly.
+gold set under both judges. **It answered nothing, and the reason is worth
+recording rather than retrying blindly.**
 
-**86% of the run went unjudged.** 340 of 396 arm-answers came back as
-unparseable JSON — and because `judge_batch_rubric` grades every arm for a
-question in one call, all four arms fail together, so the survivors are 14 whole
-questions rather than a scattering of answers.
+| Run | Judge | Prompt | Questions graded |
+| --- | --- | --- | --- |
+| `gold_n99` | Qwen2.5-7B | V3 | **99/99 (100%)** |
+| `gold_n99_judge2` | Llama-3.1-8B | V3 | **92/99 (93%)** |
+| `gold_n99_v4judge` | Qwen2.5-7B | V4 | 14/99 (14%) |
+| `gold_n99_v4judge2` | Llama-3.1-8B | V4 | 32/99 (32%) |
+
+The two V4 runs overlap on **6 questions**, so the agreement measurement the
+experiment existed to produce is r = +0.46 on 24 arm-pairs, against V3's +0.49
+on the full set. That is not a smaller number, it is no number: six questions
+cannot separate +0.46 from +0.49, and the six are not a random six.
+
+**The mechanism is the prompt, not the judge.** V3 asks for
+`"points_hit": [1, 3]`; V4 asks for a verbatim quote behind every claim, so the
+required output grows as *arms × rubric items × quote length*. At the same
+`--judge-max-tokens` the judge runs out mid-JSON, and because
+`judge_batch_rubric` grades every arm for a question in one call, all four arms
+fail together — the survivors are whole questions rather than a scattering of
+answers.
 
 The cause is the V4 prompt itself. V3 asks for `"points_hit": [1, 3]`; V4 asks
 for a verbatim quote behind every claim, so the required output grows as
@@ -2732,10 +2747,10 @@ Mean answer length is identical between the parsed and failed groups (821 vs
 822 characters), so this is not about the answers. It is the rubric, which is
 exactly what V4 made expensive.
 
-**So the 14 that survived are a subset selected by rubric size** — the questions
-with the least to check. The four means the report prints over them (2.04, 1.68,
-1.25, 1.04) describe the easiest gradable questions in the set and must not be
-compared to anything. This is the same defect as the n=9 Qwen3 position run, and
+**So the survivors are a subset selected by rubric size** — the questions with
+the least to check. The four means each report prints over them (2.04/1.68/1.25/
+1.04 under Qwen, 3.11/3.02/2.43/2.28 under Llama) describe the easiest gradable
+questions in the set and must not be compared to anything. This is the same defect as the n=9 Qwen3 position run, and
 it recurred within a day, in a different script, for a different underlying
 reason. Both times the report presented confident-looking averages with the
 sample size as a parenthetical.
@@ -2764,3 +2779,59 @@ sentence is replaced by a warning when the prompt changed.
 The lesson is narrower than "derive, don't assume", which was already the lesson
 last time: a derivation is only as good as the field it derives from, and
 `scored_by` was never granular enough to answer the question being asked of it.
+
+#### What V4 is still worth
+
+Nothing here says the idea is wrong. `quote_drops` did what it was built to do:
+26 claims discarded across 16 arm-answers under Qwen, 30 across 20 under Llama —
+claims the judge asserted and could not quote from the candidate it was grading.
+That is fabrication measured rather than inferred, and it is the first direct
+evidence in this project that a rubric judge invents claims at a measurable rate.
+
+What is unusable is the *run*, because the budget was set from V3's needs. The
+retry is `--judge-max-tokens` at roughly 3x, and the acceptance test is coverage
+before agreement: if V4 does not grade ≥90% of the set, its r is a statement
+about which questions it could afford to grade.
+
+### 21.15 The published adapter was trained under the current prompt — verified, not assumed
+
+An adapter is only valid for the prompt format it saw. A prompt edit in
+`common.py` silently invalidates every adapter on disk, and the failure presents
+as a capability result: the model looks worse. That is Section 8.7, the most
+expensive failure this project has had, and nothing recorded which prompt an
+adapter had been trained under — so "v2-best is still valid" was an assumption
+every eval since has rested on.
+
+It is answerable from the training data, which contains the exact prompts the
+adapter saw:
+
+| Dataset | Lines | Distinct system prompts | Match |
+| --- | --- | --- | --- |
+| `data/datasets` | 2,644 | 2 | `SYSTEM_PROMPT` ×1,492, `RAG_SYSTEM_PROMPT` ×1,152 — both current, byte-identical |
+| `data/datasets/verified` | 1,001 | 1 | `SYSTEM_PROMPT` ×1,001 — current, and `build_rag_messages` reproduces the stored prompt exactly |
+
+**The assumption held.** Runs 1–3 are valid for the prompts `eval.py` uses today.
+
+`scripts/stamp_adapter.py` makes it stay checkable rather than re-derivable.
+`--dataset` is how a stamp is *earned*: it verifies against the training file and
+refuses to stamp a dataset built under a prompt the code no longer defines,
+since that is precisely the claim the stamp would otherwise assert falsely.
+`eval.py` checks the stamp before generating a single answer — a mismatch is
+fatal, a missing stamp is a warning, because older adapters predate the file.
+
+#### Hashing the system prompts would not have caught Section 8.7
+
+The fingerprint covers the assembled *message shape*, not just the three system
+strings, because the original failure was a shape change with all three strings
+untouched: training saw a bare question, inference saw
+`Rules text: …\n\nQuestion: …`. Verified by simulating exactly that — replacing
+`\n\nQuestion: ` with `\n\nQ: ` in the context branch and leaving every prompt
+string alone:
+
+    stamped : 30badae98696
+    current : 428e19b67719
+    changed : message_shapes
+
+A fingerprint over the system prompts alone would have reported a match, which
+is the trap: a check that passes through the one failure it was written for is
+worse than no check, because it is then cited as evidence.

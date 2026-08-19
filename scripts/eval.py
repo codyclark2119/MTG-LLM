@@ -57,6 +57,7 @@ from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
     read_jsonl,
 )
 from common import RULE_ID_RE as CROSS_REF_RE
+from stamp_adapter import check as prompt_stamp_check
 from rag import MODEL_ID as EMBED_MODEL_ID
 from rag import retrieve
 
@@ -584,6 +585,18 @@ def generate_all_answers(
         ]
         named = sum(1 for c in card_contexts if c.startswith("Cards referenced:"))
         print(f"  {named}/{len(questions)} questions had at least one card resolved")
+
+    # An adapter is only valid for the prompt format it saw. Checked HERE,
+    # before generating hundreds of answers, because the failure it guards
+    # against (Section 8.7) presents as the model having got worse — so the
+    # cost of not checking is a full run plus the wrong conclusion drawn from
+    # it. A missing stamp is a warning, not an error: adapters trained before
+    # `stamp_adapter.py` existed have nothing to compare against.
+    if adapter_path_under_test:
+        ok, msg = prompt_stamp_check(Path(adapter_path_under_test))
+        if not ok:
+            raise SystemExit(msg)
+        print(f"  {msg}")
 
     for arm_name, adapter_path in [("base", None), ("finetuned", adapter_path_under_test)]:
         print(f"loading {base_model_id} for arm(s) using adapter_path={adapter_path} ...")
