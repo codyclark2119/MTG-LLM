@@ -47,7 +47,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
-from common import ACTION_GRAMMAR, GOLD_PATH, POSITIONS_PATH, RULES_PATH, render_position
+from common import (ACTION_GRAMMAR, GOLD_PATH, POSITIONS_PATH, RULES_PATH,
+                    read_jsonl, render_position)
 from label_store import CANDIDATES_PATH, CATEGORIES, DIFFICULTIES, Store
 from positions import (
     POSITION_CATEGORIES,
@@ -422,6 +423,50 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
                 "recent": [{"id": r["id"], "category": r.get("category"),
                             "difficulty": r.get("difficulty")} for r in rows[-8:]][::-1]}
 
+    # -- adjudication -----------------------------------------------------
+    # Human ground truth on error detection. Everything else in this project
+    # measures judges against each other or against constructed extremes; this
+    # measures whether a judge is RIGHT about a real answer.
+    #
+    # The payload deliberately carries no judge output. The reviewer is never
+    # shown what any judge said about the answer in front of them — a verdict
+    # collected while looking at the thing being tested is not independent of
+    # it, which is the same reason the rubric judge grades anonymized A/B/C/D.
+    @app.get("/api/adjudicate/queue")
+    def adj_queue():
+        import adjudicate as adj
+        q = json.loads(adj.QUEUE_PATH.read_text()) if adj.QUEUE_PATH.exists() else []
+        done = {v["key"] for v in read_jsonl(adj.ADJUDICATIONS_PATH)}
+        rubrics = adj._rubric_index()
+        tasks = [t for t in (adj.task_for(i, rubrics) for i in q) if t]
+        for t in tasks:
+            t["done"] = t["key"] in done
+        return {"tasks": tasks, "done": sum(1 for t in tasks if t["done"]),
+                "total": len(tasks)}
+
+    @app.post("/api/adjudicate")
+    async def adj_save(payload: dict):
+        import adjudicate as adj
+        key = (payload.get("key") or "").strip()
+        if not key:
+            return {"ok": False, "error": "no key"}
+        present = payload.get("errors_present")
+        if not isinstance(present, list):
+            return {"ok": False, "error": "errors_present must be a list"}
+        # Attribution rides on the verdict, not on the import command — one file
+        # holds several reviewers and disagreement can be broken down per author.
+        adj.append_verdict({
+            "key": key,
+            "record_id": payload.get("record_id"),
+            "arm": payload.get("arm"),
+            "errors_present": sorted({int(n) for n in present}),
+            "blundered": bool(present),
+            "note": (payload.get("note") or "").strip(),
+            "unsure": bool(payload.get("unsure")),
+            "author": author or "anon",
+        })
+        return {"ok": True}
+
     # -- scripts ----------------------------------------------------------
     @app.post("/api/run")
     async def run(payload: dict):
@@ -518,6 +563,11 @@ button:focus-visible,summary:focus-visible,a:focus-visible,input:focus-visible,t
 .status.failed,.status.cancelled{color:var(--bad);border-color:var(--bad)}
 ul.problems{margin:.4rem 0 0;padding-left:1.1rem;color:var(--bad);font-size:.85rem}
 .empty{padding:3rem 1rem;text-align:center;color:var(--soft)}
+.adjboard{font-family:var(--mono);font-size:.78rem;line-height:1.45;white-space:pre-wrap;background:var(--panel);border:1px solid var(--rule);padding:.7rem;margin:0 0 1rem}
+.adjans{font-family:var(--mono);font-size:.82rem;white-space:pre-wrap;border-left:2px solid var(--accent);padding:.2rem 0 .2rem .9rem;margin:0 0 1.1rem}
+.adjkp{font-family:var(--serif);font-size:.9rem;color:var(--soft);margin:0;padding-left:1.1rem}
+.adjopt{display:block;font-size:.88rem;line-height:1.45;padding:.4rem .5rem;margin-bottom:.3rem;border:1px solid var(--rule);cursor:pointer}
+.adjopt:hover{background:var(--panel)}
 </style></head>
 <body>
 <header>
@@ -526,6 +576,7 @@ ul.problems{margin:.4rem 0 0;padding-left:1.1rem;color:var(--bad);font-size:.85r
     <a href="#/label" id="n-label">Label</a>
     <a href="#/new" id="n-new">New record</a>
     <a href="#/position" id="n-position">Position</a>
+    <a href="#/adjudicate" id="n-adj">Adjudicate</a>
     <a href="#/scripts" id="n-scripts">Scripts</a>
   </nav>
   <div class="chips" id="chips"></div>
@@ -557,6 +608,7 @@ async function route(){
   if(POLL){clearInterval(POLL);POLL=null}
   if(!META)META=await api('/api/meta');
   if(h.startsWith('#/new'))return viewNew();
+  if(h.startsWith('#/adjudicate'))return viewAdjudicate();
   if(h.startsWith('#/position'))return viewPosition();
   if(h.startsWith('#/scripts'))return viewScripts();
   return viewLabel();
@@ -774,6 +826,72 @@ async function createPosition(){
   m.className='msg ok';m.textContent='created '+r.id+' ('+r.total+' total)';
   ['ybf','obf','yhand','ygy','ogy','pknown','plegal','pans','pkp','pce','pcites','pid','pmana'].forEach(k=>$('#'+k).value='');
   preview();$('#ybf').focus();
+}
+
+/* ---------------- adjudication ----------------
+   Human ground truth on error detection.
+
+   The judge's verdict is never fetched and never rendered. The question asked
+   here is "which of these errors does this answer commit", not "was the judge
+   right" — those produce different answers from the same reader, and only the
+   first is independent of the thing being measured. */
+let ADJ=[], AIDX=0;
+async function viewAdjudicate(){
+  const r=await api('/api/adjudicate/queue');
+  ADJ=r.tasks;
+  if(!ADJ.length){
+    $('#view').innerHTML='<div class="empty">No queue. Build one:<br><code>python scripts/adjudicate.py --build --runs eval/runs/pos_n24_32b.jsonl --n 60</code></div>';
+    return}
+  const first=ADJ.findIndex(t=>!t.done);
+  AIDX=first===-1?0:first;
+  renderAdj();
+}
+function renderAdj(){
+  const t=ADJ[AIDX];
+  if(!t){$('#view').innerHTML='<div class="empty">Done.</div>';return}
+  const done=ADJ.filter(x=>x.done).length;
+  const errs=t.common_errors.map((e,i)=>
+    `<label class="adjopt"><input type="checkbox" class="ae" value="${i+1}"> <b>${i+1}.</b> ${esc(e)}</label>`).join('');
+  const kps=t.key_points.map(k=>`<li>${esc(k)}</li>`).join('');
+  $('#view').innerHTML=`
+    <div class="split">
+      <div class="col">
+        <div class="qmeta"><b>${done}/${ADJ.length}</b> adjudicated
+          <span>${esc(t.record_id)}</span><span>${esc(t.arm)}</span>
+          <span>${esc(t.category||'')}</span>
+          ${t.done?'<span class="chip">already done</span>':''}</div>
+        <pre class="adjboard">${esc(t.question)}</pre>
+        <div class="qmeta">the correct line</div>
+        <ul class="adjkp">${kps}</ul>
+      </div>
+      <div class="col">
+        <div class="qmeta">the answer under review</div>
+        <pre class="adjans">${esc(t.answer)}</pre>
+        <p class="question" style="font-size:1rem">Which of these errors does this answer commit?</p>
+        <div>${errs}</div>
+        <p class="hint">Check every error it actually makes. <b>Check none if it
+           commits none</b> — that is a real verdict and a common one, not a skip.
+           You are not being asked whether a judge was right.</p>
+        <label class="adjopt"><input type="checkbox" id="a-unsure"> Genuinely ambiguous</label>
+        <input id="a-note" placeholder="note (optional \u2014 why, if it was close)" style="width:100%;margin:.5rem 0">
+        <div class="row"><button id="a-save">Save &amp; next</button>
+             <button id="a-skip">Skip</button>
+             <button id="a-prev">&larr;</button><button id="a-next">&rarr;</button></div>
+      </div></div>`;
+  $('#a-prev').onclick=()=>{AIDX=Math.max(0,AIDX-1);renderAdj()};
+  $('#a-next').onclick=()=>{AIDX=Math.min(ADJ.length-1,AIDX+1);renderAdj()};
+  $('#a-skip').onclick=()=>{AIDX=Math.min(ADJ.length-1,AIDX+1);renderAdj()};
+  $('#a-save').onclick=async()=>{
+    const present=$$('.ae').filter(c=>c.checked).map(c=>+c.value);
+    const res=await api('/api/adjudicate',{method:'POST',body:JSON.stringify({
+      key:t.key,record_id:t.record_id,arm:t.arm,errors_present:present,
+      unsure:$('#a-unsure').checked,note:$('#a-note').value})});
+    if(!res.ok){alert(res.error||'save failed');return}
+    t.done=true;
+    const nxt=ADJ.findIndex((x,i)=>i>AIDX&&!x.done);
+    AIDX=nxt===-1?Math.min(ADJ.length-1,AIDX+1):nxt;
+    renderAdj();
+  };
 }
 
 /* ---------------- scripts ---------------- */
