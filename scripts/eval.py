@@ -311,27 +311,63 @@ def verify_quoted_claims(claims, answer: str, n_max: int) -> tuple[list[int], in
     return kept, dropped
 
 
-def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int) -> dict:
+# Correctness scoring version, recorded in every row it produces.
+#
+# "points_only" (current): correctness = 1 + 4 * (points_hit / n_points).
+# "halved_v3"  (through Section 21.27): the same, halved whenever `errors_made`
+#              was non-empty.
+#
+# Named rather than implied, because the two produce different numbers from the
+# SAME judge output, and a run file that does not say which one it used cannot
+# be compared to anything.
+SCORING = "points_only"
+
+
+def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int,
+                       halve_on_error: bool = False) -> dict:
     """Turn rubric extraction into a 1-5 correctness score, in Python.
 
     Mapped onto 1-5 so results stay comparable with the V2-judged runs in
     Sections 9.5-9.9 rather than starting a fresh, incomparable scale.
 
-    Asserting a documented misconception halves credit instead of zeroing
-    it: an answer can state the right ruling and still tack on a wrong
-    reason, and that is meaningfully better than an answer that gets the
-    ruling wrong, but clearly worse than a clean one.
+    THE HALVING IS OFF (Section 21.28)
+    ---------------------------------
+    Through Section 21.27 an asserted misconception halved credit, on the
+    reasoning that an answer can state the right ruling and tack on a wrong
+    reason — better than getting the ruling wrong, worse than a clean answer.
+    That reasoning is sound and the mechanism it depended on is not.
+
+    The positive controls measured the judge inventing a `common_error` against
+    the REFERENCE ANSWER — which definitionally cannot commit one — on 40% of
+    questions. The halving turned that into a real cost:
+
+        oracle mean when the judge invents no error : 4.86  (n=59)
+        oracle mean when it invents one             : 2.39  (n=39)
+
+    2.47 points off the correct answer, on 40% of the set, for errors it did not
+    make. Removing the term widens the oracle/wrong separation from 2.77 to
+    3.22, so the error half was subtracting resolution from a scale that works
+    without it.
+
+    `errors_made` is still extracted, still returned, and still what blunder
+    rate is defined on. What changed is that a field with a measured 40%
+    false-positive rate no longer moves the headline score.
+
+    `halve_on_error=True` reproduces every number published through Section
+    21.27 from the same stored judge output, which is what makes the change
+    auditable rather than a break in the record.
     """
     hit = {i for i in _as_claim_list(points_hit) if _claim_index(i, n_points)}
     err = {i for i in _as_claim_list(errors_made) if _claim_index(i, n_errors)}
     fraction = len(hit) / n_points if n_points else 0.0
-    if err:
+    if err and halve_on_error:
         fraction *= 0.5
     return {
         "correctness": round(1 + 4 * fraction, 2),
         "points_hit": sorted(hit),
         "points_total": n_points,
         "errors_made": sorted(err),
+        "scoring": "halved_v3" if halve_on_error else SCORING,
     }
 
 
@@ -933,6 +969,15 @@ def rescore(args) -> None:
     # filename (cards_n100_judge2.md), which puts the single
     # most important variable of a two-judge study outside the document.
     lines.append(f"- judge: `{args.judge_model}`\n")
+    # Which scoring rule produced these numbers. Section 21.28 changed it, and
+    # the same judge output yields different scores under each rule — so a
+    # report that does not say which one it used cannot be compared to anything.
+    scorings = {d.get("scoring") for r in results for d in r["arms"].values() if d.get("scoring")}
+    if scorings:
+        lines.append(f"- scoring: `{'`, `'.join(sorted(scorings))}`"
+                     + (" — correctness is `points_hit / n_points`; `errors_made` is "
+                        "reported but does not move the score (Section 21.28)\n"
+                        if scorings == {"points_only"} else "\n"))
 
     # V4 only: how many claims the judge made and could not back with a quote
     # from the candidate. This is the number the V4 prompt exists to produce —

@@ -1999,6 +1999,16 @@ rules exam and a gameplay eval, now agree.
 
 ### 20.1 The closed arm makes the model worse, not better
 
+> **Weakened by Section 21.28.** This section rests on blunder rate, and on
+> correctness as scored with the error-halving. The positive controls later
+> measured the Qwen judge inventing a `common_error` against the *reference
+> answer* on 40% of questions, and `base_closed` — which answers tersely from a
+> supplied `legal_actions` list — is the arm that draws those most. Rescored on
+> `points_hit` alone, `base_closed` and `base_open` swap order on both position
+> runs. One judge and n=22, so the reversal is not settled either; what is
+> settled is that the claim below is no longer supported by the metric it was
+> made on.
+
 `base_closed` blunders **77%** where `base_open` blunders 50%, and 82% vs 45%
 under Llama. Handing the model an enumerated list of the legal plays makes it
 play *worse*, consistently, under both judges.
@@ -3544,3 +3554,72 @@ speak directly to this: if the false-error rate is a Qwen property it should
 drop under Llama, and if it is a capacity property it should drop at 32B. If it
 does neither, the V3 error prompt is simply asking for something a local judge
 cannot do, and `common_errors` needs rethinking rather than a bigger model.
+
+### 21.28 Applied: correctness scores `points_hit` alone
+
+`rubric_correctness` no longer halves credit when `errors_made` is non-empty.
+Correctness is now `1 + 4 × (points_hit / n_points)`, full stop.
+
+This changes published numbers, so it is done as a revision with the old rule
+still reachable, not as a break in the record: `halve_on_error=True` reproduces
+every figure through Section 21.27 from the same stored judge output, and every
+row now carries a `scoring` field naming which rule produced it (`points_only`
+or `halved_v3`).
+
+**No re-judging was needed, and that is the point.** The judge's extraction —
+`points_hit`, `errors_made` — did not change; only the arithmetic mapping did.
+`scripts/rescore_stored.py` re-derives every stored run exactly, with no model
+involved, so each delta below is attributable to the scoring change and nothing
+else. It writes `<name>_pointsonly.jsonl` beside the original rather than over
+it.
+
+#### What moved on the rules eval
+
+| Arm | judge 1 (Qwen) | judge 2 (Llama) |
+| --- | --- | --- |
+| `base_rag` | 2.38 → **2.98** | 3.16 → **3.99** |
+| `base` | 2.46 → **3.17** | 3.09 → **3.96** |
+| `finetuned_rag` | 1.88 → **2.52** | 2.36 → **3.36** |
+| `finetuned` | 1.69 → **2.17** | 2.18 → **2.89** |
+
+Every arm rises — the false errors were suppressing all of them — and **the A3
+ranking is unchanged under both judges.** The headline gap narrows: base_rag
+over finetuned_rag goes 0.50 → 0.46 (Qwen) and 0.80 → 0.63 (Llama). Fine-tuning
+still loses, by less.
+
+#### What moved on the gameplay eval: an arm ranking reversed
+
+| Run | halved_v3 | points_only |
+| --- | --- | --- |
+| `pos_qwen25_3arm_judge2` | open 3.26 > closed 2.95 > cards 2.44 | **closed 4.05 > open 3.89** > cards 3.60 |
+| `pos_qwen3_14b_v2_judge2` | cards 3.52 > open 3.21 > closed 3.11 | cards 4.27 > **closed 4.09 > open 3.89** |
+
+`base_closed` and `base_open` swap in both, because the closed arm was the one
+being charged with false errors most often — it answers tersely from a supplied
+`legal_actions` list, which is exactly the shape the judge tends to fire the
+error list at. Section 20.1 concluded "the closed arm makes the model worse, not
+better". Under a scoring rule that does not depend on a field with a measured
+40% false-positive rate, that conclusion reverses on this metric. It is one
+judge and n=22, so it is not settled — but it is no longer supported either, and
+Section 20.1 is annotated to say so.
+
+#### Under the accurate judge, this change is roughly neutral
+
+The Llama calibration landed after the change was requested and reframes its
+value honestly:
+
+| | Qwen (40% false errors) | Llama (4%) |
+| --- | --- | --- |
+| dynamic range, halved | 2.77 | 2.74 |
+| dynamic range, points-only | **3.22** | 2.66 |
+
+It buys +0.45 of range under the corrupt judge and costs −0.08 under the clean
+one. That is the expected shape: when error detection is accurate the halving
+carries real signal, and removing it lifts `wrong` (1.45 → 1.58) slightly more
+than `oracle` (4.18 → 4.24).
+
+So the case for it is **robustness, not raw resolution**: the headline score no
+longer depends on a field whose reliability varies tenfold between two judges of
+the same size. `errors_made` is still extracted, still reported, and still what
+blunder rate is defined on — the broken channel was removed from the score, not
+from the record.

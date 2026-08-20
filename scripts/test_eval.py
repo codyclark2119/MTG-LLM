@@ -73,14 +73,33 @@ def test_rubric_correctness() -> int:
     failed += not check("half the points -> 3", score([1, 2], [], 4, 3), 3.0)
     failed += not check("one of four -> 2", score([1], [], 4, 3), 2.0)
 
-    # --- an asserted misconception halves credit, it does not zero it -------
-    # Section 21: an answer can state the right ruling and tack on a wrong
-    # reason. That is worse than a clean answer and better than a wrong one,
-    # and the halving is what encodes the difference.
-    failed += not check("all points + an error -> 3", score([1, 2, 3, 4], [1], 4, 3), 3.0)
+    # --- errors no longer move the score (Section 21.28) --------------------
+    # The halving was removed after the positive controls measured the judge
+    # inventing an error against the REFERENCE ANSWER on 40% of questions,
+    # costing it 2.47 points it definitionally could not have lost.
+    failed += not check("all points + an error -> still 5", score([1, 2, 3, 4], [1], 4, 3), 5.0)
     failed += not check("no points + an error -> 1", score([], [1], 4, 3), 1.0)
-    failed += not check("two errors halve once, not twice",
-                        score([1, 2, 3, 4], [1, 2], 4, 3), 3.0)
+    failed += not check("errors do not move the score",
+                        score([1, 2], [1, 2, 3], 4, 3), score([1, 2], [], 4, 3))
+
+    # ...but errors are still EXTRACTED and reported, because blunder rate is
+    # defined on them. Dropping the field would have been a different and much
+    # worse change than dropping its effect on the score.
+    r = rubric_correctness([1, 2, 3, 4], [1, 3], 4, 3)
+    failed += not check("errors_made still reported", r["errors_made"], [1, 3])
+    failed += not check("scoring version recorded", r["scoring"], "points_only")
+
+    # --- the old rule stays reachable, and reproduces the published numbers -
+    # Every figure through Section 21.27 was computed this way. Without this
+    # path the record could not be re-derived, and the change would be a break
+    # rather than a revision.
+    old = lambda ph, em: rubric_correctness(ph, em, 4, 3, halve_on_error=True)["correctness"]
+    failed += not check("halved: all points + an error -> 3", old([1, 2, 3, 4], [1]), 3.0)
+    failed += not check("halved: two errors halve once, not twice", old([1, 2, 3, 4], [1, 2]), 3.0)
+    failed += not check("halved: no error is unchanged", old([1, 2, 3, 4], []), 5.0)
+    failed += not check("halved: records its own version",
+                        rubric_correctness([1], [], 4, 3, halve_on_error=True)["scoring"],
+                        "halved_v3")
 
     # --- a judge that miscounts must not move the score ---------------------
     # These are not hypotheticals: judge output has claimed point 7 of 4, and
@@ -115,7 +134,9 @@ def test_rubric_correctness() -> int:
     # a multi-hour run at whatever question the judge fumbled.
     failed += not check("a bare scalar is read as the claim it names",
                         score(3, [], 4, 3), 2.0)
-    failed += not check("...on the errors field too", score([1, 2, 3, 4], 1, 4, 3), 3.0)
+    failed += not check("...on the errors field too",
+                        rubric_correctness([1, 2, 3, 4], 1, 4, 3,
+                                           halve_on_error=True)["correctness"], 3.0)
     failed += not check("None claims -> no points", score(None, None, 4, 3), 1.0)
     failed += not check("a tuple is a list", score((1, 2), [], 4, 3), 3.0)
 

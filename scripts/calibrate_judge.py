@@ -192,7 +192,14 @@ def main() -> None:
         rows.append({"gold_id": case["q"].get("gold_id"),
                      "category": case["q"].get("category"),
                      "scores": {k: (judged.get(k) or {}).get("correctness") for k in case["candidates"]},
-                     "errors": {k: (judged.get(k) or {}).get("errors_made") for k in case["candidates"]}})
+                     "errors": {k: (judged.get(k) or {}).get("errors_made") for k in case["candidates"]},
+                     # Stored so a scoring change can be re-derived from this
+                     # file instead of re-run. The Section 21.28 change had to
+                     # be recovered by inverting the halving arithmetically
+                     # because these two fields were not here.
+                     "points_hit": {k: (judged.get(k) or {}).get("points_hit") for k in case["candidates"]},
+                     "points_total": {k: (judged.get(k) or {}).get("points_total") for k in case["candidates"]},
+                     "scoring": next((d.get("scoring") for d in judged.values() if d), None)})
         if i % 10 == 0 or i == len(cases):
             print(f"  judged {i}/{len(cases)}")
 

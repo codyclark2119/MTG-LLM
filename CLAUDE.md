@@ -134,6 +134,16 @@ anonymized; V3 (`judge_batch_rubric`) asks which enumerated claims an answer
 made and computes the score in Python. `score_one_question` routes to V3 when a
 record has `key_points`. V1 was removed in the Section 17 review.
 
+**Correctness is `points_hit / n_points` and nothing else** (Section 21.28). The
+old rule halved credit whenever `errors_made` was non-empty; the positive
+controls measured the Qwen judge inventing an error against the *reference
+answer* on 40% of questions, so that term was removing 2.47 points from correct
+answers. `errors_made` is still extracted and is still what blunder rate is
+defined on — it just no longer moves the score. Every row records a `scoring`
+field, `halve_on_error=True` reproduces pre-21.28 numbers from the same stored
+judge output, and `scripts/rescore_stored.py` re-derives any stored run without
+a model.
+
 ## Evaluation — read this before trusting any number
 
 **Two judges, always.** Two reasonable judges reversed the arm ranking on
