@@ -6,7 +6,7 @@ binding constraint rather than a more expensive way to be wrong?**
 The honest current answer is "not yet." Thirteen defects surfaced in one working
 session and none were resource-limited — four in judge and metric design, four
 harness bugs, four in data and authoring, one in documentation. Meanwhile a 14B
-model at 4-bit runs in 7.0 GB of 39 GB. The machine is not the limit; the
+model at 4-bit runs in 7.8 GB of 36 GB. The machine is not the limit; the
 instrument is.
 
 This is a plan to find out when that stops being true.
@@ -270,20 +270,47 @@ Concrete trip-wires. Migrate when **both** of the following hold:
 Until these hold, a better model cannot be distinguished from a worse one, and
 the extra memory is spent producing a more expensive wrong answer.
 
-**B. The work actually needs the memory.** Specifically one of:
+**B. The work actually needs the memory.**
 
-- **A judge that does not fit.** This is the likeliest real trigger. Judge
-  quality caps every number in the project, and a 70B judge at 4-bit is ~40 GB,
-  needing 64 GB+ to run alongside anything else. If the positive controls show
-  the *judge model* is the limit rather than the judge prompt, this is the
-  reason to move.
-- **A base model that does not fit.** Not currently binding: Qwen3-14B runs in
-  7 GB of 39 GB, and a 24B would fit. This binds at ~32B and above.
-- **Training that does not fit.** Also not currently binding — `batch_size: 2`
-  was chosen for throughput, not memory, at a 9.2 GB peak.
+The machine is **36 GB**, not the 39 GB three earlier drafts of this document
+said. Measured 4-bit footprints on disk: Qwen2.5-7B 4.0 GB, Llama-3.1-8B 4.2 GB,
+Qwen3-14B 7.8 GB — about **0.55 GB per billion parameters**. Extrapolating:
 
-The asymmetry is worth stating plainly: **the case for more memory is about
-grading models, not running them.** A migration justified by "we want a bigger
-model under test" is premature at 7 GB of 39 GB. A migration justified by "the
-judge is the measured bottleneck and the better judge needs 64 GB" is a real
-argument — and the positive-control test is what would produce that evidence.
+| Judge | 4-bit weights | Fits in 36 GB? |
+| --- | --- | --- |
+| current (7–8B) | 4.0–4.2 GB | trivially |
+| 14B | 7.8 GB | yes, measured |
+| 24B | ~13 GB | yes |
+| **32B** | **~17.6 GB** | **yes, with room to spare** |
+| 70B | ~38.6 GB | **no — exceeds total RAM** |
+
+This corrects the earlier claim that a base model "binds at ~32B and above". It
+does not. Inference binds somewhere around 55–60B; 32B is comfortable.
+
+**Which means the decisive experiment has not been run, and does not need new
+hardware.** Section 21.20 ruled out rubrics as a lever and 21.14 ruled out the
+judge prompt, leaving judge *model* as the only remaining candidate — and the
+jump from an 8B judge to a 32B judge is a 4× scale increase available today, for
+the cost of a download. The audit went straight from "8B judges disagree" to "a
+70B judge needs 64 GB" and skipped the middle.
+
+The decision logic is now clean, and it resolves either way:
+
+- **A 32B judge materially improves agreement** → judge scale is the lever.
+  Every number in the project improves immediately, *and* there is measured
+  evidence that 70B (which genuinely needs 64 GB+) would be worth the migration.
+- **A 32B judge does not improve agreement** → scale is not the lever. A 70B
+  judge is unlikely to behave differently in kind, and the migration buys a more
+  expensive version of the same disagreement.
+
+Either outcome is worth more than migrating first and finding out after.
+
+**Not currently binding, for completeness:**
+
+- **A base model that does not fit.** Qwen3-14B runs in 7.8 GB of 36 GB.
+- **Training that does not fit.** `batch_size: 2` was chosen for throughput, not
+  memory, at a 9.2 GB peak.
+
+The asymmetry still holds: **the case for more memory is about grading models,
+not running them.** But the honest sequence is now 32B judge first, migration
+only if that test comes back positive.

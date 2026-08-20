@@ -3139,3 +3139,60 @@ construction and is already the trip-wire: the oracle **cannot** commit a listed
 error, so every one reported against it is a definitive false positive. The
 true-positive side needs `common_errors` authored as assertions in the first
 place, which is a data change and belongs in `SCHEMA.md`, not a harness patch.
+
+### 21.22 The migration question has an untested middle: a 32B judge fits today
+
+Section 21.20 ruled out rubrics as a lever on judge agreement, and 21.14 ruled
+out the judge prompt. That leaves the judge *model*, which STRUCTURAL_AUDIT.md
+frames as the one genuine reason to migrate — "a 70B judge at 4-bit is ~40 GB,
+needing 64 GB+".
+
+Checking that arithmetic against measured footprints turned up two things.
+
+**First, the machine is 36 GB, not 39 GB.** Three places in STRUCTURAL_AUDIT.md
+said 39; the plan has had 36 correct since Section 1.2. My error, and it matters,
+because it moves a 70B judge from "tight" to "does not fit at all".
+
+**Second, and the actual point:** measured 4-bit weights on disk are Qwen2.5-7B
+4.0 GB, Llama-3.1-8B 4.2 GB, Qwen3-14B 7.8 GB — about **0.55 GB per billion
+parameters**. So:
+
+| Judge | 4-bit weights | Fits in 36 GB? |
+| --- | --- | --- |
+| current (7–8B) | 4.0–4.2 GB | trivially |
+| 14B | 7.8 GB | yes, measured |
+| 24B | ~13 GB | yes |
+| **32B** | **~17.6 GB** | **yes, with room to spare** |
+| 70B | ~38.6 GB | no — exceeds total RAM |
+
+**A 32B judge is a 4× scale increase over the current one and runs on the
+hardware already owned.** The audit jumped from "8B judges disagree at kappa
++0.24" straight to "a 70B judge needs 64 GB" and skipped the middle. It also had
+the binding point wrong in the other direction — it claimed a base model "binds
+at ~32B and above", when inference binds somewhere near 55–60B.
+
+This makes the decision resolvable without buying anything:
+
+- **A 32B judge materially improves agreement** → judge scale is the lever.
+  Every number in the project improves at once, *and* there is measured evidence
+  that a 70B judge — which genuinely needs 64 GB+ — would justify the migration.
+- **A 32B judge does not improve agreement** → scale is not the lever, a 70B is
+  unlikely to differ in kind, and migrating buys a more expensive version of the
+  same disagreement.
+
+Either result is worth more than migrating and finding out afterwards. The cost
+is a download and one `--rescore-from` pass over stored answers, which is the
+cheap half of an eval — no generation, and the comparison Section 9.9 requires
+(vary the judge, nothing else) is exactly what `--rescore-from` does.
+
+Sequenced against what is already queued: the positive controls run first,
+because they say whether *any* judge difference is measurable on this scale. A
+32B rescore of `gold_n99.jsonl` is the natural second run, and `eval.py --compare`
+against the existing Qwen and Llama runs gives inter-judge agreement across three
+model families rather than two — which also settles the self-preference question
+STRUCTURAL_AUDIT.md lists as open, since a third family shares no lineage with
+the `base` arm.
+
+The specific 32B checkpoint is not named here on purpose: the exact
+`mlx-community` id should be confirmed against what is actually published before
+anything is downloaded, rather than guessed into a config file.
