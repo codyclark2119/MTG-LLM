@@ -3382,3 +3382,76 @@ deliberation. Both published judges grade 92–100% at 500 tokens; the reasoning
 judge managed 29% at 1,200. Use a reasoning model as a *subject* if it earns its
 place, never as the grader, unless its budget is raised specifically and the
 coverage is checked before the numbers are read.
+
+### 21.26 The judge fires every listed error at once, and blunder rate is defined on that
+
+Gate 3 needs a blunder rate ≤25% and both models sit above 50% (Section 21.25).
+Before accepting that as a capability finding, I read the answers on positions
+where every arm blundered. Two of the first three are not capability findings at
+all.
+
+**`pos-removal-timing-0001`.** The correct line is *"Doom Blade the Nessian
+Asp."* All three arms answered:
+
+    CAST Doom Blade TARGET Nessian Asp
+    PASS
+
+— the correct play, exactly — and the judge returned `errors_made: [1, 2, 3, 4]`.
+Every listed error, on an answer that made the right move. `blundered` is
+`bool(errors_made)`, so all three count against the gate.
+
+**`pos-removal-timing-0002`** is the same shape: correct line *"Flash in Ambush
+Viper now, then block Centaur Courser"*, two arms answered exactly that, and got
+all four errors. (`pos-combat-math-0003` is a genuine miss — the arms attacked
+with both creatures when the line was Serra Angel alone — so the read is not
+that everything is a false positive.)
+
+#### It is a judge property, and it is large
+
+`common_errors` are *alternative* wrong answers. Committing all of them is
+usually not something one answer can do, so firing them all is the judge using
+the error list as a "this answer is bad" flag. Counted across every stored run:
+
+| Run | Judge | Blunder calls | All errors fired | Share |
+| --- | --- | --- | --- | --- |
+| `pos_qwen25_3arm` | Qwen2.5-7B | 50 | 25 | **50%** |
+| `pos_qwen25_3arm_judge2` | Llama-3.1-8B | 36 | 5 | 14% |
+| `positions_n22` | Qwen2.5-7B | 60 | 34 | **57%** |
+| `positions_n22_judge2` | Llama-3.1-8B | 53 | 1 | 2% |
+| `pos_qwen3_14b_v2_judge2` | Llama-3.1-8B | 37 | 10 | 27% |
+| `gold_n99` | Qwen2.5-7B | 332 | 165 | **50%** |
+| `gold_n99_judge2` | Llama-3.1-8B | 281 | 45 | 16% |
+
+**Half of the Qwen judge's blunder calls fire every listed error; the Llama
+judge does it on 2–16%.** The sharper cut is the internal contradiction — an
+answer credited with half the key points *and* charged with every listed
+misconception, two claims that cannot both hold. On `gold_n99` that is 49 cases
+under Qwen and 25 under Llama.
+
+This is Section 21.3 again, which saw the same behaviour on four positions and
+diagnosed it as a missing rubric entry. At n=4 that was a reasonable reading.
+At this scale it is plainly a judge behaviour, and a judge-specific one.
+
+#### What it explains, and what it does not
+
+It is a large part of why kappa is +0.24: the two judges do not merely disagree
+on marginal calls, they have *different failure modes* on `errors_made`. It also
+means blunder rate under the Qwen judge is materially inflated, which touches
+Gate 3 directly — the metric this project reports as "how often the model throws
+the game away".
+
+It does **not** overturn Section 21.25's conclusion. That comparison used the
+Llama judge on both sides, where the rate is 27%, and the models are 25 points
+from the gate — far outside what this artifact can account for.
+
+`judge_batch_rubric` now returns `all_errors_fired` and `error_contradiction`
+per arm, and the report prints the rate beside the score table. **Reported, never
+corrected**: sometimes an answer really is wrong on every axis, and silently
+dropping errors would change a published metric on a heuristic. Same discipline
+as `quote_drops` — measure the fabrication, do not paper over it.
+
+**A prediction for the 32B judge run,** recorded before it lands: if judge scale
+is the lever, the all-fired rate should fall well below the 7B's 50%. If a 4.5×
+larger model in the same family still uses the error list as a bad-answer flag
+at that rate, the defect is in the prompt design or the task, not in capacity —
+and that is a more useful thing to know than the kappa alone.

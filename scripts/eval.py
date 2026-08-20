@@ -420,6 +420,26 @@ def judge_batch_rubric(
             raw_points, raw_errors, len(key_points), len(common_errors),
         )
         computed["quote_drops"] = drops
+        # The "every error at once" signature (Section 21.26).
+        #
+        # A rubric's common_errors are alternative wrong answers, so committing
+        # all of them is usually not a thing an answer can do. Firing them all
+        # is the judge using the error list as a "this answer is bad" flag —
+        # and blunder rate is defined on `errors_made` being non-empty, so it
+        # lands directly on the gate metric.
+        #
+        # Reported, never corrected. Sometimes an answer really is wrong on
+        # every axis, and silently dropping errors would change a published
+        # metric on a heuristic. The contradiction flag is the sharper one:
+        # stating half the key points while committing every listed
+        # misconception is not a judgement, it is two claims that cannot both
+        # hold.
+        n_err = len(common_errors)
+        fired_all = n_err >= 3 and len(computed["errors_made"]) == n_err
+        computed["all_errors_fired"] = fired_all
+        computed["error_contradiction"] = bool(
+            fired_all and key_points
+            and len(computed["points_hit"]) >= len(key_points) / 2)
         citation = entry.get("citation")
         out[arm] = {
             **computed,
@@ -950,6 +970,19 @@ def rescore(args) -> None:
                 "output, so what remains is a subset selected by rubric size rather than "
                 "by anything about the answers. **Read nothing into the means below** "
                 "until the run is repeated with a larger `--judge-max-tokens`.\n")
+    # The all-errors-fired rate, which is judge-specific and large: measured
+    # 50% of Qwen's blunder calls against 16% of Llama's on this same set
+    # (Section 21.26).
+    fired = sum(1 for r in results for d in r["arms"].values() if d.get("all_errors_fired"))
+    contra = sum(1 for r in results for d in r["arms"].values() if d.get("error_contradiction"))
+    blunders = sum(1 for r in results for d in r["arms"].values() if d.get("errors_made"))
+    if blunders and any("all_errors_fired" in d for r in results for d in r["arms"].values()):
+        lines.append(
+            f"- **every listed error fired at once: {fired}/{blunders} blunder calls "
+            f"({fired / blunders:.0%})**, of which {contra} also credit the answer with half "
+            "the key points or more — two claims that cannot both hold. `common_errors` are "
+            "alternative wrong answers; committing all of them is usually not something an "
+            "answer can do, and blunder rate is defined on this field (Section 21.26).\n")
     lines.append("| Arm | Correctness (1-5) | Citation (1-5) | Avg answer chars |")
     lines.append("| --- | --- | --- | --- |")
     for arm in arms:

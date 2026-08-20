@@ -417,6 +417,32 @@ def test_judge_batch_rubric() -> int:
                              dict(cands), 256, __import__("random").Random(0))
     failed += not check("omitted arms are absent, not zero-scored", len(out), 1)
 
+    # --- the "every error at once" signature (Section 21.26) ----------------
+    # Found by reading answers: on pos-removal-timing-0001 all three arms
+    # played the correct line and the judge returned errors [1,2,3,4]. Measured
+    # across runs it is 50% of the Qwen judge's blunder calls against 16% of
+    # Llama's, and blunder rate is defined on this field.
+    kp4, ce4 = ["a", "b", "c", "d"], ["e1", "e2", "e3", "e4"]
+    for label, entry, want_fired, want_contra in (
+            ("correct line + all errors", {"points_hit": [1, 2, 3, 4], "errors_made": [1, 2, 3, 4]}, True, True),
+            ("no points + all errors", {"points_hit": [], "errors_made": [1, 2, 3, 4]}, True, False),
+            ("half points + all errors", {"points_hit": [1, 2], "errors_made": [1, 2, 3, 4]}, True, True),
+            ("one error only", {"points_hit": [1, 2], "errors_made": [2]}, False, False),
+            ("no errors", {"points_hit": [1, 2], "errors_made": []}, False, False)):
+        gen, _ = _judge_returning(_json.dumps({"A": {**entry, "citation": 3, "note": ""}}))
+        got = judge_batch_rubric(gen, None, _StubTokenizer(), "q?", kp4, ce4,
+                                 {"only": "x"}, 256, __import__("random").Random(0))["only"]
+        failed += not check(f"{label}: fired_all", got["all_errors_fired"], want_fired)
+        failed += not check(f"{label}: contradiction", got["error_contradiction"], want_contra)
+
+    # Under three listed errors the signature means nothing — firing both of
+    # two is ordinary. The threshold must not fire there.
+    gen, _ = _judge_returning(_json.dumps({"A": {"points_hit": [1], "errors_made": [1, 2],
+                                                 "citation": 3, "note": ""}}))
+    got = judge_batch_rubric(gen, None, _StubTokenizer(), "q?", ["a", "b"], ["e1", "e2"],
+                             {"only": "x"}, 256, __import__("random").Random(0))["only"]
+    failed += not check("two errors is not the signature", got["all_errors_fired"], False)
+
     # --- V4 drops an unquotable claim, and says how many --------------------
     payload = _json.dumps({"A": {
         "points_hit": [{"n": 1, "quote": "carries damage past the blocker"},
