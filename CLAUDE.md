@@ -140,10 +140,15 @@ old rule halved credit whenever `errors_made` was non-empty; the positive
 controls measured **Qwen2.5-7B** inventing an error against the *reference
 answer* on 40% of questions, so that term was removing 2.47 points from correct
 answers. `errors_made` is still extracted and is still what blunder rate is
-defined on — it just no longer moves the score. Every row records a `scoring`
-field, `halve_on_error=True` reproduces pre-21.28 numbers from the same stored
-judge output, and `scripts/rescore_stored.py` re-derives any stored run without
-a model.
+defined on — it just no longer moves the score. `halve_on_error=True` reproduces
+pre-21.28 numbers from the same stored judge output, and
+`scripts/rescore_stored.py` re-derives any stored run without a model.
+
+Every row now records `judge_model`, `judge_prompt` and `scoring`, via
+`eval.carry_diagnostics` — **one** copy list, because both writers previously
+enumerated these by hand and neither listed `scoring` at all. Runs archived
+before this carry none of it and are identified by filename only; five have
+`scoring` because a different path wrote them.
 
 **That 40% is a fact about the 7B, not about `errors_made`** (Section 21.40).
 Name the judge whenever quoting it. On `CALIBRATED_JUDGE_ID` the same benchmark

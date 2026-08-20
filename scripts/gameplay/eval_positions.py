@@ -435,8 +435,14 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 "illegal": legal_info["illegal"],
                 "actions": parsed.keys(),
             }
+        # `judge_model` on every row — see the note at the same site in eval.py.
+        # Blunder rate is the metric this most matters for: it is 4% false
+        # positives on the 32B and 75% on the 7B for the same positions and the
+        # same rubrics (Section 21.40), so a stored blunder rate without its
+        # judge is not interpretable.
         results.append({"id": pos["id"], "category": pos["category"],
-                        "difficulty": pos["difficulty"], "arms": per_arm})
+                        "difficulty": pos["difficulty"],
+                        "judge_model": judge_model_id, "arms": per_arm})
         print(f"  judged {i + 1}/{len(positions)}")
     return results
 

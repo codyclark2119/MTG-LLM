@@ -405,6 +405,28 @@ def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int,
     }
 
 
+# Everything a rubric grading carries BESIDES the score itself. Both writers —
+# main() on a fresh run and rescore() on a stored one — assembled their per-arm
+# dict field by field, so a value computed in judge_batch_rubric reached the
+# stored run only if someone had remembered to list it in both places. Nobody
+# had: `scoring` reached neither (while CLAUDE.md said every row carried it),
+# and `all_errors_fired` / `error_contradiction` reached neither, which left
+# rescore()'s Section 21.26 report block gated on a key that could not exist.
+# `quote_drops` was listed in rescore() only, having been caught once already —
+# the same bug, fixed in one copy. One definition now, so the next field added
+# to rubric_correctness is carried by both without a second edit.
+RUBRIC_DIAGNOSTICS = ("scoring", "quote_drops", "all_errors_fired",
+                      "error_contradiction")
+
+
+def carry_diagnostics(dest: dict, entry: dict) -> dict:
+    """Copy the non-score fields of a rubric grading onto a stored arm record."""
+    for k in RUBRIC_DIAGNOSTICS:
+        if entry.get(k) is not None:
+            dest[k] = entry[k]
+    return dest
+
+
 # The two judge system prompts above say "labeled A, B, C, D" in prose, while
 # the labels themselves are generated as chr(ord("A") + i) for however many
 # arms there are. At four arms those agree. At five they do not: the judge
@@ -958,12 +980,10 @@ def rescore(args) -> None:
                 data["points_hit"] = entry.get("points_hit")
                 data["points_total"] = entry.get("points_total")
                 data["errors_made"] = entry.get("errors_made")
-                # The V4 signal. Computed in judge_batch_rubric and previously
-                # dropped here, which would have made the whole point of the V4
-                # run — how often the judge claims something it cannot quote —
-                # unrecoverable from the stored results.
-                if entry.get("quote_drops") is not None:
-                    data["quote_drops"] = entry["quote_drops"]
+                # Includes the V4 signal (how often the judge claims something
+                # it cannot quote), which was the one field this copy already
+                # carried. See RUBRIC_DIAGNOSTICS.
+                carry_diagnostics(data, entry)
         if i % 20 == 0 or i == len(results):
             print(f"  re-scored {i}/{len(results)}")
 
@@ -1263,11 +1283,20 @@ def main() -> None:
                     points_total=judge_result.get("points_total"),
                     errors_made=judge_result.get("errors_made"),
                 )
+                carry_diagnostics(per_arm[arm], judge_result)
 
         results.append(
             {
                 "source": q["source"],
                 "category": q["category"],
+                # Which judge produced these numbers, on every row. Section 21.40
+                # spent four sections diagnosing a 40% false-error rate as a
+                # property of `errors_made` when it was a property of the 7B, and
+                # not one stored run recorded which model it had been judged by —
+                # the filename was the only record. A rate is a statement about
+                # a judge, so the judge travels with the rate.
+                "judge_model": args.judge_model,
+                "judge_prompt": args.judge_prompt,
                 "question": q["question"],
                 "reference": q["reference"],
                 # Carried so --rescore-from can re-run the rubric judge; without

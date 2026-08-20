@@ -32,7 +32,9 @@ from eval import (  # noqa: E402
     JUDGE_SYSTEM_PROMPT_V2,
     JUDGE_SYSTEM_PROMPT_V3,
     JUDGE_SYSTEM_PROMPT_V4,
+    RUBRIC_DIAGNOSTICS,
     _author_of,
+    carry_diagnostics,
     judge_batch_rubric,
     judge_prompt_for,
     rubric_correctness,
@@ -546,6 +548,44 @@ def test_behaviour_opening() -> int:
     return failed
 
 
+def test_carry_diagnostics() -> int:
+    """Everything rubric_correctness computes must reach the stored run.
+
+    Both writers used to list the fields by hand, so a value could be computed,
+    consumed by a report, and never stored — which is what happened to
+    `all_errors_fired`: rescore()'s Section 21.26 block is gated on the key
+    being present, and no writer ever wrote it. The regression this guards is
+    someone adding a field to rubric_correctness and not to the copy list.
+    """
+    failed = 0
+    computed = rubric_correctness([1, 2], [], 2, 3)
+    for k in ("scoring",):
+        failed += not check(f"rubric_correctness emits {k}", k in computed, True)
+    # Anything rubric_correctness produces that is not a score must be listed,
+    # or it silently stops reaching disk the moment it is added.
+    scores = {"correctness", "points_hit", "points_total", "errors_made"}
+    failed += not check("every non-score field of a grading is carried",
+                        sorted(set(computed) - scores - set(RUBRIC_DIAGNOSTICS)), [])
+
+    entry = {"correctness": 5.0, "scoring": "points_only", "quote_drops": 2,
+             "all_errors_fired": True, "error_contradiction": False}
+    dest: dict = {}
+    carry_diagnostics(dest, entry)
+    failed += not check("carries scoring", dest.get("scoring"), "points_only")
+    failed += not check("carries quote_drops", dest.get("quote_drops"), 2)
+    failed += not check("carries all_errors_fired", dest.get("all_errors_fired"), True)
+    # False is a real value, not an absence — `if entry.get(k)` would drop it,
+    # and error_contradiction is False on most gradings.
+    failed += not check("carries error_contradiction=False",
+                        dest.get("error_contradiction"), False)
+    failed += not check("does not invent the score", "correctness" in dest, False)
+    # A prose (V2) grading has none of these; it must not gain empty keys.
+    prose: dict = {}
+    carry_diagnostics(prose, {"correctness": 3.0, "note": "ok"})
+    failed += not check("prose grading carries nothing", prose, {})
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -611,6 +651,7 @@ def main() -> None:
                      ("pearson_r", test_pearson_r),
                      ("_author_of", test_author_of),
                      ("judge_batch_rubric", test_judge_batch_rubric),
+                     ("carry_diagnostics", test_carry_diagnostics),
                      ("half_answer", test_half_answer),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
