@@ -702,10 +702,16 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
     Section 14.6 established that rubric craft is what drives judge agreement
     (r +0.30 -> +0.62 hand vs machine, on the same questions and answers). That
     was a one-off analysis; this makes it a standing readout, because it is
-    also the acceptance test for contributed rubrics. A rubric two judges score
-    the same way is doing its job; one they split on needs rewriting, and
-    Section 16.12 showed disagreement localizes hard enough for that to be
-    actionable — six of eight disputes sat on two of eight items.
+    also the acceptance test for contributed rubrics.
+
+    It does NOT support "find the bad rubrics and rewrite them". Section 16.12
+    read six of eight disputes sitting on two of eight items as evidence that
+    disagreement localizes; at n=8 that was noise. Measured over both full sets
+    (Section 21.20), disagreement is diffuse — Gini 0.45-0.48 across rubric
+    items, the worst 10% of items carrying only ~23% of disputes, and 91 of 99
+    rules records and 19 of 22 positions carrying at least one. The table below
+    is a prompt to READ a few disputed items and understand them, not a repair
+    list: there is no handful of rubrics whose rewriting would move kappa.
 
     Both files must be the SAME answers judged twice (`--rescore-from`).
     Comparing two independent generations measures two things at once and
@@ -782,8 +788,11 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
                      "between two careful authors — read a split here as a prompt to look at "
                      "specific records, not as a measured difference.")
     lines += ["", "## Questions the judges disagree on most", "",
-              "Rewrite these rubrics before adding more (Section 16.12: disagreement "
-              "localizes, so a handful of items carries most of it).", "",
+              "Worth reading to understand *how* the judges differ — but not a repair "
+              "list. Section 21.20 measured disagreement as diffuse rather than "
+              "localized (Gini 0.45–0.48 across rubric items; 91 of 99 records carry at "
+              "least one dispute), so rewriting the rows below would not move kappa. "
+              "The lever is the judge, not this table.", "",
               "| Gold id | Arm | Judge A | Judge B | Gap | Rubric |",
               "| --- | --- | --- | --- | --- | --- |"]
     worst = sorted(groups.get("ALL", []), key=lambda r: -abs(r[0] - r[1]))[:12]

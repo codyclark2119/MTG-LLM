@@ -3035,3 +3035,61 @@ One real edge case surfaced on the way. The inline version seeded the best rate
 at 1.0 and used `<`, so a run where *every* arm blunders on *every* easy position
 printed "Best arm `None` at 100%" — the FAIL verdict was right and the sentence
 was not. `best` now starts unset. No stored run reaches it.
+
+### 21.20 Judge disagreement is diffuse, not localized — so rubrics are not the lever
+
+Judge agreement is the binding constraint on both tracks (kappa +0.24 on the
+blunder call, r +0.49 on correctness). Section 16.12 suggested a cheap fix:
+disagreement *localizes*, so find the few bad rubric items and rewrite them —
+six of eight disputes sat on two of eight items.
+
+That was n=8. Measured over both full sets, at the level of the individual
+rubric item (does each judge think *this* key point was hit, *this* common error
+committed), across identical stored answers:
+
+| | positions (n=22) | rules gold (n=99) |
+| --- | --- | --- |
+| rubric items in play | 139 | 594 |
+| items the judges ever split on | 95 (68%) | 443 (75%) |
+| total item-level disputes | 178 | 929 |
+| **Gini across items** | **0.48** | **0.45** |
+| worst 10% of items carry | 22% | 24% |
+| records with ≥1 dispute | **19/22** | **91/99** |
+| median disputes per record | 9 | 9 |
+
+**Disagreement is spread across nearly every record.** If it localized, the worst
+10% of items would carry most of the disputes; they carry 23%, against 10% for a
+perfectly even spread. Gini 0.45–0.48 is mild concentration — the same shape you
+get from noise plus a little heterogeneity, not from a handful of broken rubrics.
+
+The two sets agree to within 3 points on every measure, which is itself
+informative: the positions were authored months apart from the rules rubrics, by
+the same person, and land in the same place. This is not a property of one
+authoring session.
+
+**So rubric rewriting is not available as a lever.** You cannot hand-fix 91 of
+99 records, and there is no evidence the rewrite would help even then — the
+disputes are not clustered on items with an identifiable defect, which is what
+Section 21.3 found when the *machine-drafted* rubrics were the problem (a missing
+entry for the likeliest wrong answer, concentrated in four positions).
+
+`eval.py --compare` said "rewrite these rubrics before adding more" in its own
+output, citing 16.12. That advice is now wrong and has been replaced: the table
+is worth reading to understand how the judges differ, and is not a repair list.
+
+**What this means for the migration question.** The levers on judge agreement
+were: better rubrics, a better judge prompt, or a better judge model. Rubrics are
+now ruled out by measurement. The judge prompt was tried — V4 (Section 21.14) —
+and cost 60–85 points of coverage without buying agreement. That leaves the judge
+model, which is exactly the case STRUCTURAL_AUDIT.md names as the only genuine
+reason to migrate: *"the case for more memory is about grading models, not
+running them."*
+
+This does not settle it — a bigger judge might disagree just as diffusely, and
+the positive controls are still the test that decides. But it removes the cheap
+alternative, and that narrows the question considerably.
+
+One caveat worth stating: both judges here are 7B–8B models at 4-bit. "These two
+judges disagree diffusely" is what was measured. Whether a stronger judge
+disagrees *with itself* less is the open question, and it is not answerable from
+these runs.

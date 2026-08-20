@@ -177,6 +177,19 @@ Beyond the positive controls above:
 - **Self-preference** — the judge is the same model as the `base` arm in every
   run to date. The Llama second judge partly covers this; a third family would
   settle it.
+- **Rubrics are ruled out as a lever** (Section 21.20). Disagreement is diffuse,
+  not localized: Gini 0.45–0.48 across rubric items, worst 10% carrying ~23% of
+  disputes, and 91 of 99 rules records plus 19 of 22 positions carrying at least
+  one. There is no handful of rubrics to rewrite. Section 16.12's contrary
+  reading was n=8.
+
+**This narrows the migration question.** The levers on judge agreement were
+better rubrics, a better judge prompt, or a better judge model. Rubrics are ruled
+out by measurement; the prompt was tried and V4 cost 60–85 points of coverage
+without buying agreement (21.14). That leaves the judge model — which is exactly
+the case this document names as the only genuine reason to migrate. It does not
+settle it: the positive controls remain the deciding test, and a bigger judge may
+disagree just as diffusely. But the cheap alternatives are gone.
 
 ### 7. Evaluation data — **done** (Sections 21.11 and 21.17)
 
