@@ -4105,3 +4105,78 @@ rubric it was scored against.
 The honest summary is that `errors_made` remains broken, the cause is not the
 one this section set out to fix, and the strongest lead is that some question
 categories are simply much harder to grade for errors than others.
+
+### 21.37 The mechanism: the judge matches the error's content and misses the negation
+
+Section 21.36 refuted the grammar hypothesis and left the 40% false-positive
+rate unexplained, with one lead — the rate varies 17%–77% by category. Reading
+the worst category found the mechanism, and it is not about categories either.
+
+`qa-aubree-has-murderous-rider`. The reference answer says:
+
+> **No.** ... Adventurer cards only have their normal characteristics in every
+> zone other than the stack (715.4), so **it's not a legal target for Flashback**.
+
+The judge charged it with all three listed errors, of which the first two are:
+
+> 1. An Adventure is an instant or sorcery so **it is a legal target for Flashback**
+> 2. The card still has an Adventure while in the graveyard so **its still a legal target**
+
+Same vocabulary, opposite polarity. The answer states the negation of the error
+and is scored as having asserted it.
+
+#### Measured, not just observed
+
+Two cuts. The first fails, and is worth recording because it is the obvious one:
+
+| | mean overlap with the oracle |
+| --- | --- |
+| errors the judge fired | 35% |
+| errors it did not | 33% |
+
+**+2% ± 6%** — bulk vocabulary overlap explains nothing. Which makes sense: the
+error shares words with the *whole answer* either way, and the discriminating
+thing is narrower than that.
+
+The sharp cut. Take questions whose reference answer opens with a bare **Yes**
+or **No** verdict, and ask whether the error's polarity *opposes* it:
+
+| Error polarity vs the oracle's verdict | fired | rate |
+| --- | --- | --- |
+| **opposes** the verdict | 13/44 | **30%** |
+| agrees with the verdict | 3/44 | **7%** |
+
+**+23% ± 15% at 95%, significant.** An error that contradicts the answer's own
+conclusion is more than four times as likely to be scored as committed by it.
+
+#### This also explains Section 21.36
+
+Rewriting `common_errors` as claims could not have helped, because it does not
+touch the polarity relationship — and it plausibly explains why the claim form
+came out marginally *worse* (75% against 70%): a claim states the false
+conclusion more directly than a behaviour description does, which makes the
+surface contradiction cleaner and the confusion easier.
+
+#### The fix follows from the mechanism
+
+If the negation lives in the text, then the text is the check: there is no
+verbatim span in *"it's not a legal target for Flashback"* that asserts the
+opposite. **V5 is V3 plus a quote requirement on `errors_made` only**, reusing
+`verify_quoted_claims`, which is already built and tested.
+
+Errors only, deliberately. V4 demanded a quote for every key point as well and
+cost 60–85 points of coverage by exhausting the output budget (Section 21.14).
+Errors fire on about a third of candidates and there are 2–3 of them against 3–4
+key points, so V5 asks for a small fraction of V4's output. The prompt is 270
+characters longer than V3.
+
+Verified on the stubbed path before spending GPU: given the exact failure — the
+judge claiming error 1 with a quote that is not in the answer — V5 drops both
+claims (`quote_drops: 2`, `errors_made: []`, so `blundered` is False), while a
+genuinely committed error whose quote *is* present survives with 0 drops.
+
+The benchmark run comparing V3 and V5 on oracle false positives is in flight.
+V3's number on this set is 70%; anything that does not move it substantially
+means the quote requirement is not the remedy either, and the honest next step
+would be to stop treating `errors_made` as recoverable and report blunder rate
+with its false-positive rate attached.

@@ -207,6 +207,40 @@ JUDGE_SYSTEM_PROMPT_V3 = (
 # paraphrase-tolerance is deliberate and preserved -- a point can be stated in
 # any wording, and the quote is only required to be real text from the answer.
 # Requiring lexical overlap would trade one bias for another.
+# V5: V3, plus a quote requirement on ERRORS ONLY (Section 21.37).
+#
+# The positive controls measured the judge charging the REFERENCE ANSWER with a
+# common_error on 40% of questions, and 21.37 found the mechanism: an error whose
+# polarity OPPOSES the answer's verdict fires 30% of the time against 7% for one
+# that agrees with it. The judge matches the error's content and misses the
+# negation — "it is a legal target" reads as asserted by an answer that says "it
+# is NOT a legal target".
+#
+# A quote is the direct remedy, because the negation lives in the text: there is
+# no verbatim span in "it's not a legal target for Flashback" that asserts the
+# opposite. `verify_quoted_claims` already discards a claim whose quote is not in
+# the candidate, and it is tested.
+#
+# Errors ONLY, unlike V4. V4 demanded a quote for every key point too and cost
+# 60-85 points of coverage by blowing the output budget (Section 21.14). Errors
+# fire on roughly a third of candidates and there are 2-3 of them against 3-4
+# key points, so this asks for a small fraction of V4's output.
+JUDGE_SYSTEM_PROMPT_V5 = (
+    JUDGE_SYSTEM_PROMPT_V3
+    .replace(
+        "  errors_made — the numbers of the COMMON ERRORS the candidate asserts. "
+        "Only list an error the candidate actually commits.",
+        "  errors_made — for each COMMON ERROR the candidate asserts, its number AND "
+        "a short VERBATIM quote from that candidate showing where it is asserted. "
+        "An answer that states the OPPOSITE of an error has not committed it — "
+        "check the polarity of what the candidate actually says before listing it. "
+        "If you cannot quote the candidate asserting the error, do not list it.")
+    .replace(
+        '"errors_made": [<numbers>]',
+        '"errors_made": [{"n": <number>, "quote": "<verbatim>"}]')
+)
+
+
 JUDGE_SYSTEM_PROMPT_V4 = (
     "You are an expert Magic: The Gathering rules judge.\n\n"
     "You get a QUESTION, a numbered list of KEY POINTS (facts a correct "
@@ -421,7 +455,8 @@ def judge_batch_rubric(
 
     messages = [
         {"role": "system", "content": judge_prompt_for(
-            JUDGE_SYSTEM_PROMPT_V4 if judge_version == "v4" else JUDGE_SYSTEM_PROMPT_V3,
+            {"v4": JUDGE_SYSTEM_PROMPT_V4,
+             "v5": JUDGE_SYSTEM_PROMPT_V5}.get(judge_version, JUDGE_SYSTEM_PROMPT_V3),
             list(label_to_arm))},
         {"role": "user", "content": user},
     ]
@@ -444,7 +479,14 @@ def judge_batch_rubric(
         raw_points = entry.get("points_hit") or []
         raw_errors = entry.get("errors_made") or []
         drops = 0
-        if judge_version == "v4":
+        if judge_version == "v5":
+            # Errors only. V5 leaves points_hit in the V3 shape on purpose —
+            # that half of the instrument works (the judge credits the reference
+            # answer with 90% of its own key points), and V4 showed that asking
+            # for quotes on everything costs most of the coverage.
+            raw_errors, drops = verify_quoted_claims(
+                raw_errors, candidates[arm], len(common_errors))
+        elif judge_version == "v4":
             # The receipt check. A claim the judge cannot quote from THIS
             # candidate is discarded, and the count is carried so fabrication
             # is a reported number rather than an impression.
@@ -1103,7 +1145,7 @@ def main() -> None:
                         help="model used as judge. Defaults to --base-model — which is ALSO the "
                              "'base' arm under test, so an independent judge is needed to rule out "
                              "self-preference bias (Section 9.9).")
-    parser.add_argument("--judge-prompt", choices=("v3", "v4"), default="v3",
+    parser.add_argument("--judge-prompt", choices=("v3", "v4", "v5"), default="v3",
                         help="v4 requires a verbatim quote behind every claimed point "
                              "or error and discards claims it cannot verify (Section 21.7). "
                              "v3 is the default so published numbers reproduce.")
