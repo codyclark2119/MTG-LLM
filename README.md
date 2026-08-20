@@ -157,6 +157,8 @@ rather than ignoring a column.
 
 A position is a gold record whose question is a board, so `key_points` is the correct line and **`common_errors` is the blunder list** — `eval.py`'s rubric judge scores it unchanged, and blunder rate is just how often `errors_made` is non-empty. Author them at `#/position` in the web console; see [data/gold/POSITIONS.md](data/gold/POSITIONS.md).
 
+**The judge defaults to Llama-3.1-8B, not the model under test** ([§21.29](DEVELOPMENT_PLAN.md)). It used to default to `--base-model`, i.e. the model graded itself. Positive controls then measured Qwen2.5-7B charging the *reference answer* with a `common_error` — which it definitionally cannot commit — on **40%** of questions, against Llama's 4%; blunder rate is defined on exactly that field, and the inflation reaches +25 points on identical answers. Pass the base model's id explicitly to reproduce a self-judged run.
+
 `eval_positions.py` scores with **two judges** by default. On the seed set, swapping the judge reversed two of the three gates on byte-identical answers (kappa +0.48 on the blunder call), so a one-judge verdict is a statement about the judge.
 
 **Gate 2 is measured per position on correctness** — what fraction separate the arms by ≥0.5 on the 1–5 scale, needing ≥50% — not on the spread of per-arm blunder rates ([§21.18](DEVELOPMENT_PLAN.md)). The old definition collapsed the score to a yes/no and then averaged per arm before comparing, losing separation twice; it read 9% under one judge and 26% under another on **identical answers**, which is a FAIL and a PASS. The per-position figure moves 2 points across the same swap. Blunder rate is still reported, as a diagnostic.
@@ -217,7 +219,17 @@ Measured on 110 questions (70 synthetic + 40 Reddit), four system arms, LLM-judg
 
 **What we did about the last one.** Scoring against an enumerated rubric — *which of these specific claims did the answer make?* — instead of against one prose reference, and then writing the rubrics carefully. On identical answers under identical judges, hand-authored rubrics lifted agreement from r = +0.30 to **+0.62** and cut mean disagreement from 1.26 to 0.80 points. Under those rubrics both judges finally rank the arms the same way.
 
-Two things that fix is careful not to claim. It does **not** shrink the sample needed: per-question variance is unchanged, so resolving a 0.4-point effect still takes ~100–150 questions. And the current gold set is **39 records** against a target of 8–10 per category across eight categories, so no per-category conclusion is available yet.
+Two things that fix is careful not to claim. It does **not** shrink the sample needed: per-question variance is unchanged, so resolving a 0.4-point effect still takes ~100–150 questions. And at **99 records** across eight categories the whole-set comparison is what the sample supports; per-category conclusions are not yet available.
+
+**What the positive controls later established** ([§21.27](DEVELOPMENT_PLAN.md)). Scoring four candidates of *known* quality per question — the reference answer itself, half of it, a fluent answer to a different question, and a refusal — finally says what the judge does with answers whose quality is not in doubt:
+
+| Trip-wire | Required | Qwen2.5-7B | Llama-3.1-8B |
+| --- | --- | --- | --- |
+| dynamic range (oracle − wrong) | ≥ 2.5 | +2.77 PASS | +2.74 PASS |
+| ordering accuracy | ≥ 90% | 93% PASS | 94% PASS |
+| false errors on the oracle | ≤ 5% | **40% FAIL** | **4% PASS** |
+
+The **correctness scale is sound** — a 2.77-point separation between the reference answer and a well-written answer to a *different* question, so the judge is not being fooled by fluency, and the 0.5–0.8 point effects above are 18–29% of a measured range. The **error detection was not**: the oracle *is* the reference answer and cannot commit a listed `common_error`, yet one judge charged it with one on 40% of questions, costing correct answers 2.47 points apiece. Correctness now scores `points_hit` alone ([§21.28](DEVELOPMENT_PLAN.md)) and the calibrated judge is the default ([§21.29](DEVELOPMENT_PLAN.md)). `errors_made` is still reported — it is still what blunder rate means — it just no longer moves the score.
 
 ## Licensing
 

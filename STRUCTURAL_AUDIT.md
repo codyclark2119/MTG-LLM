@@ -13,7 +13,30 @@ This is a plan to find out when that stops being true.
 
 ---
 
-## The one test that decides it
+## The one test that decides it — **it ran, and here is the answer**
+
+> **RESULT (Section 21.27).** The positive controls ran under both judges, 98%
+> and 95% coverage. The instrument splits cleanly in half: **the correctness
+> scale works and the error detection does not**, and the broken half is
+> judge-specific rather than fundamental.
+>
+> | Trip-wire | Required | Qwen2.5-7B | Llama-3.1-8B |
+> | --- | --- | --- | --- |
+> | dynamic range | ≥ 2.5 | +2.77 PASS | +2.74 PASS |
+> | ordering accuracy | ≥ 90% | 93% PASS | 94% PASS |
+> | false errors on oracle | ≤ 5% | **40% FAIL** | **4% PASS** |
+>
+> **Llama passes all three.** So there is a working instrument on this hardware
+> today, and the answer to "does more memory help" is no — the failing number
+> was a property of one 7B model, not of the method, the prompt, or the machine.
+>
+> Consequences, all applied: correctness now scores `points_hit` alone
+> (Section 21.28), and the position eval no longer judges itself with the
+> miscalibrated model (Section 21.29). The old rule is reproducible from the
+> same stored judge output, so nothing in the record was lost.
+>
+> The rest of this section is the reasoning as written *before* the test, kept
+> because it is what the test was designed against.
 
 Everything below is worth doing, but one measurement dominates: **the judge
 cannot currently be shown to work.**
@@ -259,13 +282,43 @@ question.
 
 ## When memory becomes the constraint
 
+> **ANSWER, now that the controls have run: not yet, and for a reason that has
+> nothing to do with memory.**
+>
+> Condition A is **partly met and the gap is not hardware-shaped.** With
+> Llama-3.1-8B as judge, all three instrument trip-wires pass on the current
+> machine. The failing measurement was Qwen2.5-7B inventing errors at 40%, and
+> the fix was to stop using it for that — free, and applied.
+>
+> Condition B is **not met.** Qwen3-14B runs in 7.8 GB of 36 GB and is not
+> better at the task (Section 21.25: best-arm blunder 53% → 50%, ~60× the wall
+> time). A 32B judge fits in ~18 GB and has not been shown necessary. A 70B
+> judge does **not fit in 36 GB at all** — 38.6 GB of weights — so that is the
+> only real trigger, and nothing yet says a 70B judge would help.
+>
+> What is left before hardware could become the constraint:
+>
+> 1. **Kappa.** The blunder-call kappa of +0.24 was measured with the 40%-false-
+>    positive judge on one side. It has not been re-measured with two calibrated
+>    judges, and that number could move a long way on its own.
+> 2. **The 32B rescore**, in flight. If a 4.5× larger judge does not improve
+>    agreement, judge scale is not the lever and a 70B is unlikely to differ in
+>    kind — which would close the migration question rather than open it.
+> 3. **A third judge family**, to settle self-preference. Mistral-24B or
+>    Gemma-27B both fit comfortably.
+>
+> All three run on this machine. The reasoning below is preserved as written.
+
 Concrete trip-wires. Migrate when **both** of the following hold:
 
 **A. The instrument is sound.** From the positive controls:
 
 - dynamic range (`oracle` − `wrong`) **≥ 2.5 points** on the 1–5 scale
 - ordering accuracy **≥ 90%** of questions
-- inter-judge kappa on the blunder call **≥ 0.6** (currently **+0.24**)
+- inter-judge kappa on the blunder call **≥ 0.6** (measured **+0.24**, but with
+  a judge since shown to invent the blunder 40% of the time — Section 21.27.
+  This needs re-measuring between two *calibrated* judges before it means
+  anything, and it is the last of the three that is still genuinely open)
 
 Until these hold, a better model cannot be distinguished from a worse one, and
 the extra memory is spent producing a more expensive wrong answer.
