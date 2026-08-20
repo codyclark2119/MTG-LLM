@@ -557,8 +557,47 @@ def test_error_assertions() -> int:
     behaviour-form entries are refused rather than reshaped, and the rotation
     actually rotates.
     """
-    from calibrate_judge import ASSERTION_TAIL, build_error_assertions, question_text
+    from calibrate_judge import (ASSERTION_TAIL, build_error_assertions,
+                                 question_text, reference_answer, separation)
     failed = 0
+
+    # --- the pair is mandatory (Section 21.43) -----------------------------
+    # Three published conclusions came from one side of this control. A
+    # one-sided call must raise, not return a partial result.
+    one = [{"fired": [1], "n_fired": 1, "hit": True}]
+    for label, args in (("no clean half", ([], one)), ("no planted half", (one, [])),
+                        ("neither half", ([], []))):
+        try:
+            separation(*args)
+            failed += not check(f"separation raises: {label}", "returned", "raised")
+        except ValueError:
+            failed += not check(f"separation raises: {label}", "raised", "raised")
+
+    # Llama's real shape: perfect on the planted half, fires at 58% of clean
+    # answers. Ranked on the planted column alone it is the BEST of four judges.
+    clean = [{"fired": [1] if i < 14 else [], "n_fired": 1 if i < 14 else 0}
+             for i in range(24)]
+    planted = [{"fired": [1], "n_fired": 1, "hit": True} for _ in range(24)]
+    s = separation(clean, planted)
+    failed += not check("p(fire|clean)", round(s["p_fire_clean"], 4), round(14 / 24, 4))
+    failed += not check("p(fire|error)", s["p_fire_error"], 1.0)
+    failed += not check("separation subtracts", round(s["separation"], 4), round(10 / 24, 4))
+    failed += not check("hit rate carried", s["hit_planted"], 1.0)
+    # A judge that fires at EVERYTHING scores a perfect 100% on the planted
+    # half and separates nothing. This is the case one column cannot see.
+    s0 = separation(planted, planted)
+    failed += not check("fires-at-everything separates zero", s0["separation"], 0.0)
+
+    # --- the reference answer, three record shapes -------------------------
+    failed += not check("position/gold use `answer`",
+                        reference_answer({"answer": "Block."}), "Block.")
+    failed += not check("eval file uses the assistant turn",
+                        reference_answer({"messages": [{"role": "user", "content": "Q"},
+                                                       {"role": "assistant", "content": "A."}]}),
+                        "A.")
+    # "" rather than a guess: run_judge_report refuses to run on it, because
+    # grading a blank as the clean answer would score perfect specificity.
+    failed += not check("no reference yields empty", reference_answer({"messages": []}), "")
 
     claim = "Centaur Courser should be added to the block alongside Sedge Scorpion"
     recs = [{"id": f"p{i}", "battlefield": ["Mountain"], "key_points": ["k"],
