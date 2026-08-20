@@ -49,6 +49,26 @@ WHAT COMES OUT, AND WHY EACH ONE MATTERS
                     does not, the scale has no floor.
 
 These are what STRUCTURAL_AUDIT.md's migration trip-wires are stated against.
+
+WHAT THIS DELIBERATELY DOES NOT MEASURE
+
+STRUCTURAL_AUDIT.md names a fourth check — build `wrong` so it asserts a
+specific enumerated `common_error`, then count how often the judge reports THAT
+error number, as a direct test of whether `errors_made` means anything.
+
+Not implemented, on purpose. Building such a candidate means turning a rubric
+line written as a description of a mistake ("Adds Centaur Courser to the block,
+spending a 3/3 to save 3 life") into a first-person answer asserting it. Every
+one of those rewrites is prose I would be writing, so a low detection rate would
+be unattributable between "the judge cannot spot the error" and "the generated
+sentence did not clearly assert it" — measuring my paraphrasing, not the judge.
+
+`errors_made` is instead checked from the other side, which needs no
+construction: the ORACLE cannot commit a listed error, so every error the judge
+reports against it is a definitive false positive. That is the `false errors`
+row, and it is the trip-wire. Measuring the true-positive side properly needs
+common_errors authored as assertions in the first place — a data change, not a
+harness one.
 """
 
 import argparse
@@ -182,10 +202,23 @@ def main() -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     arms = ["oracle", "partial", "wrong", "refusal"]
-    means = {}
+    means, counts = {}, {}
     for a in arms:
         vals = [r["scores"][a] for r in rows if r["scores"].get(a) is not None]
         means[a] = sum(vals) / len(vals) if vals else float("nan")
+        counts[a] = len(vals)
+
+    # COVERAGE, before anything else is read.
+    #
+    # This script produces the numbers STRUCTURAL_AUDIT.md's migration decision
+    # is stated against, and it used to average over whatever the judge happened
+    # to grade without saying how much that was. The V4 run (Section 21.14) is
+    # what that failure looks like in practice: four confident means over 14 of
+    # 99 questions, with the sample size a parenthetical beside them, and the
+    # survivors selected by rubric size rather than by anything about the
+    # answers. A calibration run has the same exposure and higher stakes.
+    graded = min(counts.values()) if counts else 0
+    coverage = graded / len(rows) if rows else 0.0
 
     ordered = [r for r in rows
                if all(r["scores"].get(a) is not None for a in ("oracle", "partial", "wrong"))]
@@ -200,14 +233,25 @@ def main() -> None:
 
     L = ["# Judge calibration — positive controls\n",
          f"{len(rows)} questions from `{args.gold.name}`, four known-quality candidates each.\n",
-         f"- judge: `{args.judge_model}` (prompt {args.judge_prompt})\n",
-         "| Candidate | Mean correctness | Expected |",
-         "| --- | --- | --- |",
-         f"| `oracle` (the reference itself) | **{means['oracle']:.2f}** | near 5 |",
-         f"| `partial` (first half) | {means['partial']:.2f} | middle |",
-         f"| `wrong` (another question's answer) | {means['wrong']:.2f} | near 1 |",
-         f"| `refusal` | {means['refusal']:.2f} | 1 |",
-         "",
+         f"- judge: `{args.judge_model}` (prompt {args.judge_prompt})",
+         f"- **graded {graded}/{len(rows)} questions ({coverage:.0%})**"
+         + ("\n" if graded == len(rows)
+            else " — the rest returned JSON the harness could not parse\n")]
+    if coverage < 0.90:
+        L.append(
+            f"> **Coverage is {coverage:.0%}. Do not read the numbers below.** The judge failed "
+            "to grade a large share of the set, and its failures are not random — they track "
+            "how much the prompt asks it to produce, so what remains is selected by rubric "
+            "size rather than by anything about the answers (Section 21.14). Re-run with a "
+            "larger `--judge-max-tokens`. A calibration run is the input to the migration "
+            "decision; a biased one is worse than none.\n")
+    L += ["| Candidate | Mean correctness | n | Expected |",
+          "| --- | --- | --- | --- |",
+          f"| `oracle` (the reference itself) | **{means['oracle']:.2f}** | {counts['oracle']} | near 5 |",
+          f"| `partial` (half, by sentence) | {means['partial']:.2f} | {counts['partial']} | middle |",
+          f"| `wrong` (another question's answer) | {means['wrong']:.2f} | {counts['wrong']} | near 1 |",
+          f"| `refusal` | {means['refusal']:.2f} | {counts['refusal']} | 1 |",
+          "",
          f"- **Dynamic range (oracle − wrong): {dyn:+.2f}** on a 1–5 scale",
          f"- **Ordering accuracy: {order_acc:.0%}** of questions rank oracle ≥ partial ≥ wrong",
          f"- **False errors on the oracle: {false_err:.0%}** — the reference answer cannot "
@@ -219,13 +263,24 @@ def main() -> None:
               ("ordering accuracy ≥ 90%", order_acc >= 0.90, f"{order_acc:.0%}"),
               ("false errors on oracle ≤ 5%", false_err <= 0.05, f"{false_err:.0%}")]
     L.append("## Trip-wires (STRUCTURAL_AUDIT.md)\n")
-    for label, passed, got in checks:
-        L.append(f"- {'PASS' if passed else '**FAIL**'} — {label} (measured {got})")
-    if not all(p for _, p, _ in checks):
-        L.append("\n> The instrument does not yet separate known-good from known-bad to the "
-                 "standard the migration trip-wires require. A better model under test "
-                 "cannot be distinguished from a worse one until this passes, so hardware "
-                 "is not the binding constraint.\n")
+    if coverage < 0.90:
+        # A PASS computed on a selected subset is the worst possible output
+        # here: it is the sentence that authorizes buying a computer. Withhold
+        # the verdict rather than qualify it.
+        L.append(f"**NOT EVALUATED — coverage {coverage:.0%}.** These three numbers decide "
+                 "whether the instrument is sound, and they cannot be read off a subset the "
+                 "judge selected by failing on the rest. Measured values below are recorded "
+                 "for diagnosis only.\n")
+        for label, _, got in checks:
+            L.append(f"- (unevaluated) {label} — measured {got} on {graded}/{len(rows)}")
+    else:
+        for label, passed, got in checks:
+            L.append(f"- {'PASS' if passed else '**FAIL**'} — {label} (measured {got})")
+        if not all(p for _, p, _ in checks):
+            L.append("\n> The instrument does not yet separate known-good from known-bad to "
+                     "the standard the migration trip-wires require. A better model under "
+                     "test cannot be distinguished from a worse one until this passes, so "
+                     "hardware is not the binding constraint.\n")
 
     args.report_out.parent.mkdir(parents=True, exist_ok=True)
     args.report_out.write_text("\n".join(L), encoding="utf-8")

@@ -3093,3 +3093,49 @@ One caveat worth stating: both judges here are 7B–8B models at 4-bit. "These t
 judges disagree diffusely" is what was measured. Whether a stronger judge
 disagrees *with itself* less is the open question, and it is not answerable from
 these runs.
+
+### 21.21 Hardening the calibration before it runs, because it is the one that buys a computer
+
+`calibrate_judge.py` produces the three numbers STRUCTURAL_AUDIT.md's migration
+trip-wires are stated against. Reviewing it against what Section 21.14 cost:
+
+**It averaged over whatever the judge graded, and never said how much that was.**
+Exactly the defect that made the V4 run unusable — four confident means over 14
+of 99 questions, sample size as a parenthetical — sitting in the script whose
+output is the argument for buying hardware. The judge's failures are not random;
+they track how much output the prompt asks for, so the survivors are a selected
+subset.
+
+Coverage is now the first line of the report. Below 90% the report says *do not
+read the numbers below*, and the trip-wire section refuses to render PASS/FAIL at
+all, printing the measured values marked `(unevaluated)` for diagnosis:
+
+    **NOT EVALUATED — coverage 20%.** These three numbers decide whether the
+    instrument is sound, and they cannot be read off a subset the judge
+    selected by failing on the rest.
+
+Verified by stubbing the judge to fail four questions in five. The withheld case
+matters more than the reported one: with the stub grading perfectly on the
+questions it *did* answer, all three trip-wires would have printed **PASS** on
+4/20 questions. A PASS is the sentence that authorizes the migration, and it must
+not be obtainable from a subset.
+
+#### One planned measurement is dropped, and said so rather than faked
+
+The audit named a fourth check: build the `wrong` control so it asserts a
+specific enumerated `common_error`, then count how often the judge reports *that*
+error number — a direct test of whether `errors_made` means anything, which is
+what blunder rate is defined on.
+
+Not implemented. Constructing that candidate means turning a rubric line written
+as a *description* of a mistake ("Adds Centaur Courser to the block, spending a
+3/3 to save 3 life") into a first-person answer asserting it. Every one of those
+is prose the harness would generate, so a low detection rate would be
+unattributable between "the judge cannot spot the error" and "the sentence did
+not clearly assert it" — it would measure the paraphrasing, not the judge.
+
+`errors_made` is checked from the other side instead, which needs no
+construction and is already the trip-wire: the oracle **cannot** commit a listed
+error, so every one reported against it is a definitive false positive. The
+true-positive side needs `common_errors` authored as assertions in the first
+place, which is a data change and belongs in `SCHEMA.md`, not a harness patch.

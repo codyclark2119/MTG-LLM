@@ -46,10 +46,16 @@ out, and they are the ones that matter:
 - **Ordering accuracy** — how often the judge ranks `oracle` > `partial` >
   `wrong` on a single question. A judge that inverts this on 30% of questions
   cannot support a 0.4-point claim.
-- **Error detection** — `wrong` was built to assert a specific enumerated error.
-  How often does the judge actually report *that* error number? This is a direct
-  measure of whether `errors_made` means anything, and blunder rate is defined
-  on it.
+- **Error detection** — the original plan was to build `wrong` so it asserts a
+  specific enumerated error and count how often the judge reports *that* number.
+  **Not implemented, deliberately.** Turning a rubric line written as a
+  description of a mistake into a first-person answer asserting it means
+  generating prose, so a low detection rate would be unattributable between "the
+  judge cannot spot it" and "the generated sentence did not clearly assert it".
+  `errors_made` is checked from the other side instead, which needs no
+  construction: the oracle *cannot* commit a listed error, so every one reported
+  against it is a definitive false positive. Measuring the true-positive side
+  needs `common_errors` authored as assertions — a data change, not a harness one.
 
 **Cost:** one eval run, no training, no new data authoring. The candidates are
 constructed mechanically from records that already exist.
