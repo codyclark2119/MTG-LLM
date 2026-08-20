@@ -276,6 +276,14 @@ Each cost real time. They recur in new code, so they are worth knowing.
   contamination filter compared `id` to `id`, so 16 eval questions passed
   straight through a check that *asserted* it had excluded them. Anything
   joining two files on an id must first ask whether the id survived the trip.
+- **`pgrep -f` matching the shell that mentions the job.** A background shell
+  whose command line contains `... --judge-model mlx-community/Qwen2.5-32B ...`
+  is matched by `pgrep -f Qwen2.5-32B`, so "is the 32B run going?" answered yes
+  while the model had not been loaded. It reads as a started job, and it also
+  breaks the reverse case: a `while pgrep -f X; do sleep; done` waiter whose own
+  loop condition contains `X` waits on itself forever. Match on the interpreter
+  and script instead (`ps -eo pid,command | grep "Python.*eval\.py"`), or check
+  for the artifact the job writes. This has produced a false reading twice.
 - **A number that never was.** `data/datasets` was described as 2,644 training
   examples in three configs and two plan sections. It holds 1,478 distinct
   lines; the rest are exact duplicates, question and answer both. Nothing lied —
