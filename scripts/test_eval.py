@@ -548,6 +548,65 @@ def test_behaviour_opening() -> int:
     return failed
 
 
+def test_error_assertions() -> int:
+    """The negative control's construction (Section 21.40).
+
+    The whole defensibility of this control is that the planted sentence is the
+    rubric line VERBATIM — the moment a paraphrase creeps in, a miss stops being
+    attributable to the judge. So the checks are: the claim survives untouched,
+    behaviour-form entries are refused rather than reshaped, and the rotation
+    actually rotates.
+    """
+    from calibrate_judge import ASSERTION_TAIL, build_error_assertions, question_text
+    failed = 0
+
+    claim = "Centaur Courser should be added to the block alongside Sedge Scorpion"
+    recs = [{"id": f"p{i}", "battlefield": ["Mountain"], "key_points": ["k"],
+             "common_errors": [claim, "Second claim about blocking", "Third claim here"]}
+            for i in range(3)]
+    cases, skipped_e, skipped_r = build_error_assertions(recs)
+    failed += not check("all three usable", len(cases), 3)
+    failed += not check("nothing skipped", (skipped_e, skipped_r), (0, 0))
+    failed += not check("claim appears verbatim", claim in cases[0]["answer"], True)
+    failed += not check("answer is claim + tail", cases[0]["answer"], claim + ASSERTION_TAIL)
+    # Rotation: record i plants error i % len, so three records must not all
+    # plant error 1 — otherwise the result describes first entries only.
+    failed += not check("rotates the planted error", [c["n"] for c in cases], [1, 2, 3])
+
+    # A behaviour-shaped entry cannot be asserted, so it must be dropped, never
+    # rewritten — a rewrite is the prose that made this control undefensible.
+    beh = {"id": "b", "battlefield": [], "key_points": ["k"],
+           "common_errors": ["Adds Centaur Courser to the block, spending a 3/3"]}
+    cases, skipped_e, skipped_r = build_error_assertions([beh])
+    failed += not check("behaviour entry yields no case", cases, [])
+    failed += not check("counted as a dropped record", skipped_r, 1)
+    failed += not check("counted as a skipped entry", skipped_e, 1)
+
+    # Mixed: keep the claim, drop the behaviour, still usable.
+    mixed = {"id": "m", "battlefield": [], "key_points": ["k"],
+             "common_errors": ["Adds Centaur Courser to the block", claim]}
+    cases, skipped_e, skipped_r = build_error_assertions([mixed])
+    failed += not check("mixed record is usable", len(cases), 1)
+    failed += not check("picks the claim, not the behaviour", cases[0]["n"], 2)
+    failed += not check("mixed: entry skipped but record kept", (skipped_e, skipped_r), (1, 0))
+
+    # A position renders its board; a rules question uses its text. Getting this
+    # backwards would judge every position against an empty question. Checked
+    # against a REAL position rather than a stub — a hand-built fixture missing
+    # a key renders differently from the records this actually runs on.
+    from common import POSITIONS_PATH, read_jsonl, render_position
+    pos = read_jsonl(POSITIONS_PATH)[0]
+    failed += not check("position renders its board",
+                        question_text(pos), render_position(pos))
+    failed += not check("rendered board is non-empty", bool(question_text(pos).strip()), True)
+    failed += not check("rules question uses its text",
+                        question_text({"question": "Does it resolve?"}), "Does it resolve?")
+    failed += not check("falls back to the user message",
+                        question_text({"messages": [{"role": "system", "content": "s"},
+                                                    {"role": "user", "content": "Q?"}]}), "Q?")
+    return failed
+
+
 def test_carry_diagnostics() -> int:
     """Everything rubric_correctness computes must reach the stored run.
 
@@ -652,6 +711,7 @@ def main() -> None:
                      ("_author_of", test_author_of),
                      ("judge_batch_rubric", test_judge_batch_rubric),
                      ("carry_diagnostics", test_carry_diagnostics),
+                     ("error_assertions", test_error_assertions),
                      ("half_answer", test_half_answer),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")

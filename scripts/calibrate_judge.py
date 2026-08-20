@@ -50,25 +50,65 @@ WHAT COMES OUT, AND WHY EACH ONE MATTERS
 
 These are what STRUCTURAL_AUDIT.md's migration trip-wires are stated against.
 
-WHAT THIS DELIBERATELY DOES NOT MEASURE
+THE OTHER DIRECTION: --sensitivity
 
-STRUCTURAL_AUDIT.md names a fourth check — build `wrong` so it asserts a
-specific enumerated `common_error`, then count how often the judge reports THAT
-error number, as a direct test of whether `errors_made` means anything.
+Everything above measures SPECIFICITY. A judge that fires no errors at all
+scores a perfect 0% on `false errors` and is worthless, so the four controls
+alone cannot tell a precise judge from a silent one. Sections 21.38 and 21.39
+reported a judge prompt as "N fixed, 0 regressions" on exactly this evidence,
+where losing a true positive is unobservable by construction; the control below
+found it had lost two (Section 21.40).
 
-Not implemented, on purpose. Building such a candidate means turning a rubric
-line written as a description of a mistake ("Adds Centaur Courser to the block,
-spending a 3/3 to save 3 life") into a first-person answer asserting it. Every
-one of those rewrites is prose I would be writing, so a low detection rate would
-be unattributable between "the judge cannot spot the error" and "the generated
-sentence did not clearly assert it" — measuring my paraphrasing, not the judge.
+    python scripts/calibrate_judge.py --sensitivity --gold data/gold/positions.jsonl
 
-`errors_made` is instead checked from the other side, which needs no
-construction: the ORACLE cannot commit a listed error, so every error the judge
-reports against it is a definitive false positive. That is the `false errors`
-row, and it is the trip-wire. Measuring the true-positive side properly needs
-common_errors authored as assertions in the first place — a data change, not a
-harness one.
+This was previously declined, and the reason is worth keeping because it is what
+changed. Building a candidate that commits a KNOWN error means turning a rubric
+line into an answer asserting it — and while `common_errors` were written as
+descriptions of behaviour ("Adds Centaur Courser to the block, spending a 3/3 to
+save 3 life"), every such rewrite was prose I would be writing. A low detection
+rate would then be unattributable between "the judge cannot spot the error" and
+"my sentence did not clearly assert it": measuring my paraphrasing, not the
+judge. The conclusion at the time was that this needed common_errors authored as
+assertions in the first place — a data change, not a harness one.
+
+**Section 21.35 made that data change.** A `common_errors` line is now required
+to be a sentence a wrong answer could contain VERBATIM, so the candidate is the
+rubric line itself and no paraphrase is involved. `common.looks_like_behaviour`
+is the same check the authoring lint uses, and entries still in the old form are
+SKIPPED rather than rewritten.
+
+Coverage differs sharply between the two sets, and the difference is the whole
+reason the report leads with it:
+
+    positions.jsonl    83 errors,   0 behaviour-shaped     24/24 records usable
+    gold_questions     264 errors, 214 behaviour-shaped    42/99 records usable
+
+Positions were rewritten wholesale in 21.35. The rules gold set was NOT — 21.36
+refuted the justification for converting it — so the 42 usable records are the
+ones that happen to have been authored as claims. **That is a selected subset,
+not a sample**, and a rate over it describes rubrics written in a particular
+style rather than the gold set. The report says so whenever the drop is large;
+treat 42/99 as a reason to widen the data, not as an n of 42.
+
+Ground truth is then definitional: the answer contains the listed error word for
+word, so a judge that does not fire it has a false negative. It also puts a
+quote-verifying prompt (V5) on its easiest possible case, since the quote is
+present exactly.
+
+ONE ARM, AND WHY THAT IS NOT THE FOUR-ARM NUMBER
+
+The sensitivity pass grades one candidate, not four. It cannot be folded in as a
+fifth arm: `judge_batch_rubric` grades every candidate in ONE batched call, so a
+fifth arm changes all four others (23 points, Section 21.5) and would invalidate
+the calibration against every published four-arm run.
+
+The consequence is that the two halves are not two columns of one table. A rate
+from this pass is comparable to another rate from this pass — which is what
+makes the judge-vs-judge comparison in 21.40 sound — and is NOT directly
+comparable to the `false errors` trip-wire above. Single-arm gradings also come
+back unwrapped from some judges, which silently read as ungraded until Section
+21.39; `judge_batch_rubric` handles that now, and coverage is reported here so a
+recurrence is visible rather than averaged over.
 """
 
 import argparse
@@ -80,11 +120,31 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from common import REPO_ROOT  # noqa: E402
-from eval import BASE_MODEL_ID, load_gold_questions, score_one_question  # noqa: E402
+from common import (  # noqa: E402
+    REPO_ROOT,
+    looks_like_behaviour,
+    read_jsonl,
+    render_position,
+)
+from eval import (  # noqa: E402
+    BASE_MODEL_ID,
+    judge_batch_rubric,
+    load_gold_questions,
+    score_one_question,
+)
 
 GOLD_EVAL_PATH = REPO_ROOT / "eval/sets/gold_questions_eval.jsonl"
 REFUSAL = "The rules provided do not cover this, so I cannot answer the question."
+
+# Appended so the candidate reads as an answer rather than a dangling fragment.
+# Each asserts nothing on its own — the claim being detected is the rubric line
+# in front of it, verbatim — and both are fixed constants rather than per-record
+# prose, which is the whole point of the construction. Two of them only because
+# "that is the play here" is nonsense attached to "is it a legal target for
+# Flashback"; a tail that does not fit its question is prose that draws
+# attention to itself, which is the thing being avoided.
+ASSERTION_TAIL = ". That is the play here."
+ASSERTION_TAIL_RULES = ". That is the ruling."
 
 # Sentence boundaries that survive rule ids. "601.2h" and "3." both contain a
 # period, so a naive split truncates mid-citation and would understate `partial`
@@ -164,13 +224,164 @@ def build_candidates(questions: list[dict], rng: random.Random) -> list[dict]:
     return out
 
 
+def question_text(rec: dict) -> str:
+    """What the judge is shown as the question.
+
+    A position's board is RENDERED, never stored as text (POSITIONS.md), so this
+    has to branch rather than read a field. `battlefield` is the discriminator
+    because every position has one and no rules question does.
+    """
+    if "battlefield" in rec:
+        return render_position(rec)
+    if rec.get("question"):
+        return rec["question"]
+    for m in rec.get("messages") or []:
+        if m.get("role") == "user":
+            return m["content"]
+    return ""
+
+
+def build_error_assertions(records: list[dict]) -> tuple[list[dict], int, int]:
+    """One candidate per record that asserts a listed `common_error` verbatim.
+
+    Rotates which error is planted (record i takes error i % len) so the result
+    describes the error list rather than the habits of first entries.
+
+    Behaviour-shaped entries are skipped, not rewritten — see the module
+    docstring. Returns the cases plus BOTH drop counts: entries skipped, and
+    whole records left with nothing plantable. The second is the one that biases
+    a result, because the records that survive are the ones authored in claim
+    form, and a rate over them is a rate over a writing style.
+    """
+    cases, skipped_entries, skipped_records = [], 0, 0
+    for i, rec in enumerate(records):
+        errs = rec.get("common_errors") or []
+        usable = [(n, e) for n, e in enumerate(errs, 1) if not looks_like_behaviour(e)]
+        skipped_entries += len(errs) - len(usable)
+        if not usable:
+            skipped_records += 1
+            continue
+        n, claim = usable[i % len(usable)]
+        tail = ASSERTION_TAIL if "battlefield" in rec else ASSERTION_TAIL_RULES
+        cases.append({
+            "rec": rec,
+            "id": rec.get("id") or rec.get("gold_id"),
+            "n": n,
+            "claim": claim,
+            "answer": claim + tail,
+        })
+    return cases, skipped_entries, skipped_records
+
+
+def run_sensitivity(args) -> None:
+    """Does the judge still CATCH an error that is definitely there?"""
+    records = [r for r in read_jsonl(args.gold)
+               if r.get("key_points") and r.get("common_errors")]
+    if args.limit:
+        records = records[:args.limit]
+    cases, skipped_entries, skipped_records = build_error_assertions(records)
+    if not cases:
+        raise SystemExit(
+            f"{args.gold}: no claim-form common_errors to plant. Every entry reads as a "
+            "description of behaviour, so asserting one verbatim would not produce an "
+            "answer — see Section 21.35 and SCHEMA.md rule 5.")
+    print(f"{len(cases)}/{len(records)} records with a plantable error "
+          f"({skipped_entries} behaviour-shaped entries skipped, "
+          f"{skipped_records} records dropped entirely)")
+
+    if args.dry_run:
+        for c in cases[:3]:
+            print(f"\n--- {c['id']} (error {c['n']}) ---\n  {c['answer']}")
+        return
+
+    from mlx_lm import generate as lm_generate
+    from mlx_lm import load as load_lm
+    print(f"loading {args.judge_model} as judge ...")
+    judge_model, judge_tok = load_lm(args.judge_model)
+    rng = random.Random(args.seed)
+
+    rows = []
+    for i, c in enumerate(cases, 1):
+        out = judge_batch_rubric(
+            lm_generate, judge_model, judge_tok, question_text(c["rec"]),
+            c["rec"]["key_points"], c["rec"]["common_errors"],
+            {"asserts_error": c["answer"]}, args.judge_max_tokens, rng,
+            judge_version=args.judge_prompt)
+        d = out.get("asserts_error") or {}
+        if d.get("errors_made") is None:
+            continue          # ungraded; counted as coverage, never as a miss
+        fired = [e["n"] if isinstance(e, dict) else e for e in d["errors_made"]]
+        rows.append({"id": c["id"], "planted": c["n"], "fired": fired,
+                     "hit": c["n"] in fired, "n_fired": len(fired),
+                     "quote_drops": d.get("quote_drops") or 0,
+                     "judge_model": args.judge_model,
+                     "judge_prompt": args.judge_prompt})
+        if i % 10 == 0 or i == len(cases):
+            print(f"  judged {i}/{len(cases)}")
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with args.out.open("w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    graded = len(rows)
+    coverage = graded / len(cases) if cases else 0.0
+    hit = sum(1 for r in rows if r["hit"]) / graded if graded else float("nan")
+    any_fired = sum(1 for r in rows if r["fired"]) / graded if graded else float("nan")
+    mean_fired = sum(r["n_fired"] for r in rows) / graded if graded else float("nan")
+    drops = sum(r["quote_drops"] for r in rows)
+
+    usable_frac = len(cases) / len(records) if records else 0.0
+    L = ["# Judge sensitivity — the negative control\n",
+         f"{len(cases)} records from `{args.gold.name}`, one candidate each, asserting a "
+         "listed `common_error` **verbatim**. Ground truth is therefore 100%.\n",
+         f"- judge: `{args.judge_model}` (prompt {args.judge_prompt})",
+         f"- **graded {graded}/{len(cases)} ({coverage:.0%})**",
+         f"- **{len(cases)}/{len(records)} records were usable** "
+         f"({skipped_records} had no claim-form error; {skipped_entries} entries skipped)\n"]
+    if usable_frac < 0.90:
+        L.append(
+            f"> **{len(records) - len(cases)} of {len(records)} records could not be used, "
+            f"so this is a selected subset rather than a sample of `{args.gold.name}`.** The "
+            "records that survive are the ones whose `common_errors` were authored as claims, "
+            "and nothing says a judge behaves the same on the rest. Read the rate as a "
+            "property of claim-form rubrics; converting the remainder (Section 21.35) is what "
+            "would make it a property of the set.\n")
+    L += ["| Measure | Value | Expected |",
+         "| --- | --- | --- |",
+         f"| fired the **planted** error | **{hit:.0%}** | 100% |",
+         f"| fired any error | {any_fired:.0%} | 100% |",
+         f"| mean errors fired | **{mean_fired:.2f}** | 1.00 |",
+         f"| quote drops | {drops} | 0 |",
+         "",
+         "`mean errors fired` is the Section 21.26 signature read directly: the answer "
+         "commits exactly one listed error, so a judge much above 1.00 is using the error "
+         "list to flag *this answer is bad* rather than reporting what it found. Measured "
+         "**1.12 on Qwen2.5-32B and 2.75 on Qwen2.5-7B** (Section 21.40).\n",
+         "> **Not comparable to the four-arm `false errors` trip-wire.** One arm here, four "
+         "there, and arm count moves scores by as much as 23 points (Section 21.5). Compare "
+         "this against another single-arm run — that is what isolates the judge.\n"]
+    if hit == hit and hit < 0.90:
+        L.append("> **The judge misses errors that are present verbatim.** Specificity "
+                 "numbers from the four-arm run cannot be read as precision: a judge that "
+                 "fires rarely scores well there for the wrong reason.\n")
+
+    args.report_out.parent.mkdir(parents=True, exist_ok=True)
+    args.report_out.write_text("\n".join(L), encoding="utf-8")
+    print("\n".join(L[5:]))
+    print(f"\n-> {args.report_out}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--gold", type=Path, default=GOLD_EVAL_PATH)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--judge-model", default=BASE_MODEL_ID)
-    ap.add_argument("--judge-prompt", choices=("v3", "v4"), default="v3")
+    ap.add_argument("--judge-prompt", choices=("v3", "v4", "v5"), default="v3")
+    ap.add_argument("--sensitivity", action="store_true",
+                    help="run the negative control instead: plant a listed common_error "
+                         "verbatim and check the judge fires THAT one (see module docstring)")
     ap.add_argument("--judge-max-tokens", type=int, default=900)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", type=Path, default=REPO_ROOT / "eval/runs/calibration.jsonl")
@@ -179,6 +390,16 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true",
                     help="build the candidates and show them; load no model")
     args = ap.parse_args()
+
+    if args.sensitivity:
+        # Separate default paths: a sensitivity run and a calibration run are
+        # different measurements and must never overwrite each other's file.
+        if args.out == ap.get_default("out"):
+            args.out = REPO_ROOT / "eval/runs/sensitivity.jsonl"
+        if args.report_out == ap.get_default("report_out"):
+            args.report_out = REPO_ROOT / "eval/reports/sensitivity.md"
+        run_sensitivity(args)
+        return
 
     questions = [q for q in load_gold_questions(args.gold, args.limit) if q.get("key_points")]
     if not questions:

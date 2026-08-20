@@ -4371,8 +4371,17 @@ rubrics, same prompts, same 1,800-token budget; the judge is the only variable.
 | Qwen2.5-**7B** | 18/24 (**75%**) | 14/24 (58%) |
 | Qwen2.5-**32B** | **1/24 (4%)** | **0/24 (0%)** |
 
-4% clears the ≤5% trip-wire. **The 75% was never a fact about `errors_made`; it
-was a fact about a 7B model.**
+**The 75% was never a fact about `errors_made`; it was a fact about a 7B model.**
+
+**What this benchmark is and is not.** The judge is the only variable across
+those four cells — same positions, same rubrics, same prompt, same budget, same
+single-arm harness — so the 75%-versus-4% comparison is sound. It is *not* the
+same measurement as `calibrate_judge.py`'s `false errors` trip-wire, which runs
+**four** arms on the **rules** gold set; arm count changes every arm's score by
+as much as 23 points (21.5), so 4% here should not be read directly against the
+≤5% bar. The trip-wire's own verdict for this judge is the separate 4-arm rules
+run in 21.31, which measured **0%**. Two independent constructions, both clean,
+neither substituting for the other.
 
 #### Specificity alone proves nothing, so here is the other half
 
@@ -4487,14 +4496,98 @@ claim-form positions can be read as evidence rather than as suspect:
 | `base_open` | 59% | 2.09 |
 | `base_cards_open` | 73% | 1.95 |
 
-Against a 25% bar, **Gate 3 fails on every arm, and now it fails credibly** —
-the judge producing those numbers has a 4% false-positive and a 100%
-true-positive rate on this exact set. The 7B judging the same run puts
-`base_closed` at 77%, worst of the three rather than best, which is a fourth
-gate reversal between judges and needs no further comment.
+Against a 25% bar, **Gate 3 fails on every arm, and the failure is now
+attributable to the answers** rather than to the instrument: on this same
+position set the judge charges a clean answer 1 time in 24 and catches a
+planted error 24 times out of 24. The 7B judging the same run puts `base_closed`
+at 77%, worst of the three rather than best — a fourth gate reversal between
+judges, and it needs no further comment.
 
-Two things this does **not** establish. Specificity was measured on short
-reference answers; real model answers are longer and carry reasoning, and
-nothing here shows the 4% holds on those. And a 22-position run is a proportion
-at n=22. Both are reasons to re-run positions under the 32B at n=24 with the
-current rubrics before quoting a gate number.
+Three things this does **not** establish, in decreasing order of how much they
+should hold back a published gate number:
+
+1. **Specificity was measured on the reference answers, which are one or two
+   sentences.** Real arm answers are far longer and carry reasoning. A judge
+   asked *"did this text assert claim X"* has more surface to match against in
+   400 words than in 20, and the 1/24 gives no evidence about that regime. This
+   is the gap that matters, and the arms above are exactly where it bites.
+2. **The controls ran single-arm; the gate runs three.** Arm count moves scores
+   (21.5), so the control rates were measured under a different prompt shape
+   than the numbers they are being used to license.
+3. n=22 is a proportion at n=22, and the current set is 24.
+
+A re-run at n=24 under the 32B with the current rubrics addresses (3) and
+supplies the answers needed to attack (1) directly — the arms it stores can be
+fed back through the sensitivity construction to measure specificity on
+answer-length text.
+
+### 21.41 The n=24 gate run holds; the long-answer question does not close
+
+The re-run, three arms, 32B judge, current rubrics. Against the stored n=22 it
+is almost a replication:
+
+| Arm | blunder n=22 | **blunder n=24** | errors/answer | correctness | all legal |
+| --- | --- | --- | --- | --- | --- |
+| `base_closed` | 41% | **46%** | 1.17 | 3.04 | 75% |
+| `base_open` | 59% | **58%** | 1.58 | 2.08 | 71% |
+| `base_cards_open` | 73% | **71%** | 1.83 | 2.04 | 62% |
+
+Gate 1 **FAIL** (legality 75%, needs 95% — parsing is 100%, so this is the model
+choosing unavailable plays, not the grammar). Gate 2 **PASS** (67% of positions
+separate the arms, bar is 50%). Gate 3 **FAIL**, best arm 42% against a 25% bar.
+
+`errors/answer` is the useful new column. The 32B fires 1.17–1.83 errors per
+answer here against **1.12 on an answer carrying exactly one** and 2.75 for the
+7B (21.40). These arms are not being sprayed. `error_contradiction` is **0 on
+all three** — the judge never fires the whole list while also crediting half the
+key points, so where it does fire everything, it also credits nothing, which is
+at least coherent.
+
+#### Specificity on position answers: confirmed
+
+21.40 flagged that specificity was measured only on short reference answers.
+For **positions that concern is now closed, because the answers are also short**
+— median 41–59 characters, since an arm emits an action list rather than prose.
+Taking every arm answer credited with **all** its key points and asking how
+often it was nonetheless charged with an error: **1 of 22 (5%)**, against 4% for
+the oracle. The instrument behaves the same on real answers as on the reference,
+so the 46% gate failure is a statement about the model.
+
+#### On the rules set it does not close, and the attempt is worth recording
+
+Rules answers are a different regime: median **428–1,243** characters against
+41–59. The same test on `gold_n99_judge3.jsonl` (the 32B — 8% key-point credit
+identifies it against 21.31's table):
+
+| answers crediting… | n | charged with an error | mean length |
+| --- | --- | --- | --- |
+| **all** key points | 21 | 3 (**14%**) | 968 chars |
+| at least half | 31 | 11 (35%) | 954 chars |
+
+14% looks like specificity degrading with length. **It is not evidence of that**,
+for three reasons, and the third is the one that matters:
+
+1. **The denominator is not a clean control.** The oracle *cannot* commit an
+   error; a model answer that states every key point can still say something
+   wrong alongside them. 14% is an upper bound on false positives, not a
+   measurement of them.
+2. **There is no length trend inside it.** Binned: 0% (n=2) under 400 chars, 40%
+   (n=5) at 400–900, 7% (n=14) at 900+. If length were the driver the longest
+   band would be the worst; it is the best. At these counts none of it resolves.
+3. **Reading the three cases finds three different causes.**
+   `gloss-summoning-sickness-rule` is charged with "extends the restriction to
+   blocking" and "blocks every activated ability" while its text says the
+   opposite of both — a **polarity false positive**, 21.37's mechanism intact on
+   the 32B at 752 characters. `qa-alex-casts-solitude` genuinely never gives
+   priority back to Player A — a **true positive**. `rg-22` is ambiguous.
+
+So the honest position: **21.40's first caveat stands for the rules set.** The
+32B's clean rates are established at 122 characters (positions) and 236 (rules
+references, 0% at n=99 in 21.31), and untested at 1,000. Polarity is visible at
+that length at low rate. Settling it needs a control that is definitionally
+clean *and* answer-length — the reference answer expanded rather than a model
+answer selected — which is a construction that does not exist yet.
+
+**Recorded because the attempt failed, not despite it.** An n=21 upper bound
+with a confound and no trend is the kind of number that becomes "false positives
+rise to 14% on long answers" if only the headline survives.

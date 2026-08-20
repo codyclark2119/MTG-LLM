@@ -435,6 +435,11 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 "illegal": legal_info["illegal"],
                 "actions": parsed.keys(),
             }
+            # A third hand-written copy of the same list would have diverged the
+            # same way the first two did. `all_errors_fired` matters most here:
+            # blunder rate is defined on `errors_made` being non-empty, so a
+            # judge firing the whole list lands directly on the gate.
+            rules_eval.carry_diagnostics(per_arm[arm], j)
         # `judge_model` on every row — see the note at the same site in eval.py.
         # Blunder rate is the metric this most matters for: it is 4% false
         # positives on the 32B and 75% on the 7B for the same positions and the
