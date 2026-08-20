@@ -3455,3 +3455,92 @@ is the lever, the all-fired rate should fall well below the 7B's 50%. If a 4.5×
 larger model in the same family still uses the error list as a bad-answer flag
 at that rate, the defect is in the prompt design or the task, not in capacity —
 and that is a more useful thing to know than the kappa alone.
+
+### 21.27 The calibration lands: the score works, the error detection does not
+
+The positive controls finished under the Qwen2.5-7B judge — the single test
+STRUCTURAL_AUDIT.md names as deciding whether anything else is measurable.
+**98/99 questions graded**, so the numbers are readable rather than a subset.
+
+| Candidate | Mean | Expected |
+| --- | --- | --- |
+| `oracle` (the reference itself) | **3.88** | near 5 |
+| `partial` (half, by sentence) | 3.63 | middle |
+| `wrong` (another question's answer) | 1.10 | near 1 |
+| `refusal` | 1.07 | 1 |
+
+| Trip-wire | Required | Measured | |
+| --- | --- | --- | --- |
+| dynamic range | ≥ 2.5 | **+2.77** | PASS |
+| ordering accuracy | ≥ 90% | **93%** | PASS |
+| false errors on oracle | ≤ 5% | **40%** | **FAIL** |
+
+**Two of three pass, and the instrument splits cleanly in half.**
+
+#### The correctness scale is sound
+
+A 2.77-point separation between the reference answer and a fluent answer to a
+*different* question, with 93% of questions ordered correctly. `wrong` was
+deliberately built as a real, well-written answer rather than gibberish, so the
+judge is not being fooled by fluency — it scores a plausible off-topic answer at
+1.10.
+
+That retroactively licenses the A3 comparison. Fine-tuning trailing retrieval by
+0.50 and 0.80 is 18–29% of a measured 2.77-point range, on a set where 74% of
+questions separate the arms (Section 21.11). **The n=99 verdict is measurable,
+and this is the first evidence that it is.**
+
+#### The error detection is broken, at 40%
+
+The oracle *is* the reference answer. It cannot commit a listed `common_error`.
+The judge charges it with one on **39 of 98 questions**.
+
+This is Section 21.26 arriving from the opposite direction, and the two
+measurements agree: 50% of the Qwen judge's blunder calls fire every listed
+error at once, and 40% of its judgements of the reference answer invent an error
+outright. 11 of the 39 false positives are the fire-everything signature.
+
+The cost is precise, because `rubric_correctness` halves credit when any error
+is present:
+
+    oracle mean when the judge invents no error : 4.86  (n=59)
+    oracle mean when it invents one             : 2.39  (n=39)
+
+**The halving takes 2.47 points off the reference answer, on 40% of the set, for
+errors it definitionally did not make.** That is what drags the oracle from 4.86
+to a reported 3.88.
+
+#### What the instrument would be without it
+
+Inverting the halving on the affected rows:
+
+| | as scored | if `errors_made` ignored |
+| --- | --- | --- |
+| `oracle` | 3.88 | **4.43** |
+| `wrong` | 1.10 | 1.21 |
+| **dynamic range** | **+2.77** | **+3.22** |
+
+A 0.45-point wider range, from deleting one term. The error half of the rubric is
+not merely noisy — it is *subtracting* resolution from a scale that works
+without it.
+
+#### So the answer to "is hardware the constraint" is no, and now specifically no
+
+The deciding test says the instrument is sound on `points_hit` and broken on
+`errors_made`, with the mechanism identified and measured twice. That is a
+prompt-and-metric defect, not a capacity one, and it is where the next work
+belongs:
+
+- **Blunder rate is defined entirely on the broken half.** Gate 3, every
+  gameplay blunder number, and the kappa +0.24 all sit on a field with a 40%
+  false-positive rate against a case that cannot be wrong.
+- **Correctness could stop using it.** Scoring on `points_hit` alone widens the
+  range to 3.22 and removes the false-positive channel from the headline metric.
+  That is a change to a published number and needs a deliberate re-run, not a
+  quiet edit — recorded here as the proposal, not applied.
+
+The Llama calibration is running now, and the 32B is queued behind it. Both
+speak directly to this: if the false-error rate is a Qwen property it should
+drop under Llama, and if it is a capacity property it should drop at 32B. If it
+does neither, the V3 error prompt is simply asking for something a local judge
+cannot do, and `common_errors` needs rethinking rather than a bigger model.
