@@ -158,20 +158,26 @@ errors against an answer carrying exactly one where the 7B fires **2.75** — th
 "every error at once" signature (21.26) measured directly. Blunder rate is a
 working metric on the 32B and is not one on the 7B.
 
-**This is not a size result** (Section 21.42). `Llama-3.1-8B` fires **1.00** on
-that same control — a perfect score, better than the 32B, at the same size as
-the judge that fires 2.75 — and scores 4% false errors in 21.31. What fails is
-`Qwen2.5-7B` specifically. The 32B's real advantage is elsewhere: it credits the
-reference answer at 90% and real model answers at 8%, a **11.2× separation**
-against Llama's 1.3×, and that is what every arm comparison is read off.
-So pick the judge per job — the 32B for correctness, a different family for
-error detection — and never infer a capacity threshold from two models.
+**Of four judges tested, only the 32B works** (Section 21.42). Positions, n=24,
+single arm — and read the *separation*, never either column alone:
 
-Two cautions on quoting those numbers. They come from a **single-arm** pass on
-**positions**, so they are not the `calibrate_judge.py` trip-wire, which is
-four arms on the rules set — that one's verdict for the 32B is a separate 0%
-(21.31). And the 4% is measured on short reference answers; nothing yet shows it
-holds on long model answers carrying reasoning.
+| Judge | fires at a **clean** answer | fires at a **1-error** answer | separation |
+| --- | --- | --- | --- |
+| Qwen2.5-7B | 18/24 (75%) | 24/24, mean 2.75 | 25 pts |
+| Llama-3.1-8B | 14/24 (58%) | 24/24, mean **1.00** | 42 pts |
+| Qwen3-14B | *not measured* | 24/24, mean 1.00 | **unknown** |
+| **Qwen2.5-32B** | **1/24 (4%)** | 24/24, mean 1.12 | **96 pts** |
+
+Llama has the *best* sensitivity of the four and fires at 58% of clean answers.
+**This is not established as a size result** — three points, two sizes, one
+incomplete. The true weaker claim: no judge under 32B has been shown to work,
+and the one that works fits in 18 GB.
+
+Two cautions on quoting these. They come from a **single-arm** pass on
+**positions**, so they are not the `calibrate_judge.py` four-arm rules trip-wire
+(the 32B's verdict there is a separate 0%, 21.31). And Llama scored **4% there
+against 58% here** — arm count and rubric type both moved, it is unresolved, and
+if arm count is the cause then every number in that table is suspect.
 
 Four plan sections investigated the 40% as a property of the field while the
 calibration table already recorded the 32B at 0%. A rate measured on one judge
@@ -210,16 +216,27 @@ to blame.
 double-`"Rules text:"` prompt bug that had produced a convincing false result.
 When adding an arm, add the subset where it should have *no* effect.
 
-**One control measures one direction.** The oracle subset — the reference
-answer, which cannot commit an error — measures only *specificity*, and a judge
-that fires nothing scores perfectly on it. Two plan sections reported a judge
-prompt as "N fixed, **0 regressions**" on oracle-only evidence, where losing a
-true positive is unobservable by construction; the negative control found it had
-lost two (Section 21.40). Build the negative control with it: the claim form of
-`common_errors` means an answer asserting one has committed it **verbatim**, so
-ground truth is definitional and sensitivity is directly measurable. **"No
-regressions" from a positive-control-only design means "no regressions were
-measurable."**
+**One control measures one direction — this has produced three wrong published
+conclusions** (Section 21.43). The oracle subset (an answer that *cannot* commit
+an error) measures only **specificity**; the planted-error subset (an answer that
+commits exactly one, verbatim) measures only **sensitivity**. Each alone is
+uninterpretable, and each alone reads as confident:
+
+- A judge that fires nothing scores a perfect 0% on the oracle control.
+- A judge that fires everything scores a perfect 100% on the planted-error one.
+- Llama-3.1-8B has the **best sensitivity of four judges** (mean 1.00) and fires
+  at **58% of clean answers**. Ranked on either column alone it looks fine.
+
+So `calibrate_judge.py` reports them **as a pair only**, and the headline is
+`P(fire | error) − P(fire | clean)`, which cannot be computed from one half.
+Never quote a judge quality number that has only one side. **A rate measured on
+one half of a control is a statement about that half** — the same lesson as "a
+number from one judge is a statement about the judge", one level up.
+
+The corollary that already bit: "N fixed, **0 regressions**" from oracle-only
+evidence means *no regressions were measurable* — an answer committing no error
+cannot lose a true positive. Two sections published that; the negative control
+found two lost.
 
 **Sample size:** ~100–150 questions to resolve a 0.4-point effect on the 1–5
 scale; ~40 positions for blunder rate, because a proportion with a large

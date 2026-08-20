@@ -11,35 +11,43 @@ instrument is.
 
 This is a plan to find out when that stops being true.
 
-> **Where it stands (Sections 21.31, 21.40, 21.42).** The instrument has two
-> halves and they are limited by different things. Neither is limited by memory.
+> **Where it stands (Sections 21.31, 21.42, 21.43).** The instrument has two
+> halves. **Only one judge of four passes both**, and it is not a memory problem.
 >
-> | | error detection | correctness discrimination |
-> | --- | --- | --- |
-> | | *oracle false errors / errors fired at an answer with one* | *credits oracle vs real answers* |
-> | Qwen2.5-**7B** | **40% rules, 18/24 positions, fires 2.75** | 86% / 43% (2.0×) |
-> | Llama-3.1-**8B** | **4% rules, fires 1.00** | 81% / 63% (1.3×) |
-> | Qwen2.5-**32B** | **0% rules, 1/24 positions, fires 1.12** | 90% / 8% (**11.2×**) |
+> Error detection, positions n=24, single arm — read the *separation*, never
+> either column alone:
 >
-> **Error detection is not size-limited.** An 8B does it as well as the 32B —
-> better, on mean-errors-fired. What fails is Qwen2.5-7B *specifically*, and
-> calling that a capacity result was over-reading one comparison; this document
-> said "a bigger judge WAS necessary" for one commit on exactly that mistake.
+> | | fires at a **clean** answer | fires at a **1-error** answer | separation |
+> | --- | --- | --- | --- |
+> | Qwen2.5-**7B** | 18/24 (75%) | 24/24, mean 2.75 | 25 pts |
+> | Llama-3.1-**8B** | 14/24 (58%) | 24/24, mean **1.00** | 42 pts |
+> | Qwen3-**14B** | *not measured* | 24/24, mean 1.00 | **unknown** |
+> | **Qwen2.5-32B** | **1/24 (4%)** | 24/24, mean 1.12 | **96 pts** |
 >
-> **The case for the 32B rests on the right-hand column instead**, and it is a
-> strong one: 11.2× separation between the reference answer and real model
-> answers, against Llama's 1.3×. A judge that credits real answers at 63% when it
-> credits the reference at 81% is barely distinguishing them.
+> Correctness discrimination, four-arm rules calibration (21.31), a separate
+> measurement: Llama credits the oracle 81% and real answers 63% — **1.3×**. The
+> 32B: 90% and 8% — **11.2×**.
 >
-> Either way the hardware answer is unchanged and now better supported: the judge
-> worth using is **18 GB of 36**, and the alternative that fixes the *other* half
-> is 4 GB. Nothing here wants a 70B (38.6 GB, the first size that would not fit),
-> and the 32B already scores 0% false errors and 100% ordering, so there is
-> little left for one to fix.
+> **The 32B wins both halves, for unrelated reasons.** This document twice said
+> otherwise — once that a bigger judge "has not been shown necessary", once that
+> an 8B did error detection better — and both were written from half a control
+> pair. Llama has the best sensitivity of the four and fires at 58% of clean
+> answers.
 >
-> The open item is not capacity. It is that **every gate verdict published so far
-> is single-judge**, and Gates 2 and 3 have both reversed between judges on
-> byte-identical answers.
+> **This is still not established as a capacity result.** Three points, two
+> sizes, one incomplete. The defensible claim is weaker: *no judge under 32B has
+> been shown to work, and the one that works fits in 18 GB of 36.*
+>
+> The hardware answer is unchanged either way. Nothing wants a 70B (38.6 GB, the
+> first size that would not fit), and the 32B is already at 0% false errors and
+> 100% ordering accuracy on the four-arm trip-wire.
+>
+> **Two open items, neither hardware-shaped.** Every gate verdict published so
+> far is **single-judge**, and Gates 2 and 3 have both reversed between judges on
+> byte-identical answers — and a second judge that passes the paired control does
+> not currently exist. Separately, Llama scored 4% on rules/4-arm against 58% on
+> positions/1-arm; if **arm count** is the cause, every number in the table above
+> is suspect including the 32B's.
 
 ---
 
@@ -352,28 +360,23 @@ question.
 > time). A 70B judge does **not fit in 36 GB at all** — 38.6 GB of weights — so
 > that is the only real trigger, and nothing yet says a 70B judge would help.
 >
-> **CORRECTION, twice over (Sections 21.40, 21.42).** This section read "a 32B
-> judge fits in ~18 GB and *has not been shown necessary*". Section 21.40 found
-> that blunder rate works on the 32B and not on the 7B — 1 false positive in 24
-> against 18, 1.12 errors fired against 2.75 — and this document was edited to
-> say a bigger judge **was** necessary.
+> **CORRECTION, three times over (Sections 21.40, 21.42, 21.43).** This section
+> read "a 32B judge fits in ~18 GB and *has not been shown necessary*". It was
+> then edited to say a bigger judge **was** necessary, then edited again to say
+> an 8B did error detection better. **All three were written from half a control
+> pair**, and the settled version is at the top of this document:
 >
-> **That edit was wrong, and the refuting data was already in this file.**
-> Llama-3.1-8B scores **4% false errors** in the table above and fires **1.00**
-> errors at an answer carrying exactly one — a perfect score, at the same size as
-> the judge that fails. So error detection is a property of *Qwen2.5-7B
-> specifically*, not of 7-to-8B models, and reading a 7B-vs-32B gap as capacity
-> was the same over-generalisation 21.40 was itself written to correct.
+> - The 32B is the only judge of four that separates a blundered answer from a
+>   clean one — 96 points against 42, 25, and one unmeasured.
+> - Llama-3.1-8B's "4% false errors" is from the **four-arm rules** run. On
+>   **positions single-arm** it fires at **58%** of clean answers. Its perfect
+>   1.00 sensitivity is what made it look like a working error detector.
+> - Whether any of this is about *size* remains unestablished. Two sizes, three
+>   points, one incomplete.
 >
-> **The real case for the 32B is discrimination, not error detection.** It
-> credits the reference answer with 90% of its rubric and real model answers with
-> 8% — a ratio of 11.2× against Llama's 1.3×. That is the number no smaller judge
-> has come close to, and it is what makes a model comparison mean anything.
->
-> **The hardware answer is unchanged and better supported.** The judge worth
-> using is 18 GB of 36; the judge that fixes the *other* half is 4 GB. A 70B
-> (38.6 GB) is the first size that would not fit and nothing wants one — the 32B
-> is already at 0% false errors and 100% ordering.
+> **The hardware answer never moved through any of it.** The judge worth using is
+> 18 GB of 36. A 70B (38.6 GB) is the first size that would not fit and nothing
+> wants one — the 32B is already at 0% false errors and 100% ordering.
 >
 > What is left before hardware could become the constraint:
 >

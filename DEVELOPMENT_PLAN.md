@@ -4592,42 +4592,58 @@ answer selected — which is a construction that does not exist yet.
 with a confound and no trend is the kind of number that becomes "false positives
 rise to 14% on long answers" if only the headline survives.
 
-### 21.42 Error detection is not a capacity result — an 8B does it better than the 32B
+### 21.42 Of four judges, only the 32B separates blundered from clean
 
-Section 21.40 read `7B: 18/24` against `32B: 1/24` as judge capacity, and
-STRUCTURAL_AUDIT.md was edited to say a bigger judge had been shown necessary.
-**That was wrong, and the refuting number was already in this document.**
+This section was published twice with the wrong headline before the table below
+was complete, and the drafts are described in 21.43 because the pattern that
+produced them matters more than either wrong answer.
 
-Running the new `--sensitivity` control across the cached judges, same 24
-positions, same rubrics, single arm, v3, 1,800 tokens:
+The measurement: same 24 positions, same claim-form rubrics, **single arm**, v3,
+1,800 tokens. Two halves — an answer that **cannot** commit a listed error (the
+reference), and one that commits **exactly one**, planted verbatim.
 
-| Judge | fired the planted error | **mean errors fired** | quote drops |
+| Judge | fires at a **clean** answer | fires at a **1-error** answer | **separation** |
 | --- | --- | --- | --- |
-| Qwen2.5-7B | 24/24 | **2.75** | 0 |
-| **Llama-3.1-8B** | 24/24 | **1.00** | 0 |
-| Qwen2.5-32B | 24/24 | **1.12** | 0 |
+| Qwen2.5-7B | 18/24 (75%) | 24/24, mean 2.75 | 25 pts |
+| Llama-3.1-8B | 14/24 (58%), mean 0.58 | 24/24, mean 1.00 | 42 pts |
+| Qwen3-14B | *not measured* | 24/24, mean 1.00 | **unknown** |
+| **Qwen2.5-32B** | **1/24 (4%)** | 24/24, mean 1.12 | **96 pts** |
 
-Llama-3.1-8B is **perfect** on this measure — it fires exactly the one error
-that is present and nothing else — and it is the *same size class* as the judge
-that fires 2.75. Section 21.31 already had the matching specificity number:
-Llama at **4% false errors on the oracle**, passing the ≤5% trip-wire, against
-the 7B's 40%.
+Separation is `P(fire | error) − P(fire | clean)`, and it is the only number here
+that means anything on its own. **Blunder rate is defined on `errors_made` being
+non-empty**, so a judge firing at 58% of clean answers cannot support the metric
+however well it catches real errors.
 
-So the pattern is not 7B-bad / 32B-good. It is **Qwen2.5-7B specifically**.
-Two models within a billion parameters of each other sit at opposite ends of it.
+#### Sensitivity alone is worthless, and three judges prove it
 
-#### The same mistake 21.40 was written to correct
+All four judges score **24/24** on catching the planted error. Three of them
+score a mean of 1.00–1.12, which reads as precision. Llama-3.1-8B's 1.00 is the
+best number in that column — **and it fires at 14 of 24 answers that contain no
+error at all.**
 
-21.40's own thesis is *"a rate measured on one judge is a statement about that
-judge"* — and it then generalised a two-model comparison into a claim about
-model size. The available evidence at the time already contained an 8B passing.
-Reading a difference between two models as a difference between two *sizes*
-needs a third point, and the third point was sitting in the calibration table.
+Ranked by sensitivity the four are indistinguishable. Ranked by separation the
+32B beats the next best by 54 points. **The half of the control that discriminates
+is the half that was missing**, and it was missing for every judge but the 7B
+until this section was on its third draft.
 
-#### What the 32B is actually for
+#### What this does and does not establish
 
-Not error detection — an 8B matches it. **Discrimination**, where nothing else
-is close (21.31):
+**Established:** every small judge tested fails, and they fail *differently* —
+the 7B by spraying (2.75 errors at an answer with one, and it fires at 75% of
+clean ones too), Llama by firing at more than half of clean answers while being
+otherwise precise. The 32B is the only one that works.
+
+**Not established:** that this is about size. Two models within a billion
+parameters of each other sit 17 points apart, and Qwen3-14B's clean-answer rate
+is **not measured** — its 1.00 sensitivity says nothing, as Llama demonstrates.
+Three points, two sizes, and one of the three incomplete does not identify a
+capacity threshold. What can be said is the weaker, true thing: **no judge under
+32B has yet been shown to work, and the one that works fits in 18 GB.**
+
+#### The 32B's other advantage is independent of all this
+
+Discrimination on the **correctness** scale, from the four-arm rules calibration
+(21.31) — a different measurement, not to be read against the table above:
 
 | | credits the oracle | credits real answers | ratio |
 | --- | --- | --- | --- |
@@ -4635,16 +4651,52 @@ is close (21.31):
 | **Qwen2.5-32B** | 90% | 8% | **11.2×** |
 
 A judge crediting real model answers with 63% of a rubric it credits the
-reference with 81% of is barely separating them, and every arm comparison in
-this project is read off that separation. That is the 32B's case, and it stands
-untouched by this section.
+reference with 81% of is barely separating them, and every arm comparison in this
+project is read off that separation. So the 32B wins both halves of the
+instrument, for unrelated reasons.
 
-**Consequence for judge selection.** These are different jobs and can be done by
-different models: the 32B for correctness, and a second judge chosen for error
-detection rather than for being small. Llama-3.1-8B is now the obvious second
-judge for the gate comparison — it is a different family, which also attacks
-self-preference, and it is 4 GB.
+#### One number that does not fit, and is now the priority
 
-**Still missing:** Llama's oracle false-positive rate on *positions*, single-arm,
-to sit beside the 7B's 18/24 and the 32B's 1/24. Its 4% is from the four-arm
-rules run, and 21.5 forbids reading those against each other.
+Llama scored **4%** false errors on the rules set at four arms (21.31) and
+**58%** on positions at one arm. **Two variables moved at once** — arm count and
+rubric type — and 21.5 forbids reading four-arm and single-arm numbers against
+each other, which is exactly what makes this unresolved rather than a
+contradiction.
+
+It has to be settled before anything here is built on, because one of the two
+possibilities is corrosive: if **arm count** drives it, then every single-arm
+number in the table above is suspect *including the 32B's 4%*, and the judge
+matrix is measuring the harness. If **rubric type** drives it, positions are
+simply harder to judge than rules questions and the position gates need a wider
+margin. Running Llama on the rules set single-arm isolates it.
+
+### 21.43 Three wrong headlines from the same defect: half a control pair
+
+Sections 21.40 and 21.42 were both published with conclusions that the next
+measurement overturned, and STRUCTURAL_AUDIT.md was edited twice to match. The
+three claims, in order:
+
+| # | Claim | Written from | Overturned by |
+| --- | --- | --- | --- |
+| 1 | "`errors_made` is broken" (21.37) | the 7B alone | the 32B at 4% |
+| 2 | "error detection needs a bigger judge" (21.40) | 7B vs 32B specificity | Llama-8B at 4% on rules |
+| 3 | "an 8B does it better than the 32B" (21.42) | Llama **sensitivity** alone | Llama at 58% specificity |
+
+Each was a defensible reading of what was on the table at the time. Each was
+wrong. And the shape is identical every time: **a judge quality number reported
+from one side of a control that only means something as a pair.**
+
+Claim 3 is the sharpest case because the tooling actively invited it.
+`calibrate_judge.py --sensitivity` prints a clean, confident report — 100% hit
+rate, mean 1.00, zero quote drops — with no indication that the number is
+uninterpretable without its other half. The report was accurate. The conclusion
+drawn from it was not, and nothing in the output pushed back.
+
+**So the fix is not discipline, it is the tool.** A judge quality report that can
+be obtained one-sided will be read one-sided, by me and by anyone else. The
+paired report becomes the only way to get either number, and the headline it
+prints is the separation, which cannot be computed from one half at all.
+
+This is the same lesson as the trap in CLAUDE.md about a rate measured on one
+judge being a statement about that judge — applied one level up. **A rate
+measured on one half of a control is a statement about that half.**
