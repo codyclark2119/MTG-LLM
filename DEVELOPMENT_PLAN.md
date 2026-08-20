@@ -4306,6 +4306,11 @@ introduced. Significance is still short: four discordant pairs all one way is
 McNemar exact **p = 0.125**. Six one-way pairs would reach 0.031, which is
 within reach of the n=99 rules set and not of 24 positions.
 
+> **"0 regressions" here is measured on oracle answers only, where a regression
+> cannot occur** — an answer committing no error cannot lose a true positive.
+> Section 21.40 adds the negative control and finds V5 loses two on this judge.
+> The same caveat applies to 21.38's "3 fixed, 0 regressions" above.
+
 **Two of the four fixes are not the quote check.** `pos-blocking-0005` and
 `pos-mulligan-0002` flipped with **zero** quote drops — nothing was verified
 away, the judge simply did not fire the error once the prompt told it that an
@@ -4352,3 +4357,144 @@ were formed and tested before that (token budget, JSON validity) and both were
 wrong. **When a parse produces a surprising count, read the raw text first;
 reasoning about what the model probably emitted has a worse track record here
 than looking.**
+
+### 21.40 `errors_made` is not broken — the 7B judge is. On the 32B it is a working instrument
+
+Sections 21.36 through 21.39 measured one judge, `Qwen2.5-7B-Instruct-4bit`, and
+wrote their conclusions about **the field**. Running the same benchmark on
+`CALIBRATED_JUDGE_ID` — the 32B, the judge every published comparison actually
+uses — changes the answer completely. Same 24 positions, same claim-form
+rubrics, same prompts, same 1,800-token budget; the judge is the only variable.
+
+| Oracle false positives | V3 | V5 |
+| --- | --- | --- |
+| Qwen2.5-**7B** | 18/24 (**75%**) | 14/24 (58%) |
+| Qwen2.5-**32B** | **1/24 (4%)** | **0/24 (0%)** |
+
+4% clears the ≤5% trip-wire. **The 75% was never a fact about `errors_made`; it
+was a fact about a 7B model.**
+
+#### Specificity alone proves nothing, so here is the other half
+
+A judge that fires no errors at all scores a perfect 0% on the test above and is
+worthless. The oracle test measures only specificity, and nothing in 21.36–21.39
+measured sensitivity — which is the control that should have been there from the
+start, and is the same omission CLAUDE.md already warns about under *"when adding
+an arm, add the subset where it should have no effect."*
+
+Ground truth is definitional here, which is the payoff of the 21.35 rewrite:
+`common_errors` are now claims a wrong answer could contain **verbatim**. So an
+answer asserting one has committed it by construction. Each position was fed its
+own error *i* (rotating *i* by position, so this is not a statement about first
+entries), and the judge must fire exactly that one:
+
+| n=24, one planted error each | fired any | fired **the planted one** | mean errors fired | quote drops |
+| --- | --- | --- | --- | --- |
+| **32B** V3 | 24/24 | **24/24** | **1.12** | 0 |
+| **32B** V5 | 24/24 | **24/24** | **1.00** | 0 |
+| 7B V3 | 24/24 | 24/24 | **2.75** | 0 |
+| 7B V5 | 24/24 | 22/24 | 1.38 | 14 |
+
+**Perfect sensitivity on the 32B, and precise with it.** On an answer carrying
+exactly one listed error it fires 1.12 under V3 and exactly 1.00 under V5 — it
+finds the one that is there and does not spray. Set against 1/24 and 0/24 on
+answers carrying none, `errors_made` on this judge separates blundered from
+clean essentially cleanly.
+
+**The 7B fires 2.75 of them.** Given one error out of three or four, it charges
+the answer with most of the list. That is Section 21.26's "every error at once"
+signature — the error list used as a *this answer is bad* flag — and it is the
+same behaviour as the 75% oracle rate seen from the other side. It does not
+appear on the 32B at all.
+
+#### The control also corrects 21.38 and 21.39: V5's regressions were invisible
+
+Both sections reported V5 as **"fixed N, 0 regressions."** That was measured on
+oracle answers only, where a regression is *by definition* unobservable — an
+answer that commits no error cannot lose a true positive. With the sensitivity
+half in place, V5 on the 7B is:
+
+| Qwen2.5-7B | false positives removed | **true positives lost** |
+| --- | --- | --- |
+| V3 → V5 | 4 (18 → 14) | **2 (24 → 22)** |
+
+`pos-land-sequencing-0001` and `pos-trigger-ordering-0002` assert their planted
+error verbatim and V5 discards it — 14 quote drops on answers where the quote is
+present *exactly*, which is the check's easiest possible case. So V5 buys
+precision with recall rather than for free, and the earlier claim was an artifact
+of measuring only the arm where the cost cannot show up. **"No regressions" from
+a positive-control-only design means "no regressions were measurable."**
+
+#### So V5 is unnecessary, and 21.37's conclusion is withdrawn
+
+V5 has nothing left to do on the 32B. **Zero quote drops** across both the oracle
+and sensitivity runs, on all 96 gradings — the 32B never fabricated an
+unquotable error claim, so the receipt check never fired once. Its one apparent
+gain (1 → 0 false positives) is a single discordant pair, McNemar p = 1.0, and
+on the 7B the same change costs two true positives.
+
+V3 stays the default. V5 remains in the code, tested, as the instrument to reach
+for if a future judge shows the 7B's failure — it is 270 characters and one
+`verify_quoted_claims` call, and keeping it costs nothing.
+
+**Section 21.37's closing sentence — "stop treating `errors_made` as
+recoverable" — is withdrawn.** It was true of the 7B and stated of the field.
+
+#### The mechanism was right, and the 32B's single miss confirms it
+
+21.37 identified polarity: an error that contradicts the answer's own conclusion
+fires 30% of the time against 7% for one that agrees (+23% ± 15%). That holds,
+and the 32B's *only* false positive is a textbook instance of it.
+`pos-combat-math-0002`:
+
+| | |
+| --- | --- |
+| reference answer | "**Cast Lightning Strike** at the opponent **first, then attack** with both creatures." |
+| error 1, fired | "**Attack first and cast Lightning Strike afterwards**" |
+
+Every content word shared; only the order inverted. The answer states the
+error's negation and is charged with it. And V5's polarity instruction — *an
+answer that states the OPPOSITE of an error has not committed it* — is exactly
+what cleared it. n=1, so this illustrates the mechanism rather than measuring it,
+but the mechanism now has independent confirmation at two scales: at rate on the
+7B, and on the single residual failure of the 32B.
+
+#### What this costs, and what it was worth
+
+The honest accounting: **the answer was already in the calibration table.**
+Section 21.31 measured the 32B at **0% false errors** on the rules gold set and
+recorded it as a win over the 7B's 40%. Four sections then investigated the 40%
+as a property of `errors_made` — a grammar hypothesis (21.36, refuted), a
+polarity mechanism (21.37, correct), a V5 remedy (21.38), and a harness bug
+(21.39) — without re-running the one comparison that was already known to
+matter.
+
+It was not unreasonable to check positions separately; they are a different
+rubric shape and 21.35 had just rewritten every entry. What was unreasonable was
+writing "the judge" and "`errors_made` is broken" when the measurement said
+"this 7B". **A rate measured on one judge is a statement about that judge** —
+which is this project's oldest rule, applied to arms and gates since 21.19 and
+not, until now, to the diagnosis of a metric.
+
+#### What this unblocks
+
+Blunder rate is a metric a gate can be defined on, so the stored 32B run on
+claim-form positions can be read as evidence rather than as suspect:
+
+| `pos_claimform_32b.jsonl`, n=22 | blunder rate | mean correctness |
+| --- | --- | --- |
+| `base_closed` | 41% | 3.14 |
+| `base_open` | 59% | 2.09 |
+| `base_cards_open` | 73% | 1.95 |
+
+Against a 25% bar, **Gate 3 fails on every arm, and now it fails credibly** —
+the judge producing those numbers has a 4% false-positive and a 100%
+true-positive rate on this exact set. The 7B judging the same run puts
+`base_closed` at 77%, worst of the three rather than best, which is a fourth
+gate reversal between judges and needs no further comment.
+
+Two things this does **not** establish. Specificity was measured on short
+reference answers; real model answers are longer and carry reasoning, and
+nothing here shows the 4% holds on those. And a 22-position run is a proportion
+at n=22. Both are reasons to re-run positions under the 32B at n=24 with the
+current rubrics before quoting a gate number.

@@ -137,13 +137,24 @@ record has `key_points`. V1 was removed in the Section 17 review.
 
 **Correctness is `points_hit / n_points` and nothing else** (Section 21.28). The
 old rule halved credit whenever `errors_made` was non-empty; the positive
-controls measured the Qwen judge inventing an error against the *reference
+controls measured **Qwen2.5-7B** inventing an error against the *reference
 answer* on 40% of questions, so that term was removing 2.47 points from correct
 answers. `errors_made` is still extracted and is still what blunder rate is
 defined on — it just no longer moves the score. Every row records a `scoring`
 field, `halve_on_error=True` reproduces pre-21.28 numbers from the same stored
 judge output, and `scripts/rescore_stored.py` re-derives any stored run without
 a model.
+
+**That 40% is a fact about the 7B, not about `errors_made`** (Section 21.40).
+Name the judge whenever quoting it. On `CALIBRATED_JUDGE_ID` the same benchmark
+gives **4% false positives with 24/24 true positives**, and the mean number of
+errors fired against an answer carrying exactly one is **1.12 — against 2.75 on
+the 7B**, which is the "every error at once" signature (21.26) measured directly.
+Blunder rate is a working metric on the 32B and is not one on the 7B. Four plan
+sections investigated the 40% as a property of the field while the calibration
+table already recorded the 32B at 0%; a rate measured on one judge is a
+statement about that judge, and that applies to diagnosing a metric exactly as
+it applies to ranking arms.
 
 ## Evaluation — read this before trusting any number
 
@@ -176,6 +187,17 @@ to blame.
 **Controls catch harness bugs.** A no-card control subset caught a
 double-`"Rules text:"` prompt bug that had produced a convincing false result.
 When adding an arm, add the subset where it should have *no* effect.
+
+**One control measures one direction.** The oracle subset — the reference
+answer, which cannot commit an error — measures only *specificity*, and a judge
+that fires nothing scores perfectly on it. Two plan sections reported a judge
+prompt as "N fixed, **0 regressions**" on oracle-only evidence, where losing a
+true positive is unobservable by construction; the negative control found it had
+lost two (Section 21.40). Build the negative control with it: the claim form of
+`common_errors` means an answer asserting one has committed it **verbatim**, so
+ground truth is definitional and sensitivity is directly measurable. **"No
+regressions" from a positive-control-only design means "no regressions were
+measurable."**
 
 **Sample size:** ~100–150 questions to resolve a 0.4-point effect on the 1–5
 scale; ~40 positions for blunder rate, because a proportion with a large
