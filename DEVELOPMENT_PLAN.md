@@ -3196,3 +3196,74 @@ the `base` arm.
 The specific 32B checkpoint is not named here on purpose: the exact
 `mlx-community` id should be confirmed against what is actually published before
 anything is downloaded, rather than guessed into a config file.
+
+### 21.23 The 32B judge experiment, pre-registered
+
+Downloading `mlx-community/Qwen2.5-32B-Instruct-4bit` — 18.44 GB across four
+shards, within 5% of the 17.6 GB predicted in 21.22 from the measured 0.55 GB/B
+scaling. It fits in 36 GB with ~17 GB to spare.
+
+#### Why this checkpoint and not a more interesting one
+
+The question 21.22 poses is narrow: **is judge scale the lever?** Answering it
+requires varying scale and as little else as possible.
+
+`Qwen2.5-32B-Instruct` is the same family, the same generation and the same
+instruction-tuning lineage as `Qwen2.5-7B-Instruct`, which is judge 1 in every
+published run. 4.5× the parameters, everything else held. A Mistral-24B or
+Gemma-27B would have been a more *interesting* download, and would have
+confounded scale with family — a change in agreement could then be either, and
+the run would settle neither.
+
+**The cost of that choice, stated plainly:** this does *not* address
+self-preference. The judge stays in the same family as the `base` arm, which
+STRUCTURAL_AUDIT.md lists as an open question and which a third family would
+settle. That is a separate experiment with a separate download, and running it
+second is deliberate — there is no point testing whether a third family is
+kinder to its own lineage before knowing whether judge scale moves anything at
+all.
+
+#### Predictions, recorded so they can be wrong in public
+
+1. **Coverage rises to ~100%.** The 7B judge already grades 99/99 on V3 at 500
+   tokens, so there is little room, but a larger model producing better-formed
+   JSON is the mechanism that would show up first. If coverage *falls*, the run
+   is uninterpretable for the same reason V4 was (Section 21.14) and the token
+   budget is the first thing to raise.
+2. **Inter-judge agreement rises, but not to the +0.6 trip-wire.** Section 21.20
+   found disagreement diffuse across 91 of 99 records rather than localized on a
+   few bad rubrics, which reads more like a hard task than a fixable one. A jump
+   from r +0.49 to +0.60–0.70 would be a strong result; reaching kappa ≥ 0.6 on
+   the blunder call would be a surprise.
+3. **The A3 ranking does not change.** base_rag > base > finetuned_rag >
+   finetuned held under two judges that disagree at r +0.49. A third judge
+   reversing it would be a much bigger finding than a third judge confirming it,
+   and would say the n=99 verdict was never safe.
+4. **Speed is the practical cost.** At ~0.55 GB/B the 32B is 4.5× the weights of
+   the 7B, so expect roughly 4–5× the wall time per judge call. `--rescore-from`
+   makes that affordable because generation is skipped entirely.
+
+The one that matters is #2. If agreement barely moves, judge *scale* is not the
+lever either — and with rubrics (21.20) and prompt (21.14) already ruled out,
+that would say the gameplay and rules evals are near the ceiling of what a
+local LLM-as-judge can measure, which is a real and reportable conclusion about
+the method rather than about the hardware.
+
+#### What runs, when the GPU frees
+
+```bash
+# rescore stored answers — no generation, judge varied and nothing else
+python scripts/eval.py --rescore-from eval/runs/gold_n99.jsonl \
+  --judge-model mlx-community/Qwen2.5-32B-Instruct-4bit \
+  --out eval/runs/gold_n99_judge3.jsonl \
+  --report-out eval/reports/gold_n99_judge3.md
+
+# three-way agreement, one pair at a time
+python scripts/eval.py --compare eval/runs/gold_n99.jsonl eval/runs/gold_n99_judge3.jsonl \
+  --report-out eval/reports/gold_n99_AGREEMENT_7b_vs_32b.md
+python scripts/eval.py --compare eval/runs/gold_n99_judge2.jsonl eval/runs/gold_n99_judge3.jsonl \
+  --report-out eval/reports/gold_n99_AGREEMENT_8b_vs_32b.md
+```
+
+Positive controls still run first: they say whether *any* judge difference is
+measurable on this scale, and a 32B result is not interpretable without them.
