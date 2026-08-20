@@ -61,7 +61,8 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (96)
+python scripts/test_eval.py                       # the scoring arithmetic (113)
+python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/gameplay/test_actions.py           # the action grammar (84)
 python scripts/gameplay/test_eval_positions.py    # the gameplay gates (32)
 ```

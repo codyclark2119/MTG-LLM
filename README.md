@@ -96,14 +96,14 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | Retrieval chunks | 448 (avg ~690 tok) | derived | yes |
 | Cards | 34,933 playable | Scryfall Oracle | chunks only |
 | Official rulings | 77,918 across 19,726 cards | WotC via Scryfall | chunks only |
-| SFT training set | 2,644 train / 327 valid | synthesized, RAG-grounded | yes |
-| SFT set — verified | 1,019 train / 111 valid | human-written RulesGuru answers | yes |
+| SFT training set | 2,644 train / 327 valid — but only **1,478 distinct** ([§21.13](DEVELOPMENT_PLAN.md)) | synthesized, RAG-grounded | yes |
+| SFT set — verified | 1,001 train / 111 valid | human-written RulesGuru answers | yes |
 | Eval — synthetic | 70 | generated from rules | yes |
 | Eval — Reddit | 200 + 100 card-focused | r/MTGRules, LLM-filtered | yes |
 | RulesGuru snapshot | 1,402 verified Q&A | rulesguru.org API | yes |
 | RulesGuru candidates | 1,202 (drafted rubrics) | derived | yes |
 | **Gold set** | **99** (human-reviewed rubrics) | RulesGuru + CR glossary | yes |
-| **Positions** | **22** (18 hand-adjudicated) | authored boards | yes |
+| **Positions** | **24** (20 hand-adjudicated) | authored boards | yes |
 | Judge worksheets | 39 scenarios | Competitive REL sims | yes |
 
 ## Scripts
@@ -137,7 +137,7 @@ Beyond explaining rules: give the model a board and let it choose a play. See [D
 
 ```bash
 python scripts/gameplay/test_actions.py                 # parser assertions (84)
-python scripts/gameplay/positions.py                    # validate the 22-position set
+python scripts/gameplay/positions.py                    # validate the 24-position set
 python scripts/gameplay/positions.py --render pos-blocking-0001 --closed   # see the prompt
 python scripts/gameplay/eval_positions.py --second-judge mlx-community/Meta-Llama-3.1-8B-Instruct-4bit
 
