@@ -3623,3 +3623,48 @@ longer depends on a field whose reliability varies tenfold between two judges of
 the same size. `errors_made` is still extracted, still reported, and still what
 blunder rate is defined on — the broken channel was removed from the score, not
 from the record.
+
+### 21.29 The position eval judged itself, and the self-judge is the miscalibrated one
+
+`eval_positions.py --judge-model` defaulted to `--base-model`: a bare run had the
+model grading its own answers. The reports have warned about self-preference
+since Section 9.9, but it was a caveat printed under the numbers rather than a
+reason to change the default.
+
+Section 21.27 turned it into a measured defect. With Qwen2.5-7B as both subject
+and judge, the judge invents a `common_error` against the *reference answer* 40%
+of the time — and blunder rate is defined on that field. The cost on identical
+stored answers:
+
+| Run | Gate 3 under Qwen | under Llama |
+| --- | --- | --- |
+| `pos_qwen25_3arm` | 71% | 53% |
+| `positions_n22` | 47% | 47% |
+| `positions_n22_think` | **65%** | **27%** |
+
+| Arm (`pos_qwen25_3arm`) | Qwen | Llama | |
+| --- | --- | --- | --- |
+| `base_open` | 73% | 47% | **+25** |
+| `base_closed` | 82% | 68% | +13 |
+| `base_cards_open` | 73% | 74% | −1 |
+
+On the think run the two judges put the same answers at 65% and 27% against a
+25% gate — one of them 40 points from passing, the other 2.
+
+**The default is now `common.CALIBRATED_JUDGE_ID`** (Llama-3.1-8B), the only
+judge that passes all three trip-wires. This is not a preference between two
+reasonable options: one of them fabricates the metric four times in ten.
+
+Two things keep it from becoming the stale-default trap this repo already fell
+into. It is overridable — passing the base model's id explicitly reproduces any
+self-judged run — and the judge is recorded in every report, which is how the
+40% was found in the first place. The constant lives in `common.py` rather than
+`eval.py` because `eval_positions.py` needs it while building its argument
+parser and defers `import eval` to `main()` to keep mlx out of `--help`; putting
+it in `eval.py` raised a `NameError` at parser-construction time, caught by
+building the parser rather than by reading it.
+
+**What this does not fix.** Every position number published before this used the
+self-judge. Sections 20 and 21.8 in particular rest on Qwen-judged blunder
+rates, and those are inflated by up to 25 points. The Llama-judged columns exist
+for all three runs and are the ones to read.

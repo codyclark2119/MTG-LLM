@@ -263,6 +263,26 @@ def build_rag_messages(question: str, context: str | None = None,
     ]
 
 
+# The judge with measured calibration, and the only one that passes all three
+# STRUCTURAL_AUDIT.md trip-wires (Section 21.27):
+#
+#                          dynamic range   ordering   false errors on oracle
+#   Qwen2.5-7B-Instruct        +2.77          93%              40%   FAIL
+#   Llama-3.1-8B-Instruct      +2.74          94%               4%   PASS
+#
+# "False errors on oracle" is the reference answer being charged with a
+# `common_error` it definitionally cannot have committed — and blunder rate is
+# defined on exactly that field. Choosing between these two is not a preference:
+# one of them invents the gameplay metric four times in ten.
+#
+# Lives here rather than in eval.py because eval_positions.py needs it while
+# building its argument parser, and it defers `import eval` until main() to keep
+# the mlx import out of `--help`.
+#
+# Overridable with --judge-model and recorded in every report, per the stale
+# ADAPTER_PATH lesson.
+CALIBRATED_JUDGE_ID = "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
+
 PROMPT_STAMP_FILE = "prompt_fingerprint.json"
 
 

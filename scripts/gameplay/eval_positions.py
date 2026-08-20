@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from actions import legality, match_to_legal, parse_output, visible_answer  # noqa: E402
 from common import (  # noqa: E402
+    CALIBRATED_JUDGE_ID,
     POSITIONS_PATH,
     REPO_ROOT,
     build_position_messages,
@@ -253,7 +254,17 @@ def main() -> None:
                         help="defaults to eval.BASE_MODEL_ID; a larger 4-bit model fits "
                              "at 36GB for inference")
     parser.add_argument("--adapter-path", default=None, help="defaults to eval.ADAPTER_PATH")
-    parser.add_argument("--judge-model", default=None, help="defaults to --base-model")
+    # Was `defaults to --base-model`, i.e. the model judged itself. That is the
+    # self-preference problem the reports have warned about since Section 9.9,
+    # and Section 21.27 turned it into a measured defect: with Qwen2.5-7B as
+    # both subject and judge, the judge invents a common_error against the
+    # reference answer 40% of the time, and blunder rate is defined on that
+    # field. Measured cost on identical answers: up to +25 points of blunder
+    # rate, and Gate 3 reading 65% under Qwen against 27% under Llama.
+    parser.add_argument("--judge-model", default=CALIBRATED_JUDGE_ID,
+                        help="defaults to the calibrated judge (Section 21.27), NOT the "
+                             "model under test. Pass --base-model's id explicitly to "
+                             "reproduce a self-judged run.")
     parser.add_argument("--second-judge", default=None,
                         help="also score with this judge and emit an agreement report. "
                              "Section 16.12: Gates 2 and 3 both reversed between judges on "
