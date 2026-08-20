@@ -4029,3 +4029,79 @@ blunder rate is defined there and the set is a quarter the size. The rules eval
 uses `errors_made` only as a reported diagnostic now that correctness ignores it
 (Section 21.28), so the cost of leaving them is lower — but the same 40%
 false-positive rate applies, and the same fix should follow.
+
+### 21.36 The claim form does not fix error detection — the hypothesis is refuted
+
+Section 21.35 argued that `errors_made` is broken because `common_errors` were
+written as behaviours while `key_points` are claims, and the judge is asked the
+same *did the candidate assert this?* question about both. It is a tidy
+explanation. It is wrong.
+
+**Test 1 — the same stored answers, the same judge, only the rubric form
+changed** (`--rescore-from` over `pos_qwen25_3arm`, Qwen2.5-7B):
+
+| Rubric form | blunder calls | all-errors-fired | share |
+| --- | --- | --- | --- |
+| behaviour (old) | 50 | 23 | 46% |
+| claim (new) | 43 | 21 | **49%** |
+
+No improvement. Under the calibrated 32B judge the same claim-form rubric fires
+the whole error list on **63%** of its blunder calls.
+
+**Test 2 — the decisive one.** All-errors-fired on a *model* answer conflates
+"the judge is spraying" with "the answer really is bad". So: feed each position
+its **own correct answer** and count how often the judge charges it with an
+error. The correct line definitionally commits none, so every hit is a false
+positive — the calibration's oracle test, applied to positions, with rubric form
+as the only variable:
+
+| Rubric form | oracle false positives |
+| --- | --- |
+| behaviour (old) | 16/23 = **70%** |
+| claim (new) | 18/24 = **75%** |
+
+**+5% ± 26% at 95%.** Not distinguishable from zero, and pointing the wrong way.
+
+#### What the real driver looks like
+
+The same calibration data says the false-positive rate varies far more by
+*question type* than anything the rubric grammar could explain:
+
+| Category | FP rate on the oracle |
+| --- | --- |
+| templating/keyword meaning | **77%** |
+| interaction puzzle | 46% |
+| state-based actions | 46% |
+| zone transition | 42% |
+| turn-structure walkthrough | 38% |
+| layer-system question | 23% |
+| definition recall | 22% |
+| priority reasoning | **17%** |
+
+A 60-point spread across categories, against a 5-point non-effect from rubric
+form. Rubric size barely differs between the clean and false-positive groups
+(2.6 vs 2.8 common errors, 3.2 vs 3.6 key points), so it is not "more entries,
+more chances to fire" either.
+
+Positions are also markedly worse than rules questions for the same judge: **70%
+oracle false positives against the gold set's 40%.** A board that has to be read
+and simulated is a harder grading task than a rules question, and the error list
+is where that difficulty surfaces.
+
+#### What I am doing about it
+
+**Not converting the remaining 214 gold entries.** They were justified by a
+hypothesis that measurement has now refuted, and 214 hand-rewrites of
+hand-labelled data on a theory the data does not support is exactly the kind of
+work that should stop when the evidence arrives.
+
+The 83 position entries stay converted. The change is defensible on its own
+terms — the entries are more precise, the two lints no longer contradict each
+other, and SCHEMA.md now states a testable rule — but **it should not be
+described as an improvement to error detection, because it is not one.** The
+cost is real and worth stating: every position blunder number now predates the
+rubric it was scored against.
+
+The honest summary is that `errors_made` remains broken, the cause is not the
+one this section set out to fix, and the strongest lead is that some question
+categories are simply much harder to grade for errors than others.
