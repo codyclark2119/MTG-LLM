@@ -308,6 +308,15 @@ Each cost real time. They recur in new code, so they are worth knowing.
   an expensive prompt), and both times two hypotheses were reasoned out and
   tested before anyone printed the raw text — both wrong. **When a parse yields
   a surprising count, look at the bytes before theorizing about them.**
+- **A harness bug whose trigger rate depends on the condition under test.** The
+  unwrapped-JSON bug above hit the V5 prompt on 8 of 24 calls and the V3 control
+  on 0 — V5's added text mentions no output format, but naming a new per-entry
+  field moved the judge off the `{"A": …}` wrapper. So the bug arrived wearing
+  the shape of a result: *"the quote requirement costs a third of the coverage."*
+  A bug that fires uniformly is visible as a bug; one correlated with the
+  treatment is indistinguishable from a finding about the treatment. When an arm
+  differs from its control on a **harness** metric — coverage, parse rate, drop
+  count — rather than on the thing being measured, suspect the harness first.
 
 ## Conventions
 

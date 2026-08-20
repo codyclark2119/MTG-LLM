@@ -4261,6 +4261,31 @@ With several arms an unwrapped object cannot be attributed to any of them and
 must still fail — that is the case worth keeping a test on, along with a wrapped
 single-arm result not being double-wrapped.
 
+#### Why it hit V5 and not V3 — the bug was correlated with the treatment
+
+Both versions are single-arm here, so both ran through the same broken line. V3
+lost nothing. Counting the shape the judge actually emitted, n = 24 each:
+
+| | wrapped `{"A": …}` | unwrapped | unparseable |
+| --- | --- | --- | --- |
+| V3 | **24** | 0 | 0 |
+| V5 | 16 | **8** | 0 |
+
+Eight unwrapped, eight "ungraded" — the same eight. **The V5 prompt changed the
+judge's serialization on a third of its calls**, and V5's added text says nothing
+about output format; it adds a verbatim-quote requirement to `errors_made` and a
+sentence about polarity. Naming a new per-entry field appears to pull the model
+toward emitting an entry rather than a map of them.
+
+This is the part worth carrying forward. **A harness bug that fires uniformly
+gets noticed as a bug. One whose trigger rate is a function of the condition
+under test gets read as a finding about that condition** — here, "the quote
+requirement costs a third of the coverage," which is a coherent, plausible,
+entirely fictional result that survived one round of hypothesis-testing. The
+control is what exposed it: V3 at 24/24 through the same code path meant the
+difference could not be in the shared harness *unless* the harness was
+prompt-sensitive, which is the possibility that took longest to reach.
+
 **No published number can move.** The unwrapping fires only at one arm, and
 every published run used three to five; the run that checked this reports *none*.
 The bug was reachable only from the single-arm benchmark harness — which is to
