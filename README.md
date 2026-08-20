@@ -103,7 +103,7 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | RulesGuru snapshot | 1,402 verified Q&A | rulesguru.org API | yes |
 | RulesGuru candidates | 1,202 (drafted rubrics) | derived | yes |
 | **Gold set** | **99** (human-reviewed rubrics) | RulesGuru + CR glossary | yes |
-| **Positions** | **24** (20 hand-adjudicated) | authored boards | yes |
+| **Positions** | **24** (all hand-adjudicated) | authored boards | yes |
 | Judge worksheets | 39 scenarios | Competitive REL sims | yes |
 
 ## Scripts

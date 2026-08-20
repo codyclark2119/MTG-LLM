@@ -3770,3 +3770,56 @@ smaller judges are the loose ones.
 
 Nothing about judge scale should be concluded until that lands — which is the
 whole reason a judge gets calibrated before its agreement number is read.
+
+### 21.32 The position set is fully hand-adjudicated, and one board was illegal
+
+The last four positions carried `machine-drafted (assistant); awaiting author
+review`. All four lines were put to the author and confirmed:
+
+| Position | Line | Verdict |
+| --- | --- | --- |
+| `pos-blocking-0004` | Block Serra Angel with Nessian Asp (reach) | confirmed |
+| `pos-combat-math-0006` | Attack — the only blocker is tapped, 3 is lethal | confirmed |
+| `pos-land-sequencing-0003` | Play Mountain — keeps Shock live | confirmed, with a reason the draft missed |
+| `pos-removal-timing-0003` | Doom Blade the Serra Angel | confirmed |
+
+**24/24 hand-authored.** Every card claim was resolved through `CardIndex`
+first, per the standing rule — Nessian Asp's reach, Serra Angel's flying, Wall
+of Omens' lack of both, and Doom Blade's *nonblack* restriction against a white
+Angel and a green Courser all check out.
+
+#### The board said something the rules forbid
+
+`pos-blocking-0004` rendered Serra Angel as `tapped ** ATTACKING **`. Serra
+Angel has **vigilance** — attacking never taps it. The play is unaffected, which
+is exactly why it survived drafting and validation: `timing_problems()` checks
+whether an action could legally be taken, not whether the board could legally
+exist.
+
+It is the Pacifism failure (Section 21, batch 5) in a quieter form. That one
+offered a sorcery-speed play at instant speed and was caught because the *play*
+was impossible. This one is a board state that cannot arise, presented to a
+model being asked to reason about the rules. Now untapped.
+
+**A validator that checks actions does not check states.** Vigilance is the
+cheapest case; the general form is any keyword whose effect is a board
+invariant. Worth a `board_problems()` companion to `timing_problems()` if more
+positions are authored.
+
+#### The author's reasoning added a rubric entry
+
+On the land drop the confirmation came with a correction: Mountain is right both
+because it keeps Shock castable *and* because the Forest still delivers turn-3
+Centaur Courser either way — and **Giant Growth is irrelevant, because there is
+no creature on the battlefield to target.**
+
+The first two were already key points 1–3. The third was not anywhere, and it is
+precisely the shape of wrong reasoning a model produces: keep double green for
+the pump spell. Added as a fourth common error:
+
+    Keeps the second Forest for Giant Growth, which has no creature on the
+    battlefield to target this turn
+
+This is the Section 21.3 lesson applied at authoring time rather than after a
+run — *a rubric with no entry for the most likely wrong answer cannot catch it*,
+and the lint cannot help, because it checks the lines that are there.
