@@ -11,22 +11,35 @@ instrument is.
 
 This is a plan to find out when that stops being true.
 
-> **Where it stands (Sections 21.31, 21.40, 21.41).** One thing did turn out to
-> need a bigger model: **error detection works on a 32B judge and does not work
-> on a 7B** — 1 false positive in 24 against 18, on identical positions and
-> rubrics. Blunder rate is defined on that field, so half the instrument was
-> judge-limited all along.
+> **Where it stands (Sections 21.31, 21.40, 21.42).** The instrument has two
+> halves and they are limited by different things. Neither is limited by memory.
 >
-> That is still not a reason to migrate. **The judge that fixed it is 18 GB and
-> the machine is 36.** It moves the answer from "no bigger judge has been shown
-> to help" to "one did, and it fits" — which is a *stronger* not-yet, because the
-> next size up (70B, 38.6 GB) is the first thing that would not fit, and the 32B
-> already scores 0% false errors and 100% ordering accuracy. There is little left
-> for a 70B to fix.
+> | | error detection | correctness discrimination |
+> | --- | --- | --- |
+> | | *oracle false errors / errors fired at an answer with one* | *credits oracle vs real answers* |
+> | Qwen2.5-**7B** | **40% rules, 18/24 positions, fires 2.75** | 86% / 43% (2.0×) |
+> | Llama-3.1-**8B** | **4% rules, fires 1.00** | 81% / 63% (1.3×) |
+> | Qwen2.5-**32B** | **0% rules, 1/24 positions, fires 1.12** | 90% / 8% (**11.2×**) |
 >
-> The open item is no longer capacity. It is that **every gate verdict published
-> so far is single-judge**, and Gates 2 and 3 have both reversed between judges
-> on byte-identical answers.
+> **Error detection is not size-limited.** An 8B does it as well as the 32B —
+> better, on mean-errors-fired. What fails is Qwen2.5-7B *specifically*, and
+> calling that a capacity result was over-reading one comparison; this document
+> said "a bigger judge WAS necessary" for one commit on exactly that mistake.
+>
+> **The case for the 32B rests on the right-hand column instead**, and it is a
+> strong one: 11.2× separation between the reference answer and real model
+> answers, against Llama's 1.3×. A judge that credits real answers at 63% when it
+> credits the reference at 81% is barely distinguishing them.
+>
+> Either way the hardware answer is unchanged and now better supported: the judge
+> worth using is **18 GB of 36**, and the alternative that fixes the *other* half
+> is 4 GB. Nothing here wants a 70B (38.6 GB, the first size that would not fit),
+> and the 32B already scores 0% false errors and 100% ordering, so there is
+> little left for one to fix.
+>
+> The open item is not capacity. It is that **every gate verdict published so far
+> is single-judge**, and Gates 2 and 3 have both reversed between judges on
+> byte-identical answers.
 
 ---
 
@@ -339,25 +352,28 @@ question.
 > time). A 70B judge does **not fit in 36 GB at all** — 38.6 GB of weights — so
 > that is the only real trigger, and nothing yet says a 70B judge would help.
 >
-> **CORRECTION (Section 21.40).** This section previously read "a 32B judge fits
-> in ~18 GB and *has not been shown necessary*." It has now been shown necessary.
-> On the same 24 positions with the same rubrics, judge as the only variable:
+> **CORRECTION, twice over (Sections 21.40, 21.42).** This section read "a 32B
+> judge fits in ~18 GB and *has not been shown necessary*". Section 21.40 found
+> that blunder rate works on the 32B and not on the 7B — 1 false positive in 24
+> against 18, 1.12 errors fired against 2.75 — and this document was edited to
+> say a bigger judge **was** necessary.
 >
-> | | charges a clean answer | errors fired at an answer carrying one |
-> | --- | --- | --- |
-> | Qwen2.5-7B | 18/24 | 2.75 |
-> | **Qwen2.5-32B** | **1/24** | **1.12** |
+> **That edit was wrong, and the refuting data was already in this file.**
+> Llama-3.1-8B scores **4% false errors** in the table above and fires **1.00**
+> errors at an answer carrying exactly one — a perfect score, at the same size as
+> the judge that fails. So error detection is a property of *Qwen2.5-7B
+> specifically*, not of 7-to-8B models, and reading a 7B-vs-32B gap as capacity
+> was the same over-generalisation 21.40 was itself written to correct.
 >
-> Blunder rate is defined on `errors_made` being non-empty, so on the 7B that
-> metric does not work at all and on the 32B it does. Judge scale **was** the
-> lever, for this half of the instrument.
+> **The real case for the 32B is discrimination, not error detection.** It
+> credits the reference answer with 90% of its rubric and real model answers with
+> 8% — a ratio of 11.2× against Llama's 1.3×. That is the number no smaller judge
+> has come close to, and it is what makes a model comparison mean anything.
 >
-> **This strengthens the "do not migrate" answer rather than weakening it.** The
-> question has moved from *"we do not know whether a bigger judge helps"* to
-> *"a bigger judge helped, and the size that helped is 18 GB of 36."* The next
-> trigger is unchanged and now sharper: a 70B judge is the only thing that would
-> not fit, and there is still no evidence one is needed — the 32B already scores
-> 0% false errors and 100% ordering, so there is little left for a 70B to fix.
+> **The hardware answer is unchanged and better supported.** The judge worth
+> using is 18 GB of 36; the judge that fixes the *other* half is 4 GB. A 70B
+> (38.6 GB) is the first size that would not fit and nothing wants one — the 32B
+> is already at 0% false errors and 100% ordering.
 >
 > What is left before hardware could become the constraint:
 >

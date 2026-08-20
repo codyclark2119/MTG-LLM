@@ -158,6 +158,15 @@ errors against an answer carrying exactly one where the 7B fires **2.75** — th
 "every error at once" signature (21.26) measured directly. Blunder rate is a
 working metric on the 32B and is not one on the 7B.
 
+**This is not a size result** (Section 21.42). `Llama-3.1-8B` fires **1.00** on
+that same control — a perfect score, better than the 32B, at the same size as
+the judge that fires 2.75 — and scores 4% false errors in 21.31. What fails is
+`Qwen2.5-7B` specifically. The 32B's real advantage is elsewhere: it credits the
+reference answer at 90% and real model answers at 8%, a **11.2× separation**
+against Llama's 1.3×, and that is what every arm comparison is read off.
+So pick the judge per job — the 32B for correctness, a different family for
+error detection — and never infer a capacity threshold from two models.
+
 Two cautions on quoting those numbers. They come from a **single-arm** pass on
 **positions**, so they are not the `calibrate_judge.py` trip-wire, which is
 four arms on the rules set — that one's verdict for the 32B is a separate 0%

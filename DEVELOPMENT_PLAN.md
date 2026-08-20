@@ -4591,3 +4591,60 @@ answer selected — which is a construction that does not exist yet.
 **Recorded because the attempt failed, not despite it.** An n=21 upper bound
 with a confound and no trend is the kind of number that becomes "false positives
 rise to 14% on long answers" if only the headline survives.
+
+### 21.42 Error detection is not a capacity result — an 8B does it better than the 32B
+
+Section 21.40 read `7B: 18/24` against `32B: 1/24` as judge capacity, and
+STRUCTURAL_AUDIT.md was edited to say a bigger judge had been shown necessary.
+**That was wrong, and the refuting number was already in this document.**
+
+Running the new `--sensitivity` control across the cached judges, same 24
+positions, same rubrics, single arm, v3, 1,800 tokens:
+
+| Judge | fired the planted error | **mean errors fired** | quote drops |
+| --- | --- | --- | --- |
+| Qwen2.5-7B | 24/24 | **2.75** | 0 |
+| **Llama-3.1-8B** | 24/24 | **1.00** | 0 |
+| Qwen2.5-32B | 24/24 | **1.12** | 0 |
+
+Llama-3.1-8B is **perfect** on this measure — it fires exactly the one error
+that is present and nothing else — and it is the *same size class* as the judge
+that fires 2.75. Section 21.31 already had the matching specificity number:
+Llama at **4% false errors on the oracle**, passing the ≤5% trip-wire, against
+the 7B's 40%.
+
+So the pattern is not 7B-bad / 32B-good. It is **Qwen2.5-7B specifically**.
+Two models within a billion parameters of each other sit at opposite ends of it.
+
+#### The same mistake 21.40 was written to correct
+
+21.40's own thesis is *"a rate measured on one judge is a statement about that
+judge"* — and it then generalised a two-model comparison into a claim about
+model size. The available evidence at the time already contained an 8B passing.
+Reading a difference between two models as a difference between two *sizes*
+needs a third point, and the third point was sitting in the calibration table.
+
+#### What the 32B is actually for
+
+Not error detection — an 8B matches it. **Discrimination**, where nothing else
+is close (21.31):
+
+| | credits the oracle | credits real answers | ratio |
+| --- | --- | --- | --- |
+| Llama-3.1-8B | 81% | 63% | 1.3× |
+| **Qwen2.5-32B** | 90% | 8% | **11.2×** |
+
+A judge crediting real model answers with 63% of a rubric it credits the
+reference with 81% of is barely separating them, and every arm comparison in
+this project is read off that separation. That is the 32B's case, and it stands
+untouched by this section.
+
+**Consequence for judge selection.** These are different jobs and can be done by
+different models: the 32B for correctness, and a second judge chosen for error
+detection rather than for being small. Llama-3.1-8B is now the obvious second
+judge for the gate comparison — it is a different family, which also attacks
+self-preference, and it is 4 GB.
+
+**Still missing:** Llama's oracle false-positive rate on *positions*, single-arm,
+to sit beside the 7B's 18/24 and the 32B's 1/24. Its 4% is from the four-arm
+rules run, and 21.5 forbids reading those against each other.
