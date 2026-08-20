@@ -151,15 +151,23 @@ before this carry none of it and are identified by filename only; five have
 `scoring` because a different path wrote them.
 
 **That 40% is a fact about the 7B, not about `errors_made`** (Section 21.40).
-Name the judge whenever quoting it. On `CALIBRATED_JUDGE_ID` the same benchmark
-gives **4% false positives with 24/24 true positives**, and the mean number of
-errors fired against an answer carrying exactly one is **1.12 — against 2.75 on
-the 7B**, which is the "every error at once" signature (21.26) measured directly.
-Blunder rate is a working metric on the 32B and is not one on the 7B. Four plan
-sections investigated the 40% as a property of the field while the calibration
-table already recorded the 32B at 0%; a rate measured on one judge is a
-statement about that judge, and that applies to diagnosing a metric exactly as
-it applies to ranking arms.
+Name the judge whenever quoting it. On the same 24 positions, single-arm, with
+the judge as the only variable, `CALIBRATED_JUDGE_ID` charges the reference
+answer with an error on **1 of 24 against the 7B's 18**, and fires **1.12**
+errors against an answer carrying exactly one where the 7B fires **2.75** — the
+"every error at once" signature (21.26) measured directly. Blunder rate is a
+working metric on the 32B and is not one on the 7B.
+
+Two cautions on quoting those numbers. They come from a **single-arm** pass on
+**positions**, so they are not the `calibrate_judge.py` trip-wire, which is
+four arms on the rules set — that one's verdict for the 32B is a separate 0%
+(21.31). And the 4% is measured on short reference answers; nothing yet shows it
+holds on long model answers carrying reasoning.
+
+Four plan sections investigated the 40% as a property of the field while the
+calibration table already recorded the 32B at 0%. A rate measured on one judge
+is a statement about that judge, and that applies to diagnosing a metric exactly
+as it applies to ranking arms.
 
 ## Evaluation — read this before trusting any number
 
