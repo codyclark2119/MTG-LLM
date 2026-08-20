@@ -3668,3 +3668,41 @@ building the parser rather than by reading it.
 self-judge. Sections 20 and 21.8 in particular rest on Qwen-judged blunder
 rates, and those are inflated by up to 25 points. The Llama-judged columns exist
 for all three runs and are the ones to read.
+
+### 21.30 The all-errors-fired artifact does not explain the low kappa
+
+Section 21.26 established that the Qwen judge fires every listed `common_error`
+at once on half its blunder calls, and 21.27 that it invents an error against
+the reference answer 40% of the time. The obvious next hypothesis: that artifact
+is what makes inter-judge kappa +0.24. Removing those calls should lift it.
+
+**It does not.** Recomputing kappa on the blunder call with every pair excluded
+where *either* judge fired the whole error list:
+
+| Run | kappa | excluding all-fired | |
+| --- | --- | --- | --- |
+| `positions_n22` (the +0.24 the audit cites) | +0.24 | **+0.11** | −0.13 |
+| `positions_n22_think` | +0.14 | +0.31 | +0.17 |
+| `pos_qwen25_3arm` | +0.34 | +0.48 | +0.14 |
+| `gold_n99` (rules) | +0.41 | +0.48 | +0.07 |
+
+Three improve, one gets notably worse, and the one that gets worse is the run
+the +0.24 figure comes from. Around 44% of pairs are dropped in every case, so
+this is not a sample-size accident in one direction.
+
+The mechanism for the reversal is straightforward once stated: when *both*
+judges fire the whole list on the same item, that pair is an **agreement**, and
+removing agreements can lower kappa even as it removes a defect. The artifact
+and the disagreement overlap; neither contains the other.
+
+**What this rules out, and what it leaves.** The all-errors-fired behaviour is
+real, measured twice, and inflates blunder rate by up to 25 points — that stands
+and is why the judge default changed (21.29). But it is *not* the explanation for
+judge disagreement, and fixing it should not be expected to deliver kappa ≥ 0.6.
+
+That also means the open item in STRUCTURAL_AUDIT.md stays genuinely open rather
+than pre-answered: kappa between two *calibrated* judges has to be measured, not
+inferred from this. A second thing worth noting is how unstable kappa is at
+these sizes — +0.14 to +0.41 across four runs of the same eval, on the same two
+judges. Any kappa target should be read against that spread before it is treated
+as a threshold.
