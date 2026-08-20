@@ -3823,3 +3823,62 @@ the pump spell. Added as a fourth common error:
 This is the Section 21.3 lesson applied at authoring time rather than after a
 run — *a rubric with no entry for the most likely wrong answer cannot catch it*,
 and the lint cannot help, because it checks the lines that are there.
+
+### 21.33 The `partial` control was 79% of the answer, and one trip-wire was vacuous
+
+`half_answer` builds the mid-scale control in the calibration harness. It
+appended a sentence and *then* tested whether half the text had been reached, so
+it always overshot by a whole sentence. On these answers — short, few sentences —
+the result was not half:
+
+| | mean | median | **byte-identical to the full answer** |
+| --- | --- | --- | --- |
+| before | 79% | 81% | **14/99** |
+| after | 56% | 51% | 0/99 |
+
+On 14 of 99 questions `partial` *was* `oracle`, so the calibration presented the
+reference answer to the judge twice and labelled one copy "partial".
+
+Fixed by choosing the prefix whose length is closest to half and never returning
+every sentence: at least one, at most n−1, so `partial` is always a proper
+prefix. Pinned by 16 assertions, including the two invariants the first version
+broke (never the whole answer, never empty).
+
+#### What it cost the published numbers
+
+Only the rows that involve `partial`:
+
+| Trip-wire | Uses `partial`? | Status |
+| --- | --- | --- |
+| dynamic range (oracle − wrong) | no | **stands** — +2.77 / +2.74 |
+| false errors on oracle | no | **stands** — 40% / 4% |
+| ordering accuracy (oracle ≥ partial ≥ wrong) | **yes** | **needs a re-run** |
+
+And ordering accuracy was worse than merely optimistic — it was close to
+vacuous. Decomposing the three-way comparison in the stored calibration:
+
+| Judge | `oracle ≥ partial` | `partial ≥ wrong` | `oracle > wrong` | reported |
+| --- | --- | --- | --- | --- |
+| Qwen2.5-7B | 94% | **100%** | 98% | 93% |
+| Llama-3.1-8B | **100%** | 96% | 94% | 94% |
+
+Both terms containing `partial` are satisfied ~100% of the time, so the
+conjunction is decided almost entirely by `oracle > wrong` — which is what
+dynamic range already measures. **Ordering accuracy was not an independent
+check; it was the dynamic-range check restated**, and it passed for that reason
+rather than because the judge can rank three distinct quality levels.
+
+That is the specific danger of a control that does not control: it produces a
+PASS which reads as corroboration and is a copy of the number beside it.
+
+With a genuine mid-point the test becomes real, and it is worth stating in
+advance that it may now fail. A judge that cleanly separates a *complete* answer
+from a *half* one is a stronger claim than anything measured so far, and the
+41-point spread between Llama's 63% points-credited and the 32B's 8% (Section
+21.31) suggests these judges disagree considerably about what counts as stating
+a point at all.
+
+**The two trip-wires that decided "hardware is not the constraint" are the two
+that stand.** Dynamic range and false-errors-on-oracle never involved `partial`,
+so Section 21.27's conclusion is unaffected — but the calibration should be
+re-run for a defensible ordering number.

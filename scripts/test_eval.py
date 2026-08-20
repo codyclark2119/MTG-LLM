@@ -485,6 +485,61 @@ def test_judge_batch_rubric() -> int:
     return failed
 
 
+def test_half_answer() -> int:
+    """The `partial` control in the calibration harness (Section 21.33).
+
+    It produces the mid-scale row the migration trip-wires are read against, and
+    the first version overshot by a whole sentence — 79% of the text, and on 14
+    of 99 gold answers it returned the reference verbatim, so the calibration was
+    comparing the oracle against itself and calling one of them "partial".
+    """
+    failed = 0
+    from calibrate_judge import half_answer  # noqa: E402
+
+    four = "One. Two. Three. Four."
+    got = half_answer(four)
+    failed += not check("four sentences -> about half", got, "One. Two.")
+
+    # THE invariant: never the whole answer, however few sentences there are.
+    two = "Yes. Because the trigger goes on the stack first."
+    failed += not check("two sentences -> not the whole thing",
+                        half_answer(two) != two.strip(), True)
+    failed += not check("two sentences -> the first", half_answer(two), "Yes.")
+
+    # ...and never empty, so the judge always has something to grade.
+    # (sentence starts are uppercase — `_SENT_RE` requires it, so a lowercase
+    # continuation is deliberately NOT a boundary and the text stays one part)
+    for label, text in (("two", two), ("four", four),
+                        ("three", "Alpha. Beta. Gamma."),
+                        ("uneven", "Yes. " + "X" * 200 + ". Short.")):
+        failed += not check(f"{label}: non-empty", bool(half_answer(text).strip()), True)
+        failed += not check(f"{label}: is a proper prefix",
+                            text.strip().startswith(half_answer(text)[:20]), True)
+
+    # A single sentence cannot be halved at a boundary; returning it whole is
+    # the documented fallback, not an overshoot.
+    one = "Colorless is not a color."
+    failed += not check("single sentence returns itself", half_answer(one), one)
+    failed += not check("empty input", half_answer(""), "")
+    failed += not check("None input", half_answer(None), "")
+
+    # The overshoot itself: the sentence that crosses halfway must be DROPPED,
+    # not included. "Yes." + a long sentence: including the long one would be
+    # ~100% of the text.
+    lopsided = "Yes. " + "Y" * 300 + "."
+    failed += not check("the crossing sentence is dropped",
+                        len(half_answer(lopsided)) < len(lopsided) / 2, True)
+
+    # A lowercase continuation is not a sentence boundary, so there is nothing
+    # to cut and the whole string comes back. Asserted so the regex's contract
+    # is pinned rather than rediscovered — the first draft of this test used a
+    # lowercase filler and failed for that reason, not for a real defect.
+    no_boundary = "Yes. " + "y" * 300 + "."
+    failed += not check("no uppercase start -> no boundary -> unchanged",
+                        half_answer(no_boundary), no_boundary)
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("rubric_correctness", test_rubric_correctness),
@@ -494,7 +549,8 @@ def main() -> None:
                      ("stratified_sample", test_stratified_sample),
                      ("pearson_r", test_pearson_r),
                      ("_author_of", test_author_of),
-                     ("judge_batch_rubric", test_judge_batch_rubric)):
+                     ("judge_batch_rubric", test_judge_batch_rubric),
+                     ("half_answer", test_half_answer)):
         print(f"{name} ...")
         failed += fn()
 

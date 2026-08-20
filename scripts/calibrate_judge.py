@@ -107,18 +107,33 @@ def half_answer(text: str) -> str:
     length bias (r = +0.21, Section 9.6) and V3 exists partly to remove it; a
     half-length answer stating half the points should score about half, not
     less.
+
+    TWO INVARIANTS, both violated by the first version (Section 21.33)
+    -----------------------------------------------------------------
+    It appended a sentence and *then* tested whether half had been reached, so
+    it always overshot by a whole sentence. On these answers — short, few
+    sentences — that produced **79% of the text on average, not 50%**, and on a
+    two-sentence answer it returned the entire thing, making `partial`
+    byte-identical to `oracle`. The mid-scale control was measuring a nearly
+    complete answer, which is why it scored 91–94% of the oracle and looked like
+    a judge that cannot tell half from whole.
+
+    So: pick the prefix whose length is *closest* to half, and never return
+    every sentence. At least one sentence and at most n−1, which guarantees
+    `partial` is genuinely a proper prefix of `oracle`.
     """
     text = (text or "").strip()
     parts = _SENT_RE.split(text)
     if len(parts) < 2:
         return text
-    target, taken, out = len(text) / 2, 0, []
-    for part in parts:
-        out.append(part)
-        taken += len(part) + 1
-        if taken >= target:
-            break
-    return " ".join(out).strip()
+    target = len(text) / 2
+    best_i, best_gap, acc = 0, None, 0
+    for i, part in enumerate(parts[:-1]):     # never the whole answer
+        acc += len(part) + 1
+        gap = abs(acc - target)
+        if best_gap is None or gap < best_gap:
+            best_i, best_gap = i, gap
+    return " ".join(parts[:best_i + 1]).strip()
 
 
 def build_candidates(questions: list[dict], rng: random.Random) -> list[dict]:
