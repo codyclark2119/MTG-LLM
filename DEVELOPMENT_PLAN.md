@@ -4180,3 +4180,50 @@ V3's number on this set is 70%; anything that does not move it substantially
 means the quote requirement is not the remedy either, and the honest next step
 would be to stop treating `errors_made` as recoverable and report blunder rate
 with its false-positive rate attached.
+
+### 21.38 V5 removes false positives and never adds one, but costs a third of the coverage
+
+The V3-vs-V5 benchmark on the position oracle set, judge and rubric held fixed:
+
+| | graded | oracle false positives | quote_drops |
+| --- | --- | --- | --- |
+| V3 | **24/24** | 18 (75%) | 0 |
+| V5 | **16/24** | 9 (56%) | 9 |
+
+**Those two rates are not comparable and the run was repeated to make them so.**
+V5's coverage is lower, and if it fails on the questions that are hardest to
+grade then the surviving 16 are easier by selection — which is exactly how
+Section 21.14's V4 run produced four confident means over 14 of 99. Storing
+per-question and intersecting:
+
+| Matched on the 16 both judged | false positives | |
+| --- | --- | --- |
+| V3 | 12/16 (75%) | |
+| V5 | 9/16 (**56%**) | **3 fixed, 0 regressions** |
+
+So the real effect is 9 against 12, not 9 against 18. The selection concern was
+warranted and the arithmetic anticipated it: a random 16 of V3's 18 would have
+been ~12.
+
+**The direction is clean.** Three false positives removed, **none introduced** —
+V5 never fired an error where V3 was silent. That is what a precision fix should
+look like, and it is consistent with the mechanism: nine claims were dropped for
+being unquotable, which is the negation check doing its job.
+
+**The significance is not there.** Three discordant pairs, all one way, is
+McNemar exact **p ≈ 0.25**. On 16 positions this is a direction, not a result.
+
+**And the cost is real.** Eight of 24 positions went ungraded — a third of the
+set — which is the V4 failure recurring in milder form. A judge that grades 67%
+of the set cannot be the default whatever its precision, because the ungraded
+third is selected rather than random.
+
+The obvious suspect is the token budget: the benchmark ran at 700, and V5 asks
+the judge to emit a verbatim quote for every error it lists on rubrics carrying
+three or four of them. A retry at 1,800 is running. If coverage returns to
+24/24 and the three fixes hold, V5 is worth adopting and worth measuring at n=99
+on the rules set where the significance question can actually be settled. If
+coverage stays at two thirds, the quote requirement is too expensive for this
+judge at this rubric size, and the honest position is the one Section 21.37
+named: stop treating `errors_made` as recoverable and publish blunder rate with
+its false-positive rate attached to it.
