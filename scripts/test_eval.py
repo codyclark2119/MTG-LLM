@@ -415,6 +415,33 @@ def test_judge_batch_rubric() -> int:
         failed += not check(f"seed {seed}: the scored arm is the intended one",
                             [a for a in out if out[a]["correctness"] > 1.0], ["base_rag"])
 
+    # --- a single candidate returned UNWRAPPED (Section 21.39) ---------------
+    # Asked to grade one answer "labeled A", the judge emits the entry directly
+    # instead of {"A": {...}}. That is reasonable, and `scored.get("A")` read it
+    # as "the judge said nothing" — which showed up as a 33% coverage loss that
+    # looked like a cost of the V5 prompt and was an artifact of the harness.
+    gen, _ = _judge_returning(_json.dumps(
+        {"points_hit": [1, 2], "errors_made": [], "citation": 5, "note": ""}))
+    out = judge_batch_rubric(gen, None, _StubTokenizer(), "q?", kp, ce,
+                             {"only": "x"}, 256, __import__("random").Random(0))
+    failed += not check("unwrapped single candidate is read", list(out), ["only"])
+    failed += not check("...with its points", out["only"]["points_hit"], [1, 2])
+
+    # Only for ONE arm. With several, an unwrapped object cannot be attributed
+    # to any of them and must still fail rather than be given to an arbitrary arm.
+    gen, _ = _judge_returning(_json.dumps(
+        {"points_hit": [1, 2], "errors_made": [], "citation": 5, "note": ""}))
+    out = judge_batch_rubric(gen, None, _StubTokenizer(), "q?", kp, ce,
+                             dict(cands), 256, __import__("random").Random(0))
+    failed += not check("unwrapped multi-arm output is still rejected", out, {})
+
+    # A properly wrapped single candidate must not be double-wrapped.
+    gen, _ = _judge_returning(_json.dumps(
+        {"A": {"points_hit": [1], "errors_made": [], "citation": 5, "note": ""}}))
+    out = judge_batch_rubric(gen, None, _StubTokenizer(), "q?", kp, ce,
+                             {"only": "x"}, 256, __import__("random").Random(0))
+    failed += not check("wrapped single candidate still works", out["only"]["points_hit"], [1])
+
     # --- the shape bug, through the real path -------------------------------
     # This is what would have killed a run: valid JSON, wrong shape.
     gen, _ = _judge_returning('{"A": {"points_hit": 1, "errors_made": null, "citation": 5}}')

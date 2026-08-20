@@ -299,6 +299,15 @@ Each cost real time. They recur in new code, so they are worth knowing.
   examples in three configs and two plan sections. It holds 1,478 distinct
   lines; the rest are exact duplicates, question and answer both. Nothing lied —
   nobody counted.
+- **Valid JSON in an unexpected shape, read as absence.** Twice. The judge
+  emitted `"points_hit": 3` where a list was expected (Section 21.12), and — for
+  a single candidate — the entry *unwrapped*, without the `{"A": …}` around it
+  (Section 21.39). A missing key and a key spelled differently both arrive as
+  `None`, so a third of a benchmark went "ungraded" while the judge had answered
+  every question. Both times the wrong number was **plausible** (a strict judge,
+  an expensive prompt), and both times two hypotheses were reasoned out and
+  tested before anyone printed the raw text — both wrong. **When a parse yields
+  a surprising count, look at the bytes before theorizing about them.**
 
 ## Conventions
 

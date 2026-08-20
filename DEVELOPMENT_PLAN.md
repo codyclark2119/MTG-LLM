@@ -4227,3 +4227,103 @@ coverage stays at two thirds, the quote requirement is too expensive for this
 judge at this rubric size, and the honest position is the one Section 21.37
 named: stop treating `errors_made` as recoverable and publish blunder rate with
 its false-positive rate attached to it.
+
+### 21.39 The coverage cost was a harness bug, not V5 — a single arm is graded unwrapped
+
+Neither branch of 21.38's decision rule applied, because **the missing eight
+positions were never ungraded.** The judge answered all 24. The harness threw a
+third of the answers away.
+
+Isolated in two steps, budget first because it was the stated hypothesis:
+
+| | coverage |
+| --- | --- |
+| V5 at 700 tokens | 16/24 |
+| V5 at 1,800 tokens (2.6×) | 16/24 — **identical**, so not the budget |
+| V5 at 1,800 with the fix below | **24/24** |
+
+Identical at 2.6× the budget is not what truncation looks like, so the raw text
+came out of the model and got read. It parsed:
+
+```json
+{ "points_hit": [1, 2], "errors_made": [{"n": 1, "quote": "…"}], "citation": 5 }
+```
+
+That is a complete, valid entry — **without the `{"A": …}` wrapper.** Asked to
+grade one candidate labeled A, the judge reasonably emits the entry itself.
+`judge_batch_rubric` did `scored.get("A")`, got `None`, and recorded *the judge
+said nothing about this position*. Absence and unexpected-shape are the same
+value, and only one of them is true.
+
+`judge_batch_rubric` now accepts the unwrapped form, but **only when there is
+exactly one label and the object looks like an entry rather than a label map.**
+With several arms an unwrapped object cannot be attributed to any of them and
+must still fail — that is the case worth keeping a test on, along with a wrapped
+single-arm result not being double-wrapped.
+
+**No published number can move.** The unwrapping fires only at one arm, and
+every published run used three to five; the run that checked this reports *none*.
+The bug was reachable only from the single-arm benchmark harness — which is to
+say it was invisible everywhere except the one place it was measuring.
+
+#### The corrected result
+
+Same judge, same rubrics, same 1,800-token budget, both versions now at full
+coverage:
+
+| Matched on all **24** positions | oracle false positives | |
+| --- | --- | --- |
+| V3 | 18/24 (75%) | |
+| V5 | 14/24 (**58%**) | **4 fixed, 0 regressions** |
+
+The direction from 21.38 holds and strengthens — one more fix, still nothing
+introduced. Significance is still short: four discordant pairs all one way is
+McNemar exact **p = 0.125**. Six one-way pairs would reach 0.031, which is
+within reach of the n=99 rules set and not of 24 positions.
+
+**Two of the four fixes are not the quote check.** `pos-blocking-0005` and
+`pos-mulligan-0002` flipped with **zero** quote drops — nothing was verified
+away, the judge simply did not fire the error once the prompt told it that an
+answer stating the OPPOSITE of an error has not committed it. Only
+`pos-removal-timing-0003` and `pos-trigger-ordering-0002` were fixed by the
+verification itself. So V5 is two changes wearing one name: a polarity
+instruction and a receipt check, and on this set they contributed equally.
+
+**The quote check prunes far more than it clears.** Thirteen claims were dropped
+across the matched set, and exactly two of them changed a verdict. Blunder rate
+is defined on `errors_made` being *non-empty*, so dropping three of four
+fabricated errors leaves the position still counted as blundered. A precision
+fix on a field consumed as a boolean has to clear the last one to show up at all.
+
+#### What this does not fix
+
+**58% is still a false-positive rate on answers that definitionally cannot
+commit an error.** 75% → 58% is real, and it is a rate that makes the metric
+unusable moving to a rate that makes the metric unusable. Section 21.37's
+position stands unamended: `errors_made` is not yet a field a gate can be
+defined on, and blunder rate is published with its false-positive rate attached.
+
+What has changed is that the ceiling is no longer known to be a third of the
+set, so the n=99 measurement that can settle significance is worth running.
+
+**Every number in 21.38 is superseded by this section**, and 21.38 is kept
+because the reasoning that caught it — store per-question and intersect, never
+compare aggregate rates over different subsets — is what made the discrepancy
+visible in the first place. It was right about the selection risk and wrong
+about the cause, and it named the budget as a hypothesis to test rather than a
+finding, which is the only reason testing it was the first thing done.
+
+#### The trap, which has now fired twice
+
+Section 21.12 was a judge emitting `"points_hit": 3` where a list was expected.
+This is the same failure one level up: **valid JSON in an unexpected shape,
+silently read as absence.** A missing key is indistinguishable from a key the
+model chose to spell differently, and both arrive as `None`.
+
+The tell both times was a number that was *plausible* — 16/24 reads as a hard
+judge, 33% coverage reads as an expensive prompt — and both times the diagnosis
+came from printing the bytes rather than reasoning about them. Two hypotheses
+were formed and tested before that (token budget, JSON validity) and both were
+wrong. **When a parse produces a surprising count, read the raw text first;
+reasoning about what the model probably emitted has a worse track record here
+than looking.**

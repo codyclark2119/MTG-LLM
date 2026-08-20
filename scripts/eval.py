@@ -471,6 +471,19 @@ def judge_batch_rubric(
     except json.JSONDecodeError:
         return {}
 
+    # A single candidate is often returned UNWRAPPED (Section 21.39). Asked to
+    # grade one answer "labeled A", the judge emits
+    #   {"points_hit": [...], "errors_made": [...], "citation": 3}
+    # rather than {"A": {...}} — which is reasonable, and which `scored.get("A")`
+    # silently reads as "the judge said nothing about A".
+    #
+    # Only when there is exactly one label, and only when the object looks like
+    # an entry rather than a label map. With several arms an unwrapped object
+    # cannot be attributed and must still fail.
+    if (len(label_to_arm) == 1 and not any(k in scored for k in label_to_arm)
+            and any(k in scored for k in ("points_hit", "errors_made", "citation"))):
+        scored = {next(iter(label_to_arm)): scored}
+
     out = {}
     for label, arm in label_to_arm.items():
         entry = scored.get(label)
