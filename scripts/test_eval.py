@@ -588,6 +588,28 @@ def test_error_assertions() -> int:
     s0 = separation(planted, planted)
     failed += not check("fires-at-everything separates zero", s0["separation"], 0.0)
 
+    # --- padding a clean answer to answer length (Section 21.41) -----------
+    from calibrate_judge import pad_clean
+    rt = {"104.1": "A game ends immediately when a player wins.",
+          "601.2": "To cast a spell, a player follows the steps below."}
+    rec = {"rule_citations": ["104.1", "601.2"]}
+    padded = pad_clean(rec, "Yes.", rt)
+    failed += not check("padding lengthens", len(padded) > len("Yes."), True)
+    failed += not check("original answer survives", padded.startswith("Yes."), True)
+    for rid in ("104.1", "601.2"):
+        failed += not check(f"CR text {rid} appended verbatim", rt[rid] in padded, True)
+    # A record with no resolvable citation must come back UNCHANGED — counting
+    # it as padded would mix two lengths in one rate, which is the confound
+    # 21.41 was written about.
+    failed += not check("unresolvable citation leaves it alone",
+                        pad_clean({"rule_citations": ["999.9"]}, "Yes.", rt), "Yes.")
+    failed += not check("no citations leaves it alone",
+                        pad_clean({}, "Yes.", rt), "Yes.")
+    # Falls back to supporting_rule_ids, which is what the eval file carries.
+    failed += not check("supporting_rule_ids also works",
+                        rt["104.1"] in pad_clean({"supporting_rule_ids": ["104.1"]}, "Y.", rt),
+                        True)
+
     # --- the reference answer, three record shapes -------------------------
     failed += not check("position/gold use `answer`",
                         reference_answer({"answer": "Block."}), "Block.")

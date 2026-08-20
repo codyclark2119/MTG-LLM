@@ -349,6 +349,32 @@ def separation(clean: list[dict], planted: list[dict]) -> dict:
     }
 
 
+def pad_clean(rec: dict, answer: str, rule_text: dict) -> str:
+    """Lengthen a clean answer without letting it become a wrong one.
+
+    Section 21.41 could not settle whether the 32B's low false-positive rate
+    survives answer-length text: its clean rates are measured at 122 characters
+    (positions) and 236 (rules references) while real rules answers run to
+    ~1,000. The attempt to test it used *model* answers that happened to credit
+    every key point — which is not a clean control, because such an answer can
+    state everything right and still say something wrong alongside it.
+
+    This appends the **verbatim Comprehensive Rules text** of the rules the
+    record already cites. That adds several hundred characters of prose which
+    cannot introduce an error: it is the rulebook, quoted, on the rule the
+    reference answer is about. So the answer stays definitionally clean and
+    gains length, which is the one variable being tested.
+
+    Returns the answer unchanged when no cited rule resolves — a record that
+    cannot be padded must not silently count as a padded one.
+    """
+    ids = rec.get("rule_citations") or rec.get("supporting_rule_ids") or []
+    quoted = [f"{r}. {rule_text[r]}" for r in ids if r in rule_text]
+    if not quoted:
+        return answer
+    return answer.rstrip() + "\n\nFor reference, the rules text:\n" + "\n".join(quoted)
+
+
 def _grade(lm_generate, model, tok, rec: dict, answer: str, args, rng) -> dict | None:
     """Grade one candidate against one record's rubric. None when ungraded."""
     out = judge_batch_rubric(
@@ -402,6 +428,21 @@ def run_judge_report(args) -> None:
             print(f"  planted (error {c['n']}): {c['answer'][:110]}")
         return
 
+    rule_text = {}
+    if args.pad_clean:
+        from common import RULES_PATH
+        rule_text = {r["rule_id"]: r["text"] for r in read_jsonl(RULES_PATH)}
+        padded = sum(1 for c in cases
+                     if pad_clean(c["rec"], reference_answer(c["rec"]), rule_text)
+                     != reference_answer(c["rec"]))
+        print(f"--pad-clean: {padded}/{len(cases)} clean answers lengthened with "
+              f"verbatim CR text")
+        if padded < len(cases) * 0.5:
+            raise SystemExit(
+                f"only {padded}/{len(cases)} records have a resolvable rule citation, so "
+                "most clean answers would be unpadded and the run would measure a mixture "
+                "of two lengths rather than one.")
+
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
     print(f"loading {args.judge_model} as judge ...")
@@ -411,14 +452,17 @@ def run_judge_report(args) -> None:
     # differ between the halves, or the two rates differ by prompt as well as
     # by candidate.
     rows: list[dict] = []
-    for half, pick in (("clean", lambda c: reference_answer(c["rec"])),
-                       ("planted", lambda c: c["answer"])):
+    for half, pick in (
+            ("clean", lambda c: pad_clean(c["rec"], reference_answer(c["rec"]), rule_text)
+                      if args.pad_clean else reference_answer(c["rec"])),
+            ("planted", lambda c: c["answer"])):
         rng = random.Random(args.seed)
         for i, c in enumerate(cases, 1):
             g = _grade(lm_generate, model, tok, c["rec"], pick(c), args, rng)
             if g is None:
                 continue      # ungraded; counted as coverage, never as a verdict
             rows.append({"id": c["id"], "half": half, "planted": c["n"],
+                         "answer_chars": len(pick(c)),
                          "hit": c["n"] in g["fired"] if half == "planted" else None,
                          **g,
                          "judge_model": args.judge_model,
@@ -496,6 +540,10 @@ def main() -> None:
                     help="run the error-detection control instead: BOTH halves (a clean "
                          "answer and one asserting a listed error verbatim) and their "
                          "separation, which is the only number that means anything alone")
+    ap.add_argument("--pad-clean", action="store_true",
+                    help="lengthen the clean answer with the verbatim CR text of the rules "
+                         "it already cites, to test whether specificity survives "
+                         "answer-length input (Section 21.41)")
     ap.add_argument("--judge-max-tokens", type=int, default=900)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", type=Path, default=REPO_ROOT / "eval/runs/calibration.jsonl")
