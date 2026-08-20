@@ -11,6 +11,23 @@ instrument is.
 
 This is a plan to find out when that stops being true.
 
+> **Where it stands (Sections 21.31, 21.40, 21.41).** One thing did turn out to
+> need a bigger model: **error detection works on a 32B judge and does not work
+> on a 7B** — 1 false positive in 24 against 18, on identical positions and
+> rubrics. Blunder rate is defined on that field, so half the instrument was
+> judge-limited all along.
+>
+> That is still not a reason to migrate. **The judge that fixed it is 18 GB and
+> the machine is 36.** It moves the answer from "no bigger judge has been shown
+> to help" to "one did, and it fits" — which is a *stronger* not-yet, because the
+> next size up (70B, 38.6 GB) is the first thing that would not fit, and the 32B
+> already scores 0% false errors and 100% ordering accuracy. There is little left
+> for a 70B to fix.
+>
+> The open item is no longer capacity. It is that **every gate verdict published
+> so far is single-judge**, and Gates 2 and 3 have both reversed between judges
+> on byte-identical answers.
+
 ---
 
 ## The one test that decides it — **it ran, and here is the answer**
@@ -20,15 +37,24 @@ This is a plan to find out when that stops being true.
 > scale works and the error detection does not**, and the broken half is
 > judge-specific rather than fundamental.
 >
-> | Trip-wire | Required | Qwen2.5-7B | Llama-3.1-8B |
-> | --- | --- | --- | --- |
-> | dynamic range | ≥ 2.5 | +2.77 PASS | +2.74 PASS |
-> | ordering accuracy | ≥ 90% | 93% PASS | 94% PASS |
-> | false errors on oracle | ≤ 5% | **40% FAIL** | **4% PASS** |
+> | Trip-wire | Required | Qwen2.5-7B | Llama-3.1-8B | **Qwen2.5-32B** |
+> | --- | --- | --- | --- | --- |
+> | dynamic range | ≥ 2.5 | +3.22 PASS | +2.66 PASS | **+3.60 PASS** |
+> | ordering accuracy | ≥ 90% | 93% PASS | 94% PASS | **100% PASS** |
+> | false errors on oracle | ≤ 5% | **40% FAIL** | 4% PASS | **0% PASS** |
+> | credits the oracle / real answers | — | 86% / 43% | 81% / 63% | **90% / 8%** |
 >
-> **Llama passes all three.** So there is a working instrument on this hardware
-> today, and the answer to "does more memory help" is no — the failing number
-> was a property of one 7B model, not of the method, the prompt, or the machine.
+> **Llama passes all three; the 32B wins every one** (Section 21.31, under
+> matched `points_only` arithmetic — the two older runs were inverted rather
+> than re-run). So there is a working instrument on this hardware today, and the
+> answer to "does more memory help" is no — the failing number was a property of
+> one 7B model, not of the method, the prompt, or the machine.
+>
+> **The last row is why the 32B is not merely the best of three.** A judge that
+> credits the *reference answer* with 90% of its own rubric understands the
+> rubric, so crediting real answers at 8% is a statement about the answers. That
+> ratio is 11.2× against Llama's 1.3× — one of these barely separates a model
+> answer from the reference, the other separates them by an order of magnitude.
 >
 > Consequences, all applied: correctness now scores `points_hit` alone
 > (Section 21.28), and the position eval no longer judges itself with the
@@ -69,16 +95,26 @@ out, and they are the ones that matter:
 - **Ordering accuracy** — how often the judge ranks `oracle` > `partial` >
   `wrong` on a single question. A judge that inverts this on 30% of questions
   cannot support a 0.4-point claim.
-- **Error detection** — the original plan was to build `wrong` so it asserts a
-  specific enumerated error and count how often the judge reports *that* number.
-  **Not implemented, deliberately.** Turning a rubric line written as a
-  description of a mistake into a first-person answer asserting it means
-  generating prose, so a low detection rate would be unattributable between "the
-  judge cannot spot it" and "the generated sentence did not clearly assert it".
-  `errors_made` is checked from the other side instead, which needs no
-  construction: the oracle *cannot* commit a listed error, so every one reported
-  against it is a definitive false positive. Measuring the true-positive side
-  needs `common_errors` authored as assertions — a data change, not a harness one.
+- **Error detection** — build `wrong` so it asserts a specific enumerated error
+  and count how often the judge reports *that* number. **Deferred for a stated
+  reason, and now implemented because the reason expired** (Section 21.40).
+
+  The objection was that turning a rubric line written as a description of a
+  mistake into an answer asserting it means generating prose, so a low detection
+  rate would be unattributable between "the judge cannot spot it" and "the
+  generated sentence did not clearly assert it". The precondition named here was
+  `common_errors` authored as assertions — *a data change, not a harness one*.
+
+  **Section 21.35 made that data change**, so the candidate is now the rubric
+  line VERBATIM and no prose is generated. `calibrate_judge.py --sensitivity`
+  runs it; `looks_like_behaviour` skips entries still in the old form rather
+  than rewriting them, which is what keeps the objection answered rather than
+  ignored. Positions are 24/24 usable, the rules gold set 42/99.
+
+  **This mattered.** Specificity alone cannot distinguish a precise judge from a
+  silent one, and two plan sections reported a judge prompt as "N fixed, 0
+  regressions" on oracle-only evidence — where losing a true positive is
+  unobservable by construction. It had lost two.
 
 **Cost:** one eval run, no training, no new data authoring. The candidates are
 constructed mechanically from records that already exist.
@@ -196,9 +232,17 @@ Beyond the positive controls above:
   as unparseable JSON: requiring a quote per claim makes the required output
   scale as arms × rubric items, and the judge runs out of tokens mid-JSON. Parse
   rate falls 37% → 8% as rubrics grow from 4 to 7 items, so the 14 questions
-  that survived are selected by rubric size. Re-run with a much larger
-  `--judge-max-tokens` before drawing anything from V4 — the question of whether
-  a quote lifts kappa is still open, not answered.
+  that survived are selected by rubric size.
+- **V5 — built, measured, and not adopted** (Sections 21.37–21.40). V4's cost
+  was quotes on *everything*; V5 asks for one on `errors_made` only, plus a
+  sentence telling the judge that an answer stating the OPPOSITE of an error has
+  not committed it. On the 7B it removes 4 false positives, and the sensitivity
+  control shows it **loses 2 true positives** doing so. On the 32B it does
+  nothing measurable: **zero quote drops across all 96 gradings**, because that
+  judge never fabricates an unquotable error claim in the first place. V3 stays
+  the default; V5 stays in the code, tested, for a future judge that shows the
+  7B's failure. **A better judge model turned out to dominate a better judge
+  prompt**, which is the finding, not the prompt.
 - **Batching** — a fifth arm moved a byte-identical arm 23 points (Section
   21.5). Worth measuring whether scoring candidates *singly* changes the
   ranking. If it does not, singly is safer and removes the arm-count constraint
@@ -292,22 +336,47 @@ question.
 >
 > Condition B is **not met.** Qwen3-14B runs in 7.8 GB of 36 GB and is not
 > better at the task (Section 21.25: best-arm blunder 53% → 50%, ~60× the wall
-> time). A 32B judge fits in ~18 GB and has not been shown necessary. A 70B
-> judge does **not fit in 36 GB at all** — 38.6 GB of weights — so that is the
-> only real trigger, and nothing yet says a 70B judge would help.
+> time). A 70B judge does **not fit in 36 GB at all** — 38.6 GB of weights — so
+> that is the only real trigger, and nothing yet says a 70B judge would help.
+>
+> **CORRECTION (Section 21.40).** This section previously read "a 32B judge fits
+> in ~18 GB and *has not been shown necessary*." It has now been shown necessary.
+> On the same 24 positions with the same rubrics, judge as the only variable:
+>
+> | | charges a clean answer | errors fired at an answer carrying one |
+> | --- | --- | --- |
+> | Qwen2.5-7B | 18/24 | 2.75 |
+> | **Qwen2.5-32B** | **1/24** | **1.12** |
+>
+> Blunder rate is defined on `errors_made` being non-empty, so on the 7B that
+> metric does not work at all and on the 32B it does. Judge scale **was** the
+> lever, for this half of the instrument.
+>
+> **This strengthens the "do not migrate" answer rather than weakening it.** The
+> question has moved from *"we do not know whether a bigger judge helps"* to
+> *"a bigger judge helped, and the size that helped is 18 GB of 36."* The next
+> trigger is unchanged and now sharper: a 70B judge is the only thing that would
+> not fit, and there is still no evidence one is needed — the 32B already scores
+> 0% false errors and 100% ordering, so there is little left for a 70B to fix.
 >
 > What is left before hardware could become the constraint:
 >
 > 1. **Kappa.** The blunder-call kappa of +0.24 was measured with the 40%-false-
 >    positive judge on one side. It has not been re-measured with two calibrated
->    judges, and that number could move a long way on its own.
-> 2. **The 32B rescore**, in flight. If a 4.5× larger judge does not improve
->    agreement, judge scale is not the lever and a 70B is unlikely to differ in
->    kind — which would close the migration question rather than open it.
+>    judges, and that number could move a long way on its own. This is now the
+>    *only* open item of the three, and it is the one that matters most: the
+>    published gate verdicts are single-judge until it is done.
+> 2. ~~The 32B rescore~~ — **landed** (Sections 21.31, 21.40, 21.41).
 > 3. **A third judge family**, to settle self-preference. Mistral-24B or
->    Gemma-27B both fit comfortably.
+>    Gemma-27B both fit comfortably. Still open, and note that the judge is a
+>    Qwen and every `base` arm is a Qwen.
 >
-> All three run on this machine. The reasoning below is preserved as written.
+> One further caveat, from Section 21.41: the 32B's clean rates are established
+> at 122 characters (positions) and 236 (rules reference answers), and are
+> **untested at the ~1,000 characters real rules answers run to**. An attempt to
+> close this produced n=21 with a confound and no length trend — not an answer.
+>
+> All of these run on this machine. The reasoning below is preserved as written.
 
 Concrete trip-wires. Migrate when **both** of the following hold:
 
