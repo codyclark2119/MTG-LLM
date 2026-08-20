@@ -1143,6 +1143,21 @@ def lint_common_errors(pos: dict) -> list[str]:
 
     warnings = []
     for err in pos.get("common_errors") or []:
+        # The restatement check below only makes sense for the BEHAVIOUR form
+        # (Section 21.35). It was built for "Casts Lightning Strike at the
+        # opponent's face instead of ...", where the opening clause restates the
+        # correct play and a judge can match it before reaching the qualifier
+        # that makes the play wrong.
+        #
+        # A claim has no qualifier — the whole sentence is the assertion, and its
+        # discriminating content is the PREDICATE, which is always present.
+        # "Lightning Strike should be aimed at the opponent" necessarily opens
+        # with the same card as the correct line, because both are about that
+        # card; what differs is what is said about it. Running the old check
+        # over the rewritten corpus produced 50 warnings on 24 positions, none
+        # of them the failure it was written to catch.
+        if not looks_like_behaviour(err):
+            continue
         lead = err.split(",")[0]
         words = _content(lead)
         raw = [w for w in lead.split() if _stem(w) in words]  # original spellings
@@ -1161,4 +1176,63 @@ def lint_common_errors(pos: dict) -> list[str]:
                     f"error before reaching what makes the play wrong. Lead with the "
                     f"mistake instead — {err[:55]}...")
                 break
+
+        # The behaviour-vs-claim form (Section 21.35). The judge is asked which
+        # of these the candidate ASSERTED, so an entry has to be assertable: a
+        # sentence a wrong answer could contain. "Adds Centaur Courser to the
+        # block" is a description of what a player does, and answering "did this
+        # text assert that?" is a different, vaguer question than the one
+        # key_points ask — which is the leading explanation for the 40%
+        # false-positive rate measured against the reference answer itself.
+        if looks_like_behaviour(err):
+            warnings.append(
+                f'"{err.split()[0]}" opens a description of what a player DOES, not a '
+                "claim an answer could make. Write the false claim itself so the judge "
+                "can ask the same question it asks of key_points — see SCHEMA.md rule 5 "
+                f"— {err[:55]}...")
     return warnings
+
+
+# Capitalised words ending in -s that are NOT verbs. The first version of this
+# check was a bare regex and fired on "Triggers resolve in the order..." and
+# "This hand should be mulliganed" — both perfectly good claims, because
+# "Triggers" and "This" end in s. A warning wrong in both directions gets
+# ignored, which is the lesson the restatement check above already learned.
+_NOT_A_VERB = {
+    "this", "these", "those", "its", "his", "hers", "theirs", "as", "yes",
+    "plus", "minus", "less", "unless", "always", "perhaps",
+}
+
+# Words that mark the PRECEDING word as a subject rather than a verb. If the
+# second token is one of these, the sentence reads "<subject> <verb> ..." and is
+# a claim; a behaviour description reads "<verb> <object> ..." instead.
+_VERB_AFTER_SUBJECT = {
+    "is", "are", "was", "were", "be", "been", "has", "have", "had",
+    "can", "could", "should", "would", "will", "may", "might", "must",
+    "do", "does", "did", "resolve", "resolves", "apply", "applies",
+    "enter", "enters", "deal", "deals", "get", "gets", "stay", "stays",
+    "count", "counts", "work", "works", "happen", "happens", "remain",
+    "remains", "become", "becomes", "cost", "costs", "need", "needs",
+    "go", "goes", "come", "comes", "make", "makes", "let", "lets",
+}
+
+_THIRD_PERSON_VERB_RE = re.compile(r"^[A-Z][a-z]{2,}(?:s|es)$")
+
+
+def looks_like_behaviour(text: str) -> bool:
+    """True when a `common_errors` line describes what a player DOES.
+
+    The judge is asked which of these the candidate ASSERTED, so an entry has to
+    be a sentence a wrong answer could contain. "Adds Centaur Courser to the
+    block" is not — see SCHEMA.md rule 5 and Section 21.35.
+
+    Narrow on purpose: 89% of the pre-21.35 corpus opened with a capitalised
+    third-person verb, and this catches that form without firing on a claim.
+    """
+    words = (text or "").strip().split()
+    if len(words) < 2:
+        return False
+    first, second = words[0], words[1].lower().strip(".,")
+    if first.lower() in _NOT_A_VERB or second in _VERB_AFTER_SUBJECT:
+        return False
+    return bool(_THIRD_PERSON_VERB_RE.match(first))

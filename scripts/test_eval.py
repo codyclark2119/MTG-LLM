@@ -485,6 +485,40 @@ def test_judge_batch_rubric() -> int:
     return failed
 
 
+def test_behaviour_opening() -> int:
+    """common_errors must be assertable claims, not player behaviours (21.35).
+
+    The judge is asked which of these the candidate ASSERTED. `key_points` are
+    claims, so that question is answerable and the judge credits the reference
+    answer with 90% of its own points. `common_errors` were 89% behaviour
+    descriptions, and the same question becomes "did this text describe a player
+    doing that?" — vaguer, and the leading explanation for a 40% false-positive
+    rate against an answer that cannot commit an error at all.
+    """
+    from common import looks_like_behaviour as f  # noqa: E402
+    failed = 0
+    for text, want in (
+            # the old form: capitalised third-person verb, what a player DOES
+            ("Adds Centaur Courser to the block, spending a 3/3", True),
+            ("Holds Doom Blade for a better target", True),
+            ("Treats reach as letting the Asp attack in the air", True),
+            ("Keeps the second Forest for Giant Growth", True),
+            # claims a wrong answer could actually contain
+            ("A chump block stops all the trample damage", False),
+            ("Trample damage is fully absorbed by any blocker", False),
+            ("Adding Centaur Courser to the block is worth the 3 life", False),
+            ("Player A controls both permanents", False),
+            ("Because the trigger is put on the stack first, it resolves first", False),
+            # excluded openers: legitimate claim starts that look third-person
+            ("Has haste, so it can attack immediately", False),
+            ("Is a legal target because it is nonblack", False),
+            ("Triggers resolve in the order they are announced", False),
+            ("This hand should be mulliganed", False)):
+        failed += not check(f"{'warns' if want else 'silent'}: {text[:44]}",
+                            f(text), want)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -550,7 +584,8 @@ def main() -> None:
                      ("pearson_r", test_pearson_r),
                      ("_author_of", test_author_of),
                      ("judge_batch_rubric", test_judge_batch_rubric),
-                     ("half_answer", test_half_answer)):
+                     ("half_answer", test_half_answer),
+                     ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()
 

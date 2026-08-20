@@ -57,6 +57,29 @@ compound, verdict-padded claims. Four rules produced that gain:
    than lethal to the blocker so it survives to absorb damage twice" — the
    actual reasoning failure. Negating a key point adds nothing the key
    point did not already catch.
+5. **Write a `common_error` as the false CLAIM, not as the player's
+   behaviour.** This is the newest rule and the one with the most measurement
+   behind it (Section 21.35).
+
+   The judge is asked the same question about both lists: *which of these did
+   the candidate assert?* `key_points` are claims, so that question is
+   answerable, and the judge credits the reference answer with 90% of its own
+   key points. `common_errors` were written as behaviours — "Adds Centaur
+   Courser to the block", "Holds Doom Blade for a better target" — so the same
+   question becomes *did this text describe a player doing that?*, which is a
+   different and much vaguer task. Measured consequence: the 7B judge charged
+   the reference answer with an error it definitionally cannot commit on **40%**
+   of questions, and blunder rate is defined on exactly that field.
+
+   | Don't | Do |
+   |---|---|
+   | Thinks a chump block stops all the damage | A chump block stops all the trample damage |
+   | Adds Centaur Courser to the block, spending a 3/3 to save 3 life | Adding Centaur Courser to the block is worth the 3 life |
+   | Holds Doom Blade for a better target | Holding Doom Blade for a better target is correct here |
+
+   The test: **could a wrong answer contain this sentence?** If not, it is a
+   description of a mistake rather than the mistake itself. `lint_common_errors`
+   warns on the third-person-verb opening that marks the old form.
 
 `scripts/ingest_qa_pastes.py --draft-rubric` violates all four by
 construction: it splits the answer into sentences. Treat its output as a

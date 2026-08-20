@@ -3953,3 +3953,79 @@ The honest limit on this: two answers were read by hand. The trip-wires, the
 oracle/real ratio, and the full-marks rate are measured across all 99, but the
 *interpretation* that the 32B is right rests partly on those two, and a wider
 hand-audit would strengthen it.
+
+### 21.35 `common_errors` are now claims, not behaviours
+
+The positive controls showed the instrument split in half: `points_hit` works
+(the judge credits the reference answer with 90% of its own key points) and
+`errors_made` does not (40% false positives against an answer that cannot commit
+an error). Section 21.30 ruled out the all-errors-fired artifact as the
+explanation. This is the better one, and it is structural.
+
+**The judge is asked the same question about both lists** — *which of these did
+the candidate assert?* But the two lists were written in different grammars:
+
+| | Form | Example |
+| --- | --- | --- |
+| `key_points` | claim | "Player B controls both permanents" |
+| `common_errors` | **behaviour** | "Adds Centaur Courser to the block, spending a 3/3" |
+
+For key points the question is answerable as asked. For common errors it becomes
+*did this text describe a player doing that?* — a different and much vaguer
+task. **89% of the 347-entry corpus opened with a capitalised third-person
+verb**, so this was the norm and not an occasional slip.
+
+SCHEMA.md rule 5 now states the convention, with the test: **could a wrong
+answer contain this sentence?** If not, it describes a mistake rather than being
+one.
+
+    Thinks a chump block stops all the damage
+      -> A chump block stops all the trample damage
+
+    Holds Doom Blade for a better target
+      -> Doom Blade should be held for a better target
+
+**All 83 position entries rewritten**, 82 behaviour-shaped → 0. Answers, key
+points and error counts untouched; `common_errors` is the only field that
+changed in any of the 24 records.
+
+#### The lint had to learn the new form, twice
+
+`looks_like_behaviour` replaces a first-draft regex that fired on "**Triggers**
+resolve in the order..." and "**This** hand should be mulliganed" — both fine
+claims, matched because the opening word ends in *s*. It now also requires that
+the second word is not a verb or modal, which is what separates
+*subject-verb* ("Triggers resolve") from *verb-object* ("Adds Centaur Courser").
+
+Then the *other* lint broke. `lint_common_errors`' restatement check — the one
+Section 16.12 measured as closing a 28-point blunder-rate gap — fired **50 times
+on 24 positions** after the rewrite. Every hit was a false positive, and the
+reason is worth stating because it is a property of the new form rather than a
+bug in the rewrite:
+
+> That check was built for "Casts Lightning Strike at the opponent's face
+> **instead of** the blocker", where a lead clause restates the correct play and
+> the judge can match it before reaching the qualifier that makes the play
+> wrong. A claim has no qualifier. "Lightning Strike should be aimed at the
+> opponent" necessarily opens with the same card as the correct line — both
+> sentences are *about* that card — and what differs is the predicate, which is
+> always present.
+
+So the restatement check is now gated on `looks_like_behaviour`: it still fires
+on the Section 16.12 case verbatim, and is silent on claims. Two lints, each
+correct for the form it was written against.
+
+#### What this invalidates
+
+**Every position blunder number predates this rubric.** Gate 3, the blunder
+rates in Sections 20–21, and the kappa figures were computed against
+behaviour-form `common_errors`; the rubric they scored against no longer exists.
+Those runs are not wrong, they describe a different rubric — and the whole point
+is that the new one should be easier for a judge to score. Re-running the
+positions under the 32B judge is the measurement that would show whether it is.
+
+**The 264 gold-set entries are not yet converted.** Positions came first because
+blunder rate is defined there and the set is a quarter the size. The rules eval
+uses `errors_made` only as a reported diagnostic now that correctness ignores it
+(Section 21.28), so the cost of leaving them is lower — but the same 40%
+false-positive rate applies, and the same fix should follow.
