@@ -389,7 +389,24 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
             matched = [a for a in parsed.actions if match_to_legal(a, legal_set)]
             j = judged.get(arm, {})
             per_arm[arm] = {
-                "answer": candidates[arm],
+                # The RAW model output, not the text the judge saw.
+                #
+                # This stored `candidates[arm]` — already stripped of its
+                # <think> block — while the commit that introduced the stripping
+                # claimed "the full output is still what gets STORED". It was
+                # not, and the cost was immediate: asked afterwards whether
+                # Qwen3-14B had reasoned at all on the rerun, the run file could
+                # not answer, because the evidence had been discarded at write
+                # time. A reasoning model's scratchpad is the main thing worth
+                # having about a reasoning model.
+                #
+                # Safe for `--rescore-from`, which re-applies visible_answer()
+                # at judge time: stripping is idempotent, so a raw-stored run
+                # strips correctly and an old stripped-stored run is unchanged.
+                "answer": answers[arm][i],
+                # How much of it was scratchpad. Cheap, and makes the volume
+                # queryable without storing the text twice.
+                "reasoning_chars": len(answers[arm][i]) - len(candidates[arm]),
                 "correctness": j.get("correctness"),
                 "errors_made": j.get("errors_made"),
                 # The gate metric. None when the judge failed to return usable
@@ -509,6 +526,26 @@ def _write_report(results, positions, arm_names, closed_arms, args,
     # It does not rescue Gate 2 at this sample size — the per-arm means came out
     # 2.09 / 2.09 / 2.23, because the per-position differences point in different
     # directions and cancel. Reported so that is visible rather than assumed.
+    # When the judge fails a lot, the first question is always "was the prompt
+    # too big?" — so answer it in the report instead of leaving it to be
+    # reconstructed later. On the Qwen3 rerun the judge failed on 71% of pairs
+    # while carrying ~177 tokens of candidate text, which rules the input out
+    # and points at the judge's own output budget (Section 21.24).
+    unjudged = sum(1 for r in results for a in arm_names
+                   if (r["arms"][a] or {}).get("correctness") is None)
+    if unjudged:
+        vis = [len(r["arms"][a].get("answer") or "") - (r["arms"][a].get("reasoning_chars") or 0)
+               for r in results for a in arm_names]
+        per_call = (sum(vis) / len(vis)) * len(arm_names) if vis else 0
+        think = sum(r["arms"][a].get("reasoning_chars") or 0 for r in results for a in arm_names)
+        lines.append(
+            f"\n> **{unjudged}/{len(results) * len(arm_names)} arm-position pairs went unjudged.** "
+            f"The judge carried roughly {per_call:,.0f} characters of candidate text per batched "
+            f"call (~{per_call / 4:,.0f} tokens) across {len(arm_names)} arms"
+            + (f", after {think:,} characters of model reasoning were stripped" if think else "")
+            + f". If that is small against `--judge-max-tokens {args.judge_max_tokens}`, the "
+            "failure is in what the judge PRODUCES, not what it reads — a reasoning judge "
+            "spends its budget thinking before it emits JSON.\n")
     lines.append("\n| Arm | Blunder rate | Errors/answer | Correctness | Parsed ok "
                  "| Actions/answer | All legal | Degenerate |")
     lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")

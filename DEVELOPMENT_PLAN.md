@@ -3267,3 +3267,118 @@ python scripts/eval.py --compare eval/runs/gold_n99_judge2.jsonl eval/runs/gold_
 
 Positive controls still run first: they say whether *any* judge difference is
 measurable on this scale, and a 32B result is not interpretable without them.
+
+### 21.24 The Qwen3 rerun: the answer fix worked, and the judge is the reasoning model
+
+The rerun completed after ~6 hours of generation. It fixed what it was meant to
+fix and failed harder on something else.
+
+| | run 1 | rerun |
+| --- | --- | --- |
+| positions × arms | 22 × 3 | 24 × 3 |
+| **answer parse rate** | 55–82% | **92–100%** |
+| visible answer, mean chars | 91 | 236 |
+| **judge coverage** | 41% | **29%** |
+
+`visible_answer()` and the raised generation budget did their job: the model now
+produces a parseable answer after it finishes thinking, and Gate 1's parse rate
+went from a worst arm of 55% to 92%. Judge coverage went the other way.
+
+**The judge is not choking on its input.** Stripped of reasoning, a batched
+three-arm call carries ~709 characters of candidate text — about **177 tokens**
+— against a 1,200-token budget. There is no prompt-size story here. The failure
+is in what the judge *produces*: `Qwen3-14B` is a reasoning model on both sides
+of this run, and as judge it spends its output budget thinking before it emits
+the JSON, so the JSON never closes.
+
+That is the opposite of the Section 21.14 diagnosis, where V4 failed because it
+demanded too much *output* for the budget. Same symptom — unparseable JSON,
+coverage collapse, means over a selected subset — from the opposite cause. Both
+are now surfaced in the report rather than left to be reconstructed: it prints
+the candidate volume per judge call and says explicitly that a small number
+there means the failure is on the production side.
+
+**A reasoning model is a poor judge at any budget that suits a non-reasoning
+one.** The fix is either a much larger `--judge-max-tokens` for a reasoning judge
+specifically, or — better — not using one. The judge's job is extraction, not
+deliberation, and the two published judges (Qwen2.5-7B, Llama-3.1-8B) grade
+99/99 and 92/99 at 500 tokens.
+
+Read the numbers with that caveat: 29% coverage, and the arms differ. Gate 2 on
+the new definition reads 5/7 (71%) PASS with **17 of 24 positions excluded** for
+an unjudged arm. Seven positions is not a gate verdict, and the report says so.
+
+#### A defect this exposed: the run file discarded the reasoning
+
+Asked whether Qwen3 had reasoned at all on the rerun, the run file could not
+answer — 0 of 72 stored answers carried a `<think>` block, against 66 of 66 in
+run 1. That is not a behaviour change. `_judge_all` stored `candidates[arm]`,
+the text *after* stripping, so the scratchpad was discarded at write time.
+
+The commit that introduced the stripping said, in its own message, "the full
+output is still what gets STORED." It was not. The claim was written from
+intent rather than from the line below it, and the cost landed exactly where it
+would hurt most: the one artifact worth having about a reasoning model is the
+reasoning, and it was thrown away on the first run that produced any.
+
+Now stores the raw output, plus `reasoning_chars` so the volume is queryable
+without keeping the text twice. Safe for `--rescore-from`, which re-applies
+`visible_answer()` at judge time: stripping is idempotent, so a raw-stored run
+strips correctly and the already-stripped runs are unchanged.
+
+### 21.25 Qwen3-14B answered the model question, and the answer is no
+
+The rerun's second judge finished, which turns the coverage collapse into a
+controlled experiment. **Same 24 positions, same stored answers, judge varied
+and nothing else:**
+
+| Judge | Reasoning model? | Coverage |
+| --- | --- | --- |
+| `Qwen3-14B-4bit` | **yes** | 21/72 (**29%**) |
+| `Meta-Llama-3.1-8B-4bit` | no | 66/72 (**92%**) |
+
+A model less than half the size grades three times as much of the set, on
+identical inputs. That is not a capability difference — it is the reasoning model
+spending its 1,200-token output budget on `<think>` before it reaches the JSON.
+**The Qwen3-as-judge column is discarded**, and Llama is the usable read.
+
+#### The comparison the six hours were for
+
+Both sides judged by Llama-3.1-8B, on the 22 positions the two runs share:
+
+| Arm | Qwen2.5-7B | Qwen3-14B |
+| --- | --- | --- |
+| | blunder / corr / legal | blunder / corr / legal |
+| `base_open` | 47% / 3.26 / 68% | 55% / 3.23 / 68% |
+| `base_closed` | 68% / 2.95 / 73% | 65% / 3.20 / 59% |
+| `base_cards_open` | 74% / 2.44 / 64% | **50% / 3.58 / 64%** |
+| **Gate 3 (best arm)** | **53% FAIL** | **50% FAIL** |
+
+**Doubling the parameters and adding a reasoning mode moved the best-arm blunder
+rate from 53% to 50%, against a gate that needs ≤25%.** That is the answer to
+"is there a better model we should be targeting": not this one, and not by
+enough to matter. Both models fail Gate 3 by roughly a factor of two.
+
+The one genuine gain is `base_cards_open` — 74% → 50% blunder, 2.44 → 3.58
+correctness. Card-augmented retrieval helps the larger model substantially more
+than it helps the 7B, where it was the *worst* arm. That is a real interaction
+and worth a follow-up, but it moves an arm from bad to bad.
+
+Cost, for the record: ~6 hours of generation for 24 positions × 3 arms at
+`--max-tokens 4000`, against minutes for the 7B. Roughly 60× the wall time for
+3 points of best-arm blunder rate.
+
+**Caveats, stated rather than buried.** This is a *single-judge* read, because
+the second judge is the one that collapsed — and Section 21.19 measured Gate 3
+swinging 38 points between judges on identical answers. n=22. What survives the
+caveats is the direction and the magnitude: no arm of either model comes within
+25 points of the gate, and that gap is far larger than judge variance.
+
+#### The practical rule this establishes
+
+**A reasoning model is a poor judge at any budget that suits a non-reasoning
+one.** The judge's job is extraction — which claims does this text make — not
+deliberation. Both published judges grade 92–100% at 500 tokens; the reasoning
+judge managed 29% at 1,200. Use a reasoning model as a *subject* if it earns its
+place, never as the grader, unless its budget is raised specifically and the
+coverage is checked before the numbers are read.
