@@ -3882,3 +3882,74 @@ a point at all.
 that stand.** Dynamic range and false-errors-on-oracle never involved `partial`,
 so Section 21.27's conclusion is unaffected — but the calibration should be
 re-run for a defensible ordering number.
+
+### 21.34 The 32B judge is right and the small ones are loose
+
+Section 21.31 left two readings open: either the 32B is stricter and correct, or
+it is under-crediting by missing paraphrase. Its positive controls settle it.
+
+All three judges, under matched `points_only` arithmetic (the two older runs
+inverted exactly — the halving is invertible, so no re-run was needed):
+
+| Judge | range | ordering | false errors | coverage | credits on **oracle** | on real answers |
+| --- | --- | --- | --- | --- | --- | --- |
+| Qwen2.5-7B | +3.22 | 93% | 40% | 98/99 | 86% | 43% |
+| Llama-3.1-8B | +2.66 | 94% | 4% | 95/99 | 81% | 63% |
+| **Qwen2.5-32B** | **+3.60** | **100%** | **0%** | **99/99** | **90%** | **8%** |
+
+**The 32B wins every measure**, and the last two columns are why it is not
+under-crediting: a judge that credits the *reference answer* with 90% of its own
+rubric understands the rubric. Crediting real model answers at 8% is then a
+statement about the answers.
+
+Llama credits real answers at 63% against 81% on the oracle — a ratio of 1.3×.
+The 32B's ratio is **11.2×**. One of these barely separates a model answer from
+the reference; the other separates them by an order of magnitude.
+
+#### Read the answers, again
+
+Two cases where Llama credited every key point and the 32B credited none:
+
+**`rg-7`.** The rubric's first key point is *"Player B controls both
+permanents"*. The model answered *"Sir Shandlar of Eberyn would be controlled by
+**Player A**"*, cited a rule number that does not exist (723.2), and introduced a
+Player C who is not in the question. **Llama: 4/4 key points. 32B: 0/4.**
+
+**`qa-armando-controls-leyline-of-the-guildpac`.** The model produced a
+fabricated type line and ability text for Snow-Covered Plains, including a
+power/toughness for a land. **Llama: 5/5. 32B: 0/5.**
+
+Both were verified against the *eval* set, not the gold templates — the eval set
+has **0 unresolved `[[cardN]]` slots**, so the judge saw real card names and the
+Section 18.5 templating failure is not in play here.
+
+The aggregate matches the anecdotes: **Llama awards full marks to 40% of model
+answers.** The 32B awards full marks to 5% and zero to 87%.
+
+#### Consequences
+
+`CALIBRATED_JUDGE_ID` is now the 32B, so `eval_positions.py` defaults to it.
+Cost is ~4.5× per judge call, which `--rescore-from` makes affordable because
+generation is skipped.
+
+**Two earlier conclusions need revisiting, and one gets stronger.**
+
+- Section 21.31 called the low agreement (+0.20, +0.22) a puzzle. It is not: the
+  32B disagrees with two loose judges *because* they are loose. Inter-judge
+  agreement was never the right target — **agreement with a calibrated judge
+  is**, and two badly-calibrated judges agreeing with each other at +0.49 is
+  the number that should have looked suspicious.
+- Section 21.23's prediction 2 (agreement rises) was wrong, and wrong for an
+  interesting reason rather than a boring one.
+- **The A3 verdict survives and sharpens.** Under the 32B the ranking is
+  unchanged — base_rag 1.60 > base 1.40 > finetuned_rag 1.23 > finetuned 1.09 —
+  so fine-tuning still loses under a third, better-calibrated judge.
+
+**And the migration question is answered.** Judge quality was the binding
+constraint on every number in this project, and the fix is an 18 GB model on a
+36 GB machine. Not more memory — a better judge that already fits.
+
+The honest limit on this: two answers were read by hand. The trip-wires, the
+oracle/real ratio, and the full-marks rate are measured across all 99, but the
+*interpretation* that the 32B is right rests partly on those two, and a wider
+hand-audit would strengthen it.

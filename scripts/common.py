@@ -263,17 +263,24 @@ def build_rag_messages(question: str, context: str | None = None,
     ]
 
 
-# The judge with measured calibration, and the only one that passes all three
-# STRUCTURAL_AUDIT.md trip-wires (Section 21.27):
+# The best-calibrated judge measured. All three positive-control trip-wires,
+# scored under matched `points_only` arithmetic (Section 21.34):
 #
-#                          dynamic range   ordering   false errors on oracle
-#   Qwen2.5-7B-Instruct        +2.77          93%              40%   FAIL
-#   Llama-3.1-8B-Instruct      +2.74          94%               4%   PASS
+#                        range   ordering   false err   coverage   oracle/real
+#   Qwen2.5-7B           +3.22      93%        40%        98/99       86%/43%
+#   Llama-3.1-8B         +2.66      94%         4%        95/99       81%/63%
+#   Qwen2.5-32B          +3.60     100%         0%        99/99       90%/ 8%
 #
-# "False errors on oracle" is the reference answer being charged with a
-# `common_error` it definitionally cannot have committed — and blunder rate is
-# defined on exactly that field. Choosing between these two is not a preference:
-# one of them invents the gameplay metric four times in ten.
+# The last column is the one that decides it: the fraction of rubric points the
+# judge credits on the ORACLE — the reference answer itself — against real model
+# answers. A judge that scores the oracle at 90% understands the rubric, so
+# crediting real answers at 8% is discrimination and not verbatim-matching.
+# Llama credits real answers at 63% against 81% on the oracle: it barely
+# separates the two, and gives FULL marks to 40% of model answers, including
+# ones that contradict the reference outright.
+#
+# ~4.5x slower per judge call than the 7-8B judges, and worth it: `--rescore-from`
+# skips generation, which is the expensive half.
 #
 # Lives here rather than in eval.py because eval_positions.py needs it while
 # building its argument parser, and it defers `import eval` until main() to keep
@@ -281,7 +288,7 @@ def build_rag_messages(question: str, context: str | None = None,
 #
 # Overridable with --judge-model and recorded in every report, per the stale
 # ADAPTER_PATH lesson.
-CALIBRATED_JUDGE_ID = "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
+CALIBRATED_JUDGE_ID = "mlx-community/Qwen2.5-32B-Instruct-4bit"
 
 PROMPT_STAMP_FILE = "prompt_fingerprint.json"
 
