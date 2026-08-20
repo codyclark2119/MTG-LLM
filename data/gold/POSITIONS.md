@@ -27,7 +27,35 @@ That is the same `rubric_correctness()` that scores rules questions, unchanged.
 So a position with no `common_errors` cannot contribute to the gate, and the
 validator rejects it.
 
-### Lead with the mistake, not with the play
+### Write the false CLAIM, not the player's behaviour
+
+**This supersedes the "lead with the mistake" rule below** (Section 21.35). Both
+are about the same failure and this one is more direct.
+
+The judge is asked which of these the candidate *asserted*. `key_points` are
+claims, so that question is answerable — the judge credits the reference answer
+with 90% of its own key points. `common_errors` were written as behaviours
+("Adds Centaur Courser to the block"), which turns the question into *did this
+text describe a player doing that?* Measured cost: the 7B judge charged the
+reference answer — which definitionally cannot commit an error — with one on
+**40%** of questions, and blunder rate is defined on exactly that field.
+
+| | |
+| --- | --- |
+| correct line | "Block with Sedge Scorpion alone." |
+| behaviour (old) | "Adds Centaur Courser to the block, spending a 3/3 to save 3 life" |
+| **claim (now)** | "**Centaur Courser should be added to the block alongside Sedge Scorpion**" |
+
+The test: **could a wrong answer contain this sentence verbatim?** If not, it
+describes a mistake instead of being one. `lint_common_errors` warns on the
+third-person-verb opening that marks the old form.
+
+A claim will often start with the same card as the correct line — both sentences
+are *about* that card — and that is fine. What distinguishes them is the
+predicate, which is always present. The restatement check below is gated to the
+behaviour form for exactly this reason.
+
+<details><summary>The superseded rule, kept because its measurement stands</summary>
 
 Measured, in Section 16.12. Six of eight disputed judge calls landed on two of
 eight positions, and both had the same defect: a `common_errors` line whose
@@ -42,6 +70,12 @@ eight positions, and both had the same defect: a `common_errors` line whose
 A judge extracting claims matches the opening and fires before it reaches the
 qualifier that makes the play wrong. Rewriting three lines this way closed the
 two judges' blunder-rate gap from **28 points to 6**.
+
+Both examples are behaviour-form; under the claim rule the error becomes
+"Lightning Strike should be aimed at the opponent", which has no opening clause
+to match early because it has no qualifier.
+
+</details>
 
 It did *not* fix per-call disagreement (9 disputes → 8), so this removes a
 systematic bias rather than making the metric reliable. Both halves matter.
