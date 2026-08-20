@@ -3706,3 +3706,67 @@ inferred from this. A second thing worth noting is how unstable kappa is at
 these sizes — +0.14 to +0.41 across four runs of the same eval, on the same two
 judges. Any kappa target should be read against that spread before it is treated
 as a threshold.
+
+### 21.31 The 32B judge agrees LESS, and prediction 2 was wrong
+
+The 32B rescore of `gold_n99` finished: 99 questions, **396/396 arm-answers
+graded**, no coverage problem at all. Section 21.23 recorded four predictions
+before it ran. Scoring them honestly:
+
+| # | Predicted | Outcome |
+| --- | --- | --- |
+| 1 | coverage ~100% | **held** — 396/396 |
+| 2 | agreement rises, but short of +0.6 | **wrong** — it *fell*, to +0.20 |
+| 3 | A3 ranking unchanged | **held** |
+| 4 | ~4–5× slower | **held** — ~70 min against ~13 |
+
+| Judge pair | Pearson r |
+| --- | --- |
+| Qwen2.5-7B vs Llama-3.1-8B | **+0.49** |
+| Qwen2.5-7B vs Qwen2.5-32B | **+0.20** |
+| Llama-3.1-8B vs Qwen2.5-32B | **+0.22** |
+
+**The 4.5× larger judge agrees with each small judge less than they agree with
+each other**, even though it shares a family and an instruction lineage with one
+of them. All three files use the same scoring rule, so the comparison is
+matched — the run predates Section 21.28 and carries no `scoring` field, which
+is exactly the case that field was added to make recoverable.
+
+#### Why: it credits almost nothing
+
+| Judge | all-errors-fired | mean `points_hit` credited |
+| --- | --- | --- |
+| Qwen2.5-7B | 50% | 43% of rubric |
+| Llama-3.1-8B | 16% | **63%** |
+| Qwen2.5-32B | 40% | **8%** |
+
+The 32B awards 8% of the available rubric points. That is five times stingier
+than Llama and it is what drags every arm to 1.09–1.60 on a 1–5 scale. It also
+fires the whole error list on 40% of its blunder calls, so it has the Qwen
+family's error artifact and a severe points deficit on top.
+
+One thing genuinely improves: **length neutrality**. Correlation between answer
+length and score is +0.080, against +0.324 for the 7B and +0.227 for Llama. The
+32B is much harder to impress with volume.
+
+#### What this cannot yet settle
+
+Two readings fit the same numbers, and they point opposite ways:
+
+- **The 32B is stricter and right.** It demands the candidate actually assert a
+  point rather than gesture at it, and the two smaller judges share a
+  family-independent tendency to over-credit. Low agreement with them would then
+  be a *feature*, and 8% would be closer to the truth than 63%.
+- **The 32B is under-crediting.** It misses paraphrase, which the V3 prompt
+  explicitly instructs against ("count a point as hit if the candidate states it
+  in ANY wording, including paraphrase or implication").
+
+**The positive controls discriminate, and they are running now.** The oracle IS
+the reference answer, so a judge that understands the rubric should credit close
+to 100% of its points. If the 32B credits the oracle at 8% too, it is
+under-crediting and its dynamic range will collapse. If it credits the oracle
+near 100% while crediting real answers at 8%, it is discriminating hard and the
+smaller judges are the loose ones.
+
+Nothing about judge scale should be concluded until that lands — which is the
+whole reason a judge gets calibrated before its agreement number is read.
