@@ -42,6 +42,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -66,6 +67,17 @@ _WRITE_LOCK = threading.Lock()
 # 21.47). Segmenting on this is the only way to tell that apart from a real
 # change in the answers, so it rides on every submission the way `author` does.
 ADJUDICATION_FORM_VERSION = 2
+
+
+def _answer_sha(answer: str) -> str:
+    """12-char digest of an answer, matching `adjudicate.answer_sha`.
+
+    Duplicated deliberately rather than imported: the server's only project
+    import is `common`, and pulling in `adjudicate` would put the gold set, the
+    queue and the run files on the import path of a public service. Twelve
+    characters of sha256 is not a helper worth that.
+    """
+    return hashlib.sha256(answer.encode("utf-8")).hexdigest()[:12]
 
 
 def load_tasks(path: Path) -> tuple[list[dict], str]:
@@ -165,9 +177,25 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
             # The whole task inlines, because the reviewer needs every field at
             # once and there are only ~60 of them. Same per-author progress
             # rule as below: a verdict is "done" for the person who gave it.
-            live = {t["key"] for t in tasks}
+            # Done means "this author has graded THIS TEXT", not "this key".
+            # Comparing keys alone marked already-graded keys done after the
+            # arms were regenerated, hiding exactly the tasks that most needed a
+            # fresh verdict (Section 21.62).
+            #
+            # A submission with NO digest predates this field, which means it
+            # was collected before the arms were regenerated — so it is about
+            # older text by construction, and counts as NOT done. The asymmetry
+            # is deliberate: treating it as done makes a reviewer silently skip
+            # work that needs redoing, while treating it as undone at worst asks
+            # for one duplicate verdict, visibly. Cheap and visible beats silent
+            # and corrupting. It is also self-clearing — every submission
+            # collected from here on carries a digest, so this branch stops
+            # firing once the current log is superseded.
+            live = {t["key"]: _answer_sha(t.get("answer") or "") for t in tasks}
             mine = {s["key"] for s in subs
-                    if s.get("author") == author and "errors_present" in s} & live
+                    if s.get("author") == author and "errors_present" in s
+                    and s["key"] in live
+                    and s.get("answer_sha") == live[s["key"]]}
             return {"tasks": [dict(t, done=t["key"] in mine) for t in tasks],
                     "done_by_me": len(mine), "total": len(tasks)}
         # Intersect with the CURRENT task list. The submissions log is
@@ -292,6 +320,17 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
             "key": tid,
             "record_id": by_id[tid].get("record_id"),
             "arm": by_id[tid].get("arm"),
+            # A digest of the exact answer this verdict was given about, taken
+            # from the served task rather than from the client — a value the
+            # client supplied would be its claim about what it was shown.
+            #
+            # The key `record_id::arm` is stable while the text behind it is
+            # not: regenerate the arms and the same key names a different
+            # answer. Without this, a reviewer who graded a key under an older
+            # grammar sees it marked done and skips the one task that most needs
+            # regrading, and `--score` matches the old verdict to the new text
+            # (Section 21.62).
+            "answer_sha": _answer_sha(by_id[tid].get("answer") or ""),
             "errors_present": nums,
             "blundered": bool(nums),
             "unsure": bool(body.get("unsure")),

@@ -192,6 +192,34 @@ def main() -> None:
         check(f"a task carrying {leak!r} is refused",
               _loads([dict(ok_task, **{leak: "anything"})]), False)
 
+    # "Done" must mean "this author graded THIS TEXT", not "this key". The key
+    # record_id::arm survives a regeneration of the arms while the answer behind
+    # it does not, so comparing keys alone marks already-graded keys done and
+    # hides exactly the tasks needing a fresh verdict (Section 21.62).
+    from rubric_server import _answer_sha as _sha
+
+    _tasks = [{"key": "p::a", "answer": "PLAY Swamp\nPASS"}]
+    _live = {t["key"]: _sha(t["answer"]) for t in _tasks}
+
+    def _done(sub):
+        return (sub.get("author") == "me" and "errors_present" in sub
+                and sub["key"] in _live and sub.get("answer_sha") == _live[sub["key"]])
+
+    check("a verdict on the same text is done",
+          _done({"key": "p::a", "author": "me", "errors_present": [1],
+                 "answer_sha": _sha("PLAY Swamp\nPASS")}), True)
+    check("a verdict on different text is NOT done",
+          _done({"key": "p::a", "author": "me", "errors_present": [1],
+                 "answer_sha": _sha("PHASE upkeep\nPLAY Swamp\nPASS")}), False)
+    # No digest means it predates the field, so it is about older text by
+    # construction. Reopening asks for one visible duplicate verdict; the
+    # alternative silently skips work that needs redoing.
+    check("a verdict with no digest reopens",
+          _done({"key": "p::a", "author": "me", "errors_present": [1]}), False)
+    check("the server digest matches the local one",
+          _sha("PLAY Swamp\nPASS"), __import__("hashlib").sha256(
+              "PLAY Swamp\nPASS".encode()).hexdigest()[:12])
+
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:
         raise SystemExit(1)
