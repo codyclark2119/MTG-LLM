@@ -40,7 +40,7 @@ import re
 from dataclasses import dataclass, field
 
 VERBS = ("PLAY", "CAST", "ACTIVATE", "ATTACK", "BLOCK", "ORDER TRIGGERS",
-         "MULLIGAN", "KEEP", "PASS", "TAP")
+         "MULLIGAN", "KEEP", "PASS", "TAP", "PHASE")
 
 # Markdown/list scaffolding the model wraps its answer in. Stripped, not failed.
 _SCAFFOLD_RE = re.compile(r"^\s*(?:[-*+•]|\d+[.)])\s*")
@@ -112,6 +112,17 @@ class ParsedOutput:
     max_repeat: int = 0
 
     @property
+    def plays(self) -> list["Action"]:
+        """The actions that change the game — declarations excluded.
+
+        `PHASE` states a belief and `TAP` pays for something; neither is a line
+        of play, and counting them would inflate `actions/answer` and let a
+        model look busier by being more verbose. Gate 1 and `only_pass` read
+        this, so asking for verbosity cannot move either (Section 21.61).
+        """
+        return [a for a in self.actions if a.verb not in DECLARATIONS]
+
+    @property
     def ok(self) -> bool:
         """Gate 1's per-output criterion: at least one action, nothing malformed."""
         return bool(self.actions) and not self.failures
@@ -156,7 +167,7 @@ class ParsedOutput:
         point opens with pass/hold/decline. A position where doing nothing is
         correct would need this reconsidered, and there are none.
         """
-        return bool(self.actions) and all(a.verb == "PASS" for a in self.actions)
+        return bool(self.plays) and all(a.verb == "PASS" for a in self.plays)
 
     def keys(self) -> list[str]:
         return [a.key() for a in self.actions]
@@ -209,6 +220,24 @@ def parse_line(line: str) -> Action | ParseFailure | None:
     if verb == "PASS":
         # "PASS" and "PASS priority" / "PASS the turn" are the same play.
         return Action("PASS", (), line)
+
+    if verb == "PHASE":
+        # `PHASE <name>` — the model saying when it thinks it is (Section 21.61).
+        # A declaration, not a play: it changes nothing on the board and is
+        # excluded from the action count and from legality, so adding it cannot
+        # move Gate 1. What it does is make a belief checkable that was
+        # previously only inferable from whether an action happened to be legal.
+        #
+        # The body must name a real step. "Phase two of my plan is to attack"
+        # opens with the exact word and is prose — the whole-word verb test
+        # cannot separate them, because unlike "Attacking" there is no suffix to
+        # notice. A closed vocabulary can: MTG steps are enumerated in the CR,
+        # so anything else is narration rather than a malformed declaration.
+        if not body:
+            return ParseFailure(line, "PHASE needs a phase name")
+        if not any(step in body.lower() for step in PHASE_NAMES):
+            return None
+        return Action("PHASE", (body,), line)
 
     if verb == "TAP":
         # `TAP <permanent> FOR <mana>` — the mana declaration (Section 21.60).
@@ -475,6 +504,17 @@ ONCE_PER_TURN = ("PLAY",)
 # (Section 21.60).
 REPEAT_IS_MEANINGFUL = ONCE_PER_TURN + ("TAP",)
 
+# The steps and phases a `PHASE` declaration may name (CR 500-514), plus the
+# pre-game state positions use. A closed vocabulary, because "Phase two of my
+# plan" opens with the verb and is prose; see parse_line.
+DECLARATIONS = ("PHASE", "TAP")
+
+PHASE_NAMES = (
+    "untap", "upkeep", "draw", "precombat main", "postcombat main", "main",
+    "beginning of combat", "declare attackers", "declare blockers",
+    "combat damage", "end of combat", "end step", "cleanup", "opening hand",
+)
+
 
 def rule_illegalities(parsed: ParsedOutput) -> list[str]:
     """Illegal plays visible from the output alone, independent of legal_actions.
@@ -517,15 +557,28 @@ def rule_illegalities(parsed: ParsedOutput) -> list[str]:
 
 
 def legality(parsed: ParsedOutput, legal_actions: list[str]) -> dict:
-    """How much of an output names an action from the enumerated legal set."""
-    matched = [a for a in parsed.actions if match_to_legal(a, legal_actions)]
+    """How much of an output names an action from the enumerated legal set.
+
+    Scored over `plays`, never `actions`. `legal_actions` enumerates *plays*, so
+    a `PHASE` or `TAP` line can never appear in it — evaluating declarations
+    against that list made a correct verbose answer score `all_legal=False` on
+    every declaration it contained. The prompt asks for those lines
+    (Section 21.60), so the effect would have been an arm's legality collapsing
+    the moment verbosity was required, arriving in the shape of a result:
+    *"asking the model to show its working makes it play worse."*
+
+    This repo has had that exact shape twice — a grammar whose optional-operand
+    brackets the model copied, and prose about a play parsing AS that play. Both
+    times the harness punished the model for doing what it was told.
+    """
+    plays = parsed.plays
+    matched = [a for a in plays if match_to_legal(a, legal_actions)]
     rule_bad = rule_illegalities(parsed)
     return {
-        "n_actions": len(parsed.actions),
+        "n_actions": len(plays),
         "n_legal": len(matched),
         "n_failures": len(parsed.failures),
-        "all_legal": (bool(parsed.actions) and len(matched) == len(parsed.actions)
-                      and not rule_bad),
-        "illegal": [a.key() for a in parsed.actions if not match_to_legal(a, legal_actions)]
+        "all_legal": (bool(plays) and len(matched) == len(plays) and not rule_bad),
+        "illegal": [a.key() for a in plays if not match_to_legal(a, legal_actions)]
                    + rule_bad,
     }

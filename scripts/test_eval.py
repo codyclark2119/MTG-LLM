@@ -1097,6 +1097,54 @@ def test_tap_problems() -> int:
     return failed
 
 
+def test_phase_declaration() -> int:
+    """`PHASE <step>` checked against the board, and kept out of the play count (21.61)."""
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from actions import legality, parse_output
+    from positions import phase_problems
+
+    failed = 0
+    board = {"phase": "opponent's declare attackers"}
+
+    def probs(ans):
+        return phase_problems(board, parse_output(ans).actions)
+
+    failed += not check("naming the step agrees", probs("PHASE declare attackers\nPASS"), [])
+    failed += not check("the fuller phrasing also agrees",
+                        probs("PHASE opponent's declare attackers\nPASS"), [])
+    failed += not check("a different step is caught",
+                        len(probs("PHASE declare blockers\nPASS")), 1)
+    failed += not check("a wildly wrong step is caught",
+                        len(probs("PHASE upkeep\nPASS")), 1)
+    # Silence is "not stated", never "agreed".
+    failed += not check("no declaration reports nothing", probs("CAST Shock\nPASS"), [])
+    # Prose that opens with the word is not a declaration — there is no suffix
+    # for the whole-word test to notice, so a closed vocabulary does the work.
+    failed += not check("'Phase two of my plan' is prose",
+                        probs("Phase two of my plan is to attack\nPASS"), [])
+
+    # A declaration is not a play. Verbosity must not change legality, or
+    # requiring it would collapse Gate 1 and read as "verbosity makes the model
+    # play worse" — the shape this repo has been bitten by twice.
+    legal = ["CAST Ambush Viper", "PASS"]
+    terse = legality(parse_output("CAST Ambush Viper\nPASS"), legal)
+    verbose = legality(parse_output(
+        "PHASE declare attackers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\n"
+        "CAST Ambush Viper\nPASS"), legal)
+    failed += not check("terse answer is legal", terse["all_legal"], True)
+    failed += not check("the same answer told verbosely is equally legal",
+                        verbose["all_legal"], True)
+    failed += not check("and counts the same number of plays",
+                        verbose["n_actions"], terse["n_actions"])
+    # A wrong play is still caught through the declarations.
+    wrong = legality(parse_output("PHASE declare attackers\nCAST Doom Blade\nPASS"), legal)
+    failed += not check("a wrong play is still illegal", wrong["all_legal"], False)
+    # And verbosity cannot be used to escape the do-nothing detector (21.58).
+    failed += not check("a verbose answer that does nothing is still only_pass",
+                        parse_output("PHASE upkeep\nTAP Forest FOR {G}\nPASS").only_pass, True)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1173,6 +1221,7 @@ def main() -> None:
                      ("cohens_kappa", test_cohens_kappa),
                      ("mana_problems", test_mana_problems),
                      ("tap_problems", test_tap_problems),
+                     ("phase_declaration", test_phase_declaration),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from actions import Action, parse_line  # noqa: E402
+from actions import Action, PHASE_NAMES, parse_line  # noqa: E402
 from common import (  # noqa: E402,F401  (lint_common_errors re-exported for webui)
     CR_VERSION,
     POSITIONS_PATH,
@@ -347,6 +347,45 @@ def parse_mana(cost: str) -> tuple[dict[str, int], int] | None:
         else:
             return None          # hybrid, Phyrexian, X, snow — not modelled
     return need, generic
+
+
+def phase_problems(pos: dict, actions) -> list[str]:
+    """A `PHASE` declaration that disagrees with the board it was given.
+
+    The verbose grammar asks the model to state when it thinks it is. That is
+    worth asking only if it is checked, and it is checkable against
+    `pos["phase"]` with no judge and no card data.
+
+    This is the one thing the enumerated-`legal_actions` check structurally
+    cannot see. Section 21.59 measured 24 of 251 answers taking an action
+    impossible in the stated phase and found **all 24 already caught** — because
+    a phase-illegal action is simply not in the list. But a model can take a
+    perfectly legal action while believing it is a different step, and nothing
+    about the action reveals that. The declaration does.
+
+    Matching is loose on purpose: the rendered board says "opponent's declare
+    attackers" and an answer saying "declare attackers" means the same step. A
+    false mismatch would manufacture a finding out of phrasing, which is the
+    failure this repo has had from `_PLAYER_PREP` and from substring verbs.
+    Returns [] when nothing was declared — silence is "not stated", not "agreed".
+    """
+    want = (pos.get("phase") or "").lower()
+    if not want:
+        return []
+    out = []
+    for a in actions:
+        if a.verb != "PHASE" or not a.args:
+            continue
+        said = a.args[0].lower()
+        # Agree if either names the other's step, so possessives and turn
+        # ownership ("your", "opponent's") never decide the comparison.
+        if said in want or want in said:
+            continue
+        shared = [st for st in PHASE_NAMES if st in said and st in want]
+        if shared:
+            continue
+        out.append(f"PHASE {a.args[0]!r}: the position is in {pos.get('phase')!r}")
+    return out
 
 
 _ADD_RE = re.compile(r"\{T\}[^:\n]*:\s*Add ([^.\n]*)\.", re.I)

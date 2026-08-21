@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (256)
+python scripts/test_eval.py                       # the scoring arithmetic (267)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
@@ -126,7 +126,7 @@ the grammar block that *is* the output contract — left no trace in any run fil
 prompt, and one digest would make a grammar edit invalidate a rules adapter that
 never saw it. Every position run records it and `compare_judges` refuses to
 interpret agreement across two values. Stored position runs are `5c196f40afd8`;
-the current prompt is `a4218f5de4e2`, so **no stored position number is
+the current prompt is `d094e3934d2d`, so **no stored position number is
 comparable to a new run** until the arms are regenerated.
 
 `common.prompt_fingerprint()` hashes the three system prompts **and the
@@ -455,6 +455,18 @@ Each cost real time. They recur in new code, so they are worth knowing.
   telling someone to use it makes the sample look cleaner than it is. When
   adding a field a human fills in, grep for it in the code that computes the
   headline before shipping the form (Section 21.55).
+- **A prompt asking for new output, and every check that consumes it.** The
+  gameplay prompt now requires `PHASE <step>` and `TAP <land> FOR <mana>` lines.
+  `legality()` scored every parsed action against `legal_actions`, which
+  enumerates *plays* — so the same correct answer, told the way the prompt
+  demands, scored `all_legal=False` on every line it had been asked to add.
+  Requiring verbosity would have collapsed Gate 1 across every arm and arrived
+  as a finding: *"showing its working makes the model play worse."* Third time
+  in this shape, after the copied `[TARGET x]` brackets and prose parsing as a
+  play. `ParsedOutput.plays` (actions minus `DECLARATIONS`) is what legality,
+  `only_pass` and the action count read now. **When a prompt starts asking for
+  new output, audit every consumer of that output before running anything**
+  (Section 21.61).
 - **A validity check reading a list of alternatives as a list of permissions.**
   `legal_actions` enumerates every play legal *on its own*, so an answer that
   blocks one attacker with Fog Bank and then blocks a second with it matched

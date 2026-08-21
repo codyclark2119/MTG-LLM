@@ -203,6 +203,7 @@ DATASETS_DIR = REPO_ROOT / "data/datasets"
 # model naming actions that do not exist. Optional forms get their own line
 # instead, so there is no meta-syntax left to copy.
 ACTION_GRAMMAR = (
+    "PHASE <step>                      state the step you are acting in\n"
     "PLAY <card>                       play a land\n"
     "CAST <card>                       cast a spell that has no targets\n"
     "CAST <card> TARGET <a>, <b>       cast a spell, naming its targets\n"
@@ -225,7 +226,8 @@ GAMEPLAY_SYSTEM_PROMPT = (
     "Write card names exactly as the position shows them, with no brackets or "
     "quotation marks around them. Give your reasoning first if you want to, "
     "then the actions. End with a single PASS.\n\n"
-    "Be explicit rather than brief. Before casting anything, TAP the lands that "
+    "Be explicit rather than brief. Open with PHASE, naming the step the "
+    "position is in. Before casting anything, TAP the lands that "
     "pay for it, one line each, naming the mana each one produces — a land that "
     "can add more than one colour produces only what you name, and some can add "
     "a colour only if a condition is met. Do not leave mana implicit."

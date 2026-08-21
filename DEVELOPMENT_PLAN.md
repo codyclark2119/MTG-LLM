@@ -5916,3 +5916,79 @@ only ever confirm the obvious. `mana_abilities` is verified against
 `Temple of Silence` and `Ancient Tomb` in tests instead. The machinery is right;
 the positions have not caught up to it, and that is an authoring gap rather than
 a code one.
+
+### 21.61 Declaring the phase, and the trap that mandating verbosity walks into
+
+21.60 built the mana half of the verbose grammar. This is the other half — *"the
+player in control declaring what phase they're in"* — and building it exposed a
+way the whole idea could have backfired.
+
+#### `PHASE <step>` is the one thing `legal_actions` cannot see
+
+21.59 measured 24 of 251 answers taking an action impossible in the stated phase,
+and found **all 24 already caught** — a phase-illegal action is simply not in the
+enumerated list. That result has a hole in it: a model can take a **perfectly
+legal action while believing it is a different step**, and nothing about the
+action reveals that. `CAST Ambush Viper` is right in declare attackers and right
+in the main phase; only the belief differs.
+
+A declaration makes the belief checkable, against `pos["phase"]`, with no judge
+and no card data. Matching is loose on purpose — the board says *"opponent's
+declare attackers"* and an answer saying *"declare attackers"* means the same
+step. A false mismatch would manufacture a finding out of phrasing, which is
+`_PLAYER_PREP`'s failure exactly.
+
+#### A closed vocabulary, because the whole-word test cannot help here
+
+`parse_line` separates verbs from narration by requiring a whole word, which
+stops `Attacking with Swiftspear…` becoming an `ATTACK`. That defence does not
+work for `PHASE`: *"Phase two of my plan is to attack"* opens with the exact
+word, no suffix to notice. So the body must name a real step — MTG's are
+enumerated in the CR — and anything else parses as prose rather than as a
+malformed declaration.
+
+#### The trap: requiring verbosity destroys Gate 1
+
+`legality()` scored every parsed action against `legal_actions`. That list
+enumerates **plays**, so a `PHASE` or `TAP` line can never appear in it.
+Measured, before shipping:
+
+```
+terse    CAST Ambush Viper / PASS
+         all_legal=True
+verbose  PHASE declare attackers / TAP Forest FOR {G} / TAP Forest FOR {G} /
+         CAST Ambush Viper / PASS
+         all_legal=False   illegal=['PHASE declare attackers', 'TAP Forest, {G}', ...]
+```
+
+The same play, told the way the prompt now demands, scores **illegal on every
+line it was asked to add**. Every arm's legality would have collapsed the moment
+verbosity was required, and it would have arrived in the shape of a result:
+*"asking the model to show its working makes it play worse."*
+
+This repo has had that exact shape twice — a grammar whose optional-operand
+brackets the model copied, and prose about a play parsing AS that play. Both
+times the harness punished the model for doing what it was told. The general
+form is worth naming: **when a prompt starts asking for new output, every check
+that consumes the output is a candidate for punishing it.**
+
+`ParsedOutput.plays` is the fix — actions minus `DECLARATIONS = ("PHASE", "TAP")`
+— and `legality`, `only_pass` and the action count all read it. Terse and verbose
+now score identically, and a wrong play is still caught through the declarations.
+
+Two consequences worth keeping:
+
+- **`actions/answer` is a count of plays**, so a model cannot look busier by
+  being more verbose.
+- **Verbosity cannot escape 21.58's do-nothing detector.**
+  `PHASE upkeep / TAP Forest FOR {G} / PASS` still reports `only_pass=True`,
+  because none of that is a play. Asked directly, since the obvious way to game
+  a "did nothing" check is to say more while doing nothing.
+
+#### Status
+
+Retroactively inert, verified: 0 of 251 stored answers contain a line beginning
+`PHASE`, and no `pos_n24_*` action count moves. The gameplay fingerprint is now
+`d094e3934d2d` — a third distinct value, with stored runs still at
+`5c196f40afd8` and `compare_judges` refusing to read agreement across them.
+Nothing has been run under the new grammar yet.

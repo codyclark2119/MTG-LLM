@@ -41,7 +41,8 @@ from common import (  # noqa: E402
     pearson_r,
     render_position,
 )
-from positions import load_positions, tap_problems, position_card_names  # noqa: E402
+from positions import (load_positions, phase_problems, position_card_names,
+                       tap_problems)  # noqa: E402
 
 # Four arms, matching the judge prompt's "labeled A, B, C, D". Each of the
 # three pre-registered predictions is a difference between two of them:
@@ -487,6 +488,11 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 # Declared taps that the board could not have produced. Checked
                 # against the battlefield and oracle text, never the judge
                 # (Section 21.60). Empty list when nothing was declared.
+                # The model's own statement of when it thinks it is, checked
+                # against the board. The one thing the enumerated-legal_actions
+                # check structurally cannot see: a legal action taken under a
+                # wrong belief looks identical to a correct one (21.61).
+                "phase_problems": phase_problems(pos, parsed.actions),
                 "tap_problems": (
                     tap_problems(pos, parsed.actions, _card_index_for_taps())
                     if any(a.verb == "TAP" for a in parsed.actions) else []),
@@ -763,6 +769,23 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "are strategies. **Both gates are blind to it.** Read the blunder rate of any arm "
             "with a high figure here as a statement about the rubric, not the play "
             "(Section 21.58).\n")
+
+    # Verbosity is only worth requiring if it is checked. Both counts read
+    # fields that are [] on every run made before 21.60/21.61, so an archived
+    # run reports nothing here rather than a spurious zero.
+    n_phase_wrong = sum(len((r["arms"].get(a) or {}).get("phase_problems") or [])
+                        for r in results for a in arm_names)
+    n_tap_wrong = sum(len((r["arms"].get(a) or {}).get("tap_problems") or [])
+                      for r in results for a in arm_names)
+    n_declared = sum(1 for r in results for a in arm_names
+                     if (r["arms"].get(a) or {}).get("phase_problems") is not None)
+    if n_phase_wrong or n_tap_wrong:
+        lines.append(
+            f"\n- **{n_phase_wrong} phase declarations disagree with the board; "
+            f"{n_tap_wrong} declared taps the board could not produce.** Both are checked "
+            "against the position and the oracle text, never the judge. A wrong phase is "
+            "the one error the enumerated-`legal_actions` check cannot see — a legal action "
+            "taken under a wrong belief looks identical to a correct one (Section 21.61).\n")
 
     n_unearned = n_credited = n_checkable = 0
     for r in results:
