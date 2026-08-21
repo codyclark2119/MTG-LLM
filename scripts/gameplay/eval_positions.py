@@ -590,7 +590,39 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                      f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} | {degen:.0%} |")
 
     # ---- the three gates ---------------------------------------------------
+    #
+    # COVERAGE FIRST, and withhold the verdicts rather than qualify them.
+    #
+    # A Qwen3-14B rescore at the default 600-token budget graded 0 of 72 arms —
+    # its <think> block consumed the budget before any JSON appeared — and this
+    # report printed "Gate 2: FAIL, 0/0 positions (0%)" and "Gate 3: FAIL, best
+    # arm None at 100%" in bold. Three failing gates computed from nothing, in
+    # the same shape a real run produces. `calibrate_judge.py` already refuses
+    # its trip-wires below 90% coverage; this had no such guard.
+    #
+    # A gate verdict is the sentence that decides whether an arm is worth
+    # pursuing. It must never be derived from a denominator nobody checked.
     lines.append("\n## Gates\n")
+    n_judged = sum(1 for r in results for a in arm_names
+                   if (r["arms"].get(a) or {}).get("errors_made") is not None)
+    n_arms_total = len(results) * len(arm_names)
+    coverage = n_judged / n_arms_total if n_arms_total else 0.0
+    if coverage < 0.90:
+        lines.append(
+            f"**NOT EVALUATED — the judge graded {n_judged}/{n_arms_total} arm answers "
+            f"({coverage:.0%}).** Gate verdicts are withheld rather than computed from "
+            "what survived: the failures are not random, they track how much the prompt "
+            "asks the judge to produce, so the graded remainder is selected by rubric "
+            "size rather than by anything about the answers (Section 21.14).\n\n"
+            "> Most likely `--judge-max-tokens` is too small for this judge. A reasoning "
+            "model spends its budget in `<think>` before emitting JSON; Qwen3-14B needs "
+            "~1,800 tokens for a **single** arm, so a three-arm call needs several times "
+            "the 600-token default.\n")
+        report_out.parent.mkdir(parents=True, exist_ok=True)
+        report_out.write_text("\n".join(lines), encoding="utf-8")
+        print("\n".join(lines[-3:]))
+        print(f"\nreport -> {report_out}")
+        return
     worst_parse = min(summary[a]["parsed_ok"] for a in arm_names)
     g1_closed = [summary[a]["all_legal"] for a in arm_names if a in closed_arms]
     g1 = worst_parse >= 0.90 and (not g1_closed or min(g1_closed) >= 0.95)

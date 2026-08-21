@@ -194,10 +194,65 @@ def test_gate2_against_stored_runs() -> int:
     return failed
 
 
+def test_coverage_guard() -> int:
+    """A run the judge could not grade must not produce gate verdicts.
+
+    Qwen3-14B at the default 600-token budget graded 0 of 72 arm answers — its
+    `<think>` block spent the budget before any JSON — and the report printed
+    three bold FAILs anyway, including "0/0 positions (0%)" and "best arm None
+    at 100%". Numbers with no denominator, in the exact shape a real run makes.
+    """
+    import tempfile
+    from pathlib import Path as _P
+    import eval_positions as ep
+    from common import read_jsonl, POSITIONS_PATH
+
+    failed = 0
+    positions = read_jsonl(POSITIONS_PATH)[:4]
+    arms = ["base_open", "base_closed"]
+
+    def report_for(graded: bool) -> str:
+        results = [{
+            "id": p["id"], "category": p["category"], "difficulty": p["difficulty"],
+            "arms": {a: {"answer": "PASS", "correctness": 3.0 if graded else None,
+                         "errors_made": [] if graded else None,
+                         "points_hit": [1] if graded else None,
+                         "blundered": False if graded else None,
+                         "n_actions": 1, "n_parse_failures": 0, "parsed_ok": True,
+                         "degenerate": False, "repeats_collapsed": 0, "n_legal": 1,
+                         "all_legal": True, "illegal": [], "actions": [],
+                         "reasoning_chars": 0} for a in arms},
+        } for p in positions]
+
+        class A:
+            judge_max_tokens = 600; max_tokens = 512; k_rules = 6
+            positions = POSITIONS_PATH; no_retrieval = False; limit = 0; seed = 42
+            second_judge = None; arms = None; adapter_path = None
+            out = _P('/dev/null')
+        out = _P(tempfile.mkdtemp()) / "r.md"
+        ep._write_report(results, positions, arms, ["base_closed"], A(),
+                         "base", None, "judge", out)
+        return out.read_text()
+
+    ungraded = report_for(False)
+    failed += not check("ungraded run: verdicts withheld", "NOT EVALUATED" in ungraded, True)
+    for g in ("Gate 1 —", "Gate 2 —", "Gate 3 —"):
+        failed += not check(f"ungraded run: no {g.strip(' —')} verdict", g in ungraded, False)
+    failed += not check("ungraded run: names the likely cause",
+                        "judge-max-tokens" in ungraded, True)
+
+    # And the guard must not fire on a healthy run, or it hides every result.
+    ok = report_for(True)
+    failed += not check("graded run: verdicts printed", "NOT EVALUATED" in ok, False)
+    failed += not check("graded run: Gate 1 evaluated", "Gate 1 —" in ok, True)
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("gate2_discrimination", test_gate2),
                      ("gate3_blunder", test_gate3),
+                     ("coverage guard", test_coverage_guard),
                      ("gate2 vs stored runs", test_gate2_against_stored_runs)):
         print(f"{name} ...")
         failed += fn()
