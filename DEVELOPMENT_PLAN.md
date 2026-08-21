@@ -5125,3 +5125,69 @@ One note is worth flagging back: on `pos-mulligan-0001` the reviewer wrote
 reason."* That is exactly what the **genuinely ambiguous** box is for — used
 there, the guess stays out of the precision numbers instead of counting as a firm
 verdict.
+
+### 21.50 Run 4 trained on one prompt shape and would be evaluated on two
+
+Before spending the GPU-hours to evaluate run 4, one thing in its stamp is
+worth reading. `stamp_adapter.py --dataset` records not just the fingerprint but
+**which system prompts the training file actually contained**:
+
+| dataset | adapter | `SYSTEM_PROMPT` | `RAG_SYSTEM_PROMPT` |
+| --- | --- | --- | --- |
+| `data/datasets` | v2 (published) | 1,679 | **1,292** |
+| `data/datasets/verified` | **v4** | 1,112 | **0** |
+
+Run 4's training set contains **zero** RAG-shaped examples. `eval.py` generates
+four arms, and `finetuned_rag` builds its prompt with `RAG_SYSTEM_PROMPT` and a
+`Rules text:` block in the user turn — a shape the v4 weights have never seen.
+Constructed rather than reasoned about:
+
+```
+TRAIN  system = SYSTEM_PROMPT       user = 'Does X have haste?'
+INFER  system = RAG_SYSTEM_PROMPT   user = 'Rules text:\n702.10b...\n\nQuestion: Does X have haste?'
+```
+
+**This is Section 8.7 exactly, and every fingerprint matches.** 8.7 is usually
+retold as "someone edited a prompt and invalidated an adapter", so the guard
+built for it hashes the prompt *definitions* and compares them at eval time.
+That guard passes here — nothing was edited. Its mechanism was never the edit;
+it was a model trained on bare question→answer while inference wrapped the
+question in retrieved rules text. A training set that only ever uses one of the
+two shapes reaches the identical state with the prompts untouched.
+
+**The omission itself is deliberate and correct.**
+`build_sft_verified.build_examples` attaches no retrieved context on purpose:
+these questions carry their own card references and the verified answers cite
+their own rules, so injecting retrieval would train the model to expect a context
+block the answer does not depend on. The bug is not in the dataset. It is that
+nothing connected that decision to the arm list downstream of it.
+
+**What it would have cost.** `finetuned_rag` is the arm Section 6.1 names as the
+intended final architecture, so it is the row that gets quoted. Had this run
+blind and that row come back low, the available reading — "the decontaminated
+verified set did not help" — is about the training *data*, plausible, and wrong.
+The true statement is about the training *shape*. Same failure family as 21.5's
+arm count and 21.44's token budget: a harness property that moves the headline
+number while wearing the shape of a result.
+
+`stamp_adapter.unseen_arms` now answers the question the fingerprint cannot —
+*did the weights ever meet this shape* — and `eval.py` calls it in two places:
+before generation, beside the fingerprint line, and **again in the report body**,
+because a warning printed at the start of a run is a warning nobody reads next
+to the number it qualifies at the end of one. Verified by running: on v4 it prints with
+the fingerprint matching; on v2-best it stays silent.
+
+Two details it gets right on purpose, both tested. A count of **0** is an
+absence, so `in counts` would pass straight through the case this exists for.
+And `base`/`base_rag` are never flagged — they never load the adapter, and a
+warning that fires on every run is one the reader learns to skip.
+
+It is silent when the stamp carries no `dataset_prompt_counts`, which a stamp
+written without `--dataset` does not. That is the same distinction the stamp
+itself is built on: `--dataset` is what makes a stamp evidence rather than an
+assertion, and a check with no evidence should say nothing rather than guess.
+
+**Run 4 is still worth evaluating** — three of four arms are unaffected, and
+`finetuned` (the matched-shape arm) is the honest test of whether decontaminated
+data helped. `finetuned_rag` gets measured too, and its row now carries the
+reason it is not a data result.

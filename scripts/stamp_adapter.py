@@ -66,6 +66,45 @@ def dataset_prompts(dataset_dir: Path) -> tuple[Counter, list[str]]:
     return seen, unknown
 
 
+# Which system prompt each generated arm puts in front of the adapter. Only the
+# `finetuned*` arms load it; `base*` arms are the same model either way.
+ARM_PROMPTS = {"finetuned": "SYSTEM_PROMPT",
+               "finetuned_rag": "RAG_SYSTEM_PROMPT",
+               "finetuned_rag_cards": "CARDS_RAG_SYSTEM_PROMPT"}
+
+
+def unseen_arms(adapter_dir: Path, arms: list[str]) -> list[str]:
+    """Arms whose system prompt appears ZERO times in the adapter's training set.
+
+    The fingerprint check asks whether the prompts were *edited* since training.
+    This asks the other question, which it cannot see: whether the adapter ever
+    saw the prompt an arm is about to hand it.
+
+    Section 8.7 is usually told as a prompt edit, but its mechanism was a
+    training set that contained one shape while inference used another. That is
+    reachable with no edit at all — `data/datasets/verified` is 1,112 examples
+    under `SYSTEM_PROMPT` and **zero** under `RAG_SYSTEM_PROMPT`, deliberately
+    (`build_sft_verified.build_examples` attaches no retrieved context), so the
+    fingerprints match perfectly and the `finetuned_rag` arm is still evaluated
+    on a shape the weights never saw.
+
+    A warning, not an error: measuring that arm anyway is legitimate. What is
+    not legitimate is reading the result as a statement about the training
+    *data* when it is a statement about the training *shape*, so the caller is
+    expected to carry this into the report rather than only print it.
+
+    Empty list when the stamp carries no `dataset_prompt_counts` — a stamp
+    without `--dataset` records the prompts as they are now, not what was
+    trained on, and cannot answer this.
+    """
+    stamp = read_stamp(adapter_dir)
+    counts = (stamp or {}).get("dataset_prompt_counts")
+    if not counts:
+        return []
+    return [a for a in arms
+            if a in ARM_PROMPTS and not counts.get(ARM_PROMPTS[a])]
+
+
 def read_stamp(adapter_dir: Path) -> dict | None:
     p = adapter_dir / PROMPT_STAMP_FILE
     if not p.exists():

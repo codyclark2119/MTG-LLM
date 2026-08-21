@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (187)
+python scripts/test_eval.py                       # the scoring arithmetic (194)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
@@ -131,6 +131,18 @@ python scripts/stamp_adapter.py models/mtg-rules-adapter-v4 --dataset data/datas
 
 `--dataset` verifies the stamp against the training file rather than asserting
 it — that is what makes the stamp evidence.
+
+**The fingerprint answers only half of 8.7.** It asks whether the prompts were
+*edited* since training; it cannot ask whether the adapter ever *saw* the shape
+an arm hands it. `data/datasets/verified` is 1,112 examples under
+`SYSTEM_PROMPT` and **zero** under `RAG_SYSTEM_PROMPT` — deliberately, since
+`build_sft_verified` attaches no retrieved context — so v4's fingerprint matches
+perfectly while the `finetuned_rag` arm is evaluated on a shape those weights
+never met. That is 8.7's actual mechanism reached with no edit at all.
+`stamp_adapter.unseen_arms` reads the `dataset_prompt_counts` the stamp already
+recorded, and `eval.py` prints it **twice** — before generation and in the report
+body — because the warning and the number it qualifies sit at opposite ends of a run
+(Section 21.50).
 
 Three judge prompts exist. V2 (`judge_batch_anonymized`) is length-neutral and
 anonymized; V3 (`judge_batch_rubric`) asks which enumerated claims an answer

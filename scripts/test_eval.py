@@ -706,6 +706,64 @@ def test_carry_diagnostics() -> int:
     return failed
 
 
+def test_unseen_arms() -> int:
+    """An arm whose system prompt the training set never contained (21.50).
+
+    The fingerprint check answers "were the prompts edited since training".
+    This answers the question it cannot see — "did the weights ever meet this
+    shape" — which is Section 8.7's actual mechanism, reachable with every
+    fingerprint matching. It is tested here because a silent [] is the failure
+    mode: the warning simply never prints and the run reads as a data result.
+    """
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+
+    from common import PROMPT_STAMP_FILE
+    from stamp_adapter import unseen_arms
+
+    failed = 0
+    arms = ["base", "base_rag", "finetuned", "finetuned_rag"]
+
+    def stamped(counts) -> _Path:
+        d = _Path(tempfile.mkdtemp())
+        body = {"prompt_fingerprint": "x"}
+        if counts is not None:
+            body["dataset_prompt_counts"] = counts
+        (d / PROMPT_STAMP_FILE).write_text(_json.dumps(body), encoding="utf-8")
+        return d
+
+    # The real case: data/datasets/verified is plain-prompt only.
+    failed += not check("rag arm flagged when the set has no RAG examples",
+                        unseen_arms(stamped({"SYSTEM_PROMPT": 1112}), arms),
+                        ["finetuned_rag"])
+    # Both shapes present (the v2 dataset) — nothing to say.
+    failed += not check("both shapes present flags nothing",
+                        unseen_arms(stamped({"SYSTEM_PROMPT": 1679,
+                                             "RAG_SYSTEM_PROMPT": 1292}), arms), [])
+    # A zero count is an absence, not a presence. `in counts` would pass it.
+    failed += not check("a count of 0 is an absence",
+                        unseen_arms(stamped({"SYSTEM_PROMPT": 10,
+                                             "RAG_SYSTEM_PROMPT": 0}), arms),
+                        ["finetuned_rag"])
+    # base arms never load the adapter, so they can never be flagged — a false
+    # positive here would fire on every run and train the reader to ignore it.
+    failed += not check("base arms are never flagged",
+                        unseen_arms(stamped({"RAG_SYSTEM_PROMPT": 5}), arms),
+                        ["finetuned"])
+    # A stamp written without --dataset records the prompts as they are now,
+    # which is not evidence about training. Silence beats a guess.
+    failed += not check("no dataset counts means no claim",
+                        unseen_arms(stamped(None), arms), [])
+    failed += not check("no stamp at all means no claim",
+                        unseen_arms(_Path(tempfile.mkdtemp()), arms), [])
+    # And the adapter this was written for.
+    failed += not check("v4 flags finetuned_rag on disk",
+                        unseen_arms(_Path("models/mtg-rules-adapter-v4"), arms),
+                        ["finetuned_rag"])
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -774,6 +832,7 @@ def main() -> None:
                      ("carry_diagnostics", test_carry_diagnostics),
                      ("error_assertions", test_error_assertions),
                      ("half_answer", test_half_answer),
+                     ("unseen_arms", test_unseen_arms),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

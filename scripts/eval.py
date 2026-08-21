@@ -58,6 +58,7 @@ from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
 )
 from common import RULE_ID_RE as CROSS_REF_RE
 from stamp_adapter import check as prompt_stamp_check
+from stamp_adapter import unseen_arms
 from rag import MODEL_ID as EMBED_MODEL_ID
 from rag import retrieve
 
@@ -768,6 +769,13 @@ def generate_all_answers(
         if not ok:
             raise SystemExit(msg)
         print(f"  {msg}")
+        # The fingerprint asks whether the prompts were EDITED since training.
+        # This asks whether the adapter ever saw the one an arm is about to use,
+        # which a matching fingerprint cannot tell you (Section 8.7, 21.50).
+        planned = ["finetuned", "finetuned_rag"] + (["finetuned_rag_cards"] if with_cards else [])
+        for arm in unseen_arms(Path(adapter_path_under_test), planned):
+            print(f"  WARNING: arm `{arm}` uses a system prompt this adapter's "
+                  f"training set contains ZERO times.")
 
     for arm_name, adapter_path in [("base", None), ("finetuned", adapter_path_under_test)]:
         print(f"loading {base_model_id} for arm(s) using adapter_path={adapter_path} ...")
@@ -1392,6 +1400,20 @@ def main() -> None:
            "ruled out; re-judge with --rescore-from and an independent judge, Section 9.9)"
            if args.judge_model == args.base_model else "")
     )
+    # Beside the table, not only in the run log. The generation-time warning
+    # prints at the start of a run and the number it qualifies arrives at the
+    # end of one; the number is what gets quoted (Section 21.50).
+    _unseen = (unseen_arms(Path(args.adapter_path), list(arm_names))
+               if args.adapter_path else [])
+    if _unseen:
+        lines.append(
+            "\n- **" + ", ".join(f"`{a}`" for a in _unseen) + "**: this adapter's "
+            "training set contains its system prompt **zero** times. The prompt "
+            "fingerprint matches — nothing was edited — but the weights never saw "
+            "this shape, which is Section 8.7's mechanism reached without a prompt "
+            "change. Read the row as a statement about the training *shape*, not "
+            "about the training *data*."
+        )
     if n_rubric:
         lines.append(
             f"\n{n_rubric} scored against enumerated rubrics (V3 judge); "
