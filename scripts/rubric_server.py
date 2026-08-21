@@ -87,8 +87,13 @@ def load_tasks(path: Path) -> tuple[list[dict], str]:
         # The whole value of an adjudication is that it was made without
         # seeing the judge. If the export ever leaks that, the verdicts are
         # worthless and nothing downstream would be able to tell.
+        # `source_run` joins the list because a run filename names its judge
+        # (`pos_n24_verbose_32b.jsonl`), which is the thing `judge_model` is here
+        # to keep out. Provenance belongs on the local queue, not on a task
+        # served to a blind reviewer (Section 21.62).
         leaked = {k for t in tasks for k in t} & {
-            "errors_made", "judge_model", "fired", "blundered", "run", "judge"}
+            "errors_made", "judge_model", "fired", "blundered", "run", "judge",
+            "source_run"}
         if leaked:
             raise SystemExit(
                 f"{path}: tasks carry judge output {sorted(leaked)}. A verdict "

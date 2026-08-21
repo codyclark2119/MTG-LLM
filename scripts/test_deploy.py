@@ -160,6 +160,38 @@ def main() -> None:
     check("SUBMISSIONS_FILE lives on that mount",
           cfg["env"]["SUBMISSIONS_FILE"].startswith("/data/"), True)
 
+    # The reviewer must never see what the judge said about the answer they are
+    # grading. `source_run` was added to the queue for provenance (21.62) and
+    # very nearly travelled with the task — a run is called
+    # `pos_n24_verbose_32b.jsonl`, which names the judge, which is exactly what
+    # the assertion exists to withhold. Untested until now: the check had no
+    # case, so widening it could not be verified and narrowing it would have
+    # gone unnoticed.
+    import json as _json
+    import tempfile
+
+    from rubric_server import load_tasks
+
+    ok_task = {"key": "p::a", "record_id": "p", "arm": "a", "question": "Q",
+               "answer": "PASS", "common_errors": ["x"], "key_points": []}
+
+    def _write(tasks):
+        f = Path(tempfile.mkdtemp()) / "tasks.json"
+        f.write_text(_json.dumps({"kind": "adjudication", "tasks": tasks}), encoding="utf-8")
+        return f
+
+    def _loads(tasks) -> bool:
+        try:
+            load_tasks(_write(tasks))
+            return True
+        except SystemExit:
+            return False
+
+    check("a clean adjudication task loads", _loads([ok_task]), True)
+    for leak in ("errors_made", "judge_model", "blundered", "run", "judge", "source_run"):
+        check(f"a task carrying {leak!r} is refused",
+              _loads([dict(ok_task, **{leak: "anything"})]), False)
+
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:
         raise SystemExit(1)

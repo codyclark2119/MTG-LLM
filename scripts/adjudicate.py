@@ -122,6 +122,12 @@ def build_queue(runs: list[Path], n: int, seed: int = 42) -> list[dict]:
                 "arm": arm,
                 "answer": d["answer"],
                 "n_errors": len(rec["common_errors"]),
+                # Where this text came from and under which grammar. A verdict
+                # is about a text (21.62); this makes the queue say which one
+                # without needing the run file, so a regrade cycle is
+                # self-describing after the run is archived or superseded.
+                "source_run": runs[0].name,
+                "gameplay_fingerprint": row.get("gameplay_fingerprint"),
             })
             for other in loaded[1:]:
                 od = ((other.get(rid) or {}).get("arms") or {}).get(arm) or {}
@@ -153,6 +159,12 @@ def task_for(item: dict, rubrics: dict) -> dict | None:
         "common_errors": rec["common_errors"],
         "key_points": rec.get("key_points") or [],
         "category": rec.get("category"),
+        # `source_run` is deliberately NOT here. It is a filename like
+        # `pos_n24_verbose_32b.jsonl`, which names the judge — and the blind-task
+        # assertion in rubric_server lists `judge_model` precisely so a reviewer
+        # cannot see which judge produced what they are grading. Provenance is
+        # stamped at INGEST from the local queue instead, where it costs the
+        # reviewer nothing and reaches no public URL.
     }
 
 
@@ -371,6 +383,9 @@ def main() -> None:
                 n_unstamped += 1     # a verdict on a task no longer in the queue
                 continue
             v["answer_sha"] = answer_sha(item.get("answer") or "")
+            for k in ("source_run", "gameplay_fingerprint"):
+                if item.get(k) and not v.get(k):
+                    v[k] = item[k]
             n_stamped += 1
         if n_stamped or n_unstamped:
             print(f"  stamped {n_stamped} with the answer they were made against"
