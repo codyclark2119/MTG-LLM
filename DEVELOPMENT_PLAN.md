@@ -4764,6 +4764,38 @@ different vendor. Every judge that passes this control is a Qwen, and every
 `base` arm is a Qwen. Self-preference is still untested and still needs
 Mistral-24B or Gemma-27B.
 
+#### And Qwen3-14B cannot sustain a three-arm grading
+
+Tying the 32B at one arm did not make it usable as the second judge. Rescoring
+the n=24 gate run — three arms, the configuration every published gate number
+uses:
+
+| `--judge-max-tokens` | arms graded |
+| --- | --- |
+| 600 (the default) | **0 / 72** |
+| 4,000 | **45 / 72 (62%)** |
+
+The failure is per *position*, not per arm: exactly 15 of 24 positions graded on
+all three arms and 9 failed on all three, so it is the call that fails, not
+individual candidates within it.
+
+The mechanism is arithmetic. A reasoning model pays a large **fixed** cost in
+`<think>` before emitting anything, and the JSON it must then produce scales
+with arm count. At one arm and 1,800 tokens it grades 22–23 of 24; at three arms
+even 4,000 leaves it short. Buying more budget would work eventually and costs
+~60× the wall time of a non-reasoning judge (21.25) for a number two other
+models produce directly.
+
+**So the practical rule is narrower than 21.44's table suggests: Qwen3-14B is a
+usable single-arm control judge and not a usable gate judge.** Both halves of
+that sentence come from the same model on the same positions; only the arm count
+differs, which is 21.45's effect appearing as a coverage limit rather than as a
+rate.
+
+Twice now the guard is what surfaced this rather than a wrong number: the
+first run printed three bold gate FAILs computed from zero gradings before
+`_write_report` learned to withhold below 90% coverage.
+
 ### 21.45 Arm count and rubric type both inflate false errors, unequally
 
 Section 21.42 left one number unexplained and flagged it as corrosive: Llama

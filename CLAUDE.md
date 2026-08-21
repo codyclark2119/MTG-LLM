@@ -177,9 +177,12 @@ which is why the middle two columns rank nothing on their own.
 **Qwen3-14B ties the 32B, it does not beat it.** On the 22 positions every judge
 graded they are identical (0/22, 22/22). The 32B's whole false-positive rate is
 `pos-combat-math-0002`, the polarity case — which the 14B *failed to grade*.
-**The 32B stays the default on coverage** (24/24 against 22/24, and the 14B is a
-reasoning model at ~60× the wall time whose `<think>` block competes with the
-JSON for the budget). The 14B is the second judge for agreement work.
+
+**And Qwen3-14B is a single-arm control judge, not a gate judge** (21.44).
+Rescoring the three-arm gate run it graded **0/72** at the default 600 tokens
+and **45/72** at 4,000 — a reasoning model pays a fixed `<think>` cost *before*
+output that then scales with arm count, so what works at one arm does not
+survive three. The 32B is the default at both.
 
 Not a size result: a 7.8 GB judge matches a 17.6 GB one. Every judge that passes
 is a Qwen and every `base` arm is a Qwen, so **self-preference is still
