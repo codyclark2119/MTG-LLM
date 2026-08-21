@@ -22,6 +22,7 @@ line rather than an edit:
 import argparse
 import json
 import random
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -452,6 +453,12 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 "blundered": (bool(j.get("errors_made")) if j.get("errors_made") is not None
                               else None),
                 "points_hit": j.get("points_hit"),
+                # Credited key points whose action the answer never took.
+                # Stored, not scored: correctness stays `points_hit / n_points`
+                # and this sits beside it, the same separation fabricated
+                # citations get in the rules report (Section 21.56).
+                "unearned_points": unearned_action_points(
+                    candidates[arm], pos.get("key_points") or [], j.get("points_hit")),
                 "n_actions": len(parsed.actions),
                 "n_parse_failures": len(parsed.failures),
                 "parsed_ok": parsed.ok,
@@ -513,6 +520,57 @@ def gate2_discrimination(results, arm_names) -> tuple[int, int, float, bool]:
         sep += (max(cs) - min(cs)) >= GATE2_MIN_SPREAD
     frac = sep / tot if tot else 0.0
     return sep, tot, frac, (tot > 0 and frac >= GATE2_MIN_FRACTION)
+
+
+# Key points on a position are instructions: "Block Centaur Courser", "Attack
+# with Centaur Courser". Whether the answer did that is not a judgement call —
+# the action list is parsed, and the parser never sees the judge.
+_KP_VERB_RE = re.compile(r"^\s*(block|attack|cast|play|mulligan)\b", re.I)
+
+
+def unearned_action_points(answer: str, key_points: list[str],
+                           points_hit: list | None) -> list[int]:
+    """Credited key points whose action the answer never took.
+
+    Correctness on positions is `points_hit / n_points`, so a key point credited
+    without cause inflates the headline number directly. This is the positions
+    analogue of `verify_quoted_claims` (V4, Section 21.7) with two advantages:
+    it costs no judge tokens, and it has no judge noise — both sides are already
+    computed, and the action list comes from the parser.
+
+    Measured over three judges on the n=24 run: 20 of 51 credited action key
+    points (39%) went to answers that never took the action, and **none of the
+    20** so much as contained the word anywhere in their text. The judge was not
+    crediting stated intent; it was crediting nothing (Section 21.56).
+
+    Two deliberate narrowings, because a check that over-fires is worse than
+    none:
+
+    - Only key points that **open** with an action verb. A point that mentions
+      blocking mid-sentence is explaining a rule, not instructing a play.
+    - **KEEP is excluded**, because it is implicit: an answer that does not
+      mulligan has kept, and flagging that would fire on every correct
+      keep-and-play line.
+
+    Returns [] when the answer parsed no actions at all — that is a parse
+    failure, already Gate 1's business, and blaming the judge for it would
+    move a known problem into a new column.
+    """
+    if not isinstance(points_hit, list) or not key_points:
+        return []
+    parsed = parse_output(answer)
+    if not parsed.actions:
+        return []
+    verbs = {a.verb for a in parsed.actions}
+    out = []
+    for h in points_hit:
+        n = h.get("n") if isinstance(h, dict) else h
+        if not isinstance(n, int) or not (1 <= n <= len(key_points)):
+            continue
+        m = _KP_VERB_RE.match(key_points[n - 1])
+        if m and m.group(1).upper() not in verbs:
+            out.append(n)
+    return sorted(set(out))
 
 
 def gate3_blunder(results, arm_names) -> tuple[str | None, float]:
@@ -615,6 +673,36 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                         "all_legal": all_legal, "n_judged": n_b, "degenerate": degen}
         lines.append(f"| {arm} | {blunder:.0%} (n={n_b}) | {errs:.2f} | {corr:.2f} "
                      f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} | {degen:.0%} |")
+
+    # Beside the correctness column, never inside it — the same separation
+    # fabricated citations get in the rules report, and for the same reason:
+    # folding it in would rebuild the confounded single number the rubric judge
+    # exists to take apart. BOTH denominators are printed, because "39% of the
+    # checkable points" and "8% of all credited points" are the same 20 events,
+    # and quoting either alone misstates it (Sections 21.43, 21.56).
+    by_id = {p["id"]: p for p in positions}
+    n_unearned = n_credited = n_checkable = 0
+    for r in results:
+        kps = (by_id.get(r["id"]) or {}).get("key_points") or []
+        for arm in arm_names:
+            d = r["arms"].get(arm) or {}
+            hits = d.get("points_hit")
+            if not isinstance(hits, list):
+                continue
+            n_credited += len(hits)
+            n_unearned += len(d.get("unearned_points") or [])
+            for h in hits:
+                n = h.get("n") if isinstance(h, dict) else h
+                if isinstance(n, int) and 1 <= n <= len(kps) and _KP_VERB_RE.match(kps[n - 1]):
+                    n_checkable += 1
+    if n_unearned:
+        lines.append(
+            f"\n- **{n_unearned} credited key points name an action the answer never took** — "
+            f"{n_unearned}/{n_credited} of all credited points ({n_unearned / n_credited:.0%}), "
+            f"{n_unearned}/{n_checkable} of those that state an action "
+            f"({n_unearned / n_checkable:.0%}). The action list comes from the parser, which "
+            "never sees the judge, so this is checkable rather than a second opinion. "
+            "Correctness above is unchanged — this sits beside it (Section 21.56).\n")
 
     # ---- the three gates ---------------------------------------------------
     #

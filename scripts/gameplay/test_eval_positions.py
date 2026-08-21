@@ -26,6 +26,7 @@ from eval_positions import (  # noqa: E402
     GATE3_MAX_BLUNDER,
     gate2_discrimination,
     gate3_blunder,
+    unearned_action_points,
 )
 
 CHECKS_RUN = 0
@@ -165,6 +166,55 @@ def test_gate3() -> int:
     return failed
 
 
+
+def test_unearned_action_points() -> int:
+    """A credited key point naming an action the answer never took (21.56).
+
+    Correctness on positions is `points_hit / n_points`, so a key point
+    credited without cause inflates the headline directly. The action list
+    comes from the parser, which never sees the judge, so this is checkable
+    rather than a second opinion — measured 9 of 18 checkable points on the
+    n=24 32B run, and NONE of the flagged answers so much as contained the word.
+
+    The narrowings matter more than the check: a diagnostic that over-fires
+    gets ignored, which is worse than not having it.
+    """
+    failed = 0
+    kps = ["Block Centaur Courser: deathtouch trades up",
+           "Cast Ambush Viper now, flash lets you",
+           "Summoning sickness does not stop blocking"]
+
+    # The real case, all three arms, all three judges.
+    failed += not check("credits a BLOCK to an answer that only casts and passes",
+                        unearned_action_points("CAST Ambush Viper\nPASS", kps, [1, 2, 3]),
+                        [1])
+    failed += not check("an answer that does block is not flagged",
+                        unearned_action_points(
+                            "CAST Ambush Viper\nBLOCK Ambush Viper -> Centaur Courser",
+                            kps, [1, 2, 3]), [])
+    # Only points that OPEN with a verb. Point 3 mentions blocking mid-sentence
+    # and is explaining a rule; flagging it would fire on every correct answer.
+    failed += not check("a rule explanation mentioning an action is not an instruction",
+                        3 in unearned_action_points("CAST Ambush Viper\nPASS", kps, [3]),
+                        False)
+    # KEEP is implicit: not mulliganing IS keeping.
+    failed += not check("KEEP is never flagged",
+                        unearned_action_points("PLAY Forest\nPASS",
+                                               ["Keep - three mana sources"], [1]), [])
+    # An answer that parsed nothing is Gate 1's problem, not the judge's.
+    failed += not check("an unparseable answer is not blamed on the judge",
+                        unearned_action_points("I would block it", kps, [1, 2, 3]), [])
+    # The judge emits both shapes for points_hit (Section 21.12).
+    failed += not check("dict-shaped points_hit is handled",
+                        unearned_action_points("CAST Ambush Viper\nPASS", kps,
+                                               [{"n": 1}, {"n": 2}]), [1])
+    # Out-of-range and non-integer indices must not raise or count.
+    failed += not check("a point index past the rubric is ignored",
+                        unearned_action_points("PASS", kps, [99, "x", None]), [])
+    failed += not check("ungraded points_hit yields nothing",
+                        unearned_action_points("PASS", kps, None), [])
+    return failed
+
 def test_gate2_against_stored_runs() -> int:
     """The numbers Section 21.18 publishes, recomputed from the stored runs.
 
@@ -253,7 +303,8 @@ def main() -> None:
     for name, fn in (("gate2_discrimination", test_gate2),
                      ("gate3_blunder", test_gate3),
                      ("coverage guard", test_coverage_guard),
-                     ("gate2 vs stored runs", test_gate2_against_stored_runs)):
+                     ("gate2 vs stored runs", test_gate2_against_stored_runs),
+                     ("unearned_action_points", test_unearned_action_points)):
         print(f"{name} ...")
         failed += fn()
 

@@ -5492,3 +5492,97 @@ dominating. What they do show is that the paired control and human ground truth
 disagree: the 32B scores +96% separation against *constructed* extremes and 28%
 precision against *real* answers. That is the gap B1 was built to measure, and
 it is the first evidence it exists.
+
+### 21.56 The judge credits plays the answer never made, and that is checkable without a judge
+
+From a reviewer's note: creature spells do not target the way removal does, and
+the model treats them as if they did. Both halves of that check out, and chasing
+the second half found something larger.
+
+#### The targeting error is real, and the harness already catches it
+
+Across 251 distinct stored position answers, **3** cast a spell with a target
+where the position lists it without one — and all three are the same position
+under all three arms:
+
+```
+pos-removal-timing-0002   legal_actions: ['CAST Ambush Viper']
+base_open / base_closed / base_cards_open:
+    CAST Ambush Viper TARGET Centaur Courser
+```
+
+Ambush Viper is a creature; casting it targets nothing. All three arms make the
+error, and Gate 1 marks all three illegal — correctly, and for the right reason:
+adding a target makes it a *different string* from the one enumerated, so the
+list-of-alternatives check works here where 21.49 showed it failing.
+
+**Tapping lands does not occur at all**: 0 of 251 answers contain a tap line.
+The grammar has no `TAP` verb — mana is implicit — so there was a real question
+whether such lines were being silently swallowed as prose. They are not being
+written in the first place.
+
+#### The rubric has no entry for the error all three arms made
+
+`pos-removal-timing-0002`'s four `common_errors` are all about *timing* — cast at
+end of turn, hold for the main phase, decline the block, summoning sickness.
+None describes treating a creature spell as targeting.
+
+This is the documented trap — *a rubric with no entry for the most likely wrong
+answer* — with the most likely wrong answer now being **3 of 3 arms**. The
+consequence runs straight into 21.55: the judge cannot charge an error that is
+not listed, so it either fires nothing (the answer scores clean) or fires a
+neighbouring error (a false positive against human ground truth). Both happened
+here, and they are why precision is 28%.
+
+#### The larger finding: credited key points for plays never made
+
+`base_closed` on that position is:
+
+```
+CAST Ambush Viper TARGET Centaur Courser
+PASS
+```
+
+Illegal, and it never blocks. The 32B credits it **`points_hit: [1,2,3,4]`** —
+all four key points, including *"Block Centaur Courser: deathtouch means any
+damage the Viper deals destroys it"* — with `errors_made: []`. Full marks, no
+blunder, on an answer whose only other action is `PASS`.
+
+It generalises. Key points on a position are instructions, and whether the
+answer carried one out is **not a judgement call** — the action list comes from
+the parser, which never sees the judge:
+
+| judge | points naming an action | never taken | as a share of ALL credited |
+| --- | --- | --- | --- |
+| Qwen2.5-32B | 18 | **9 (50%)** | 9/99 (9%) |
+| Mistral-24B | 17 | **5 (29%)** | 5/85 (6%) |
+| Qwen3-14B | 16 | **6 (38%)** | 6/61 (10%) |
+| **pooled** | **51** | **20 (39%)** | 20/245 (8%) |
+
+Every judge does it, including the two that pass the paired control and the one
+that ties them. Mistral is the least prone at 29% and that is still more than
+one credited instruction in four.
+
+And **none of the 20** contains the word anywhere in its text. The judge is not
+crediting stated intent over executed action — it is crediting nothing at all.
+
+`unearned_action_points()` computes this, and it is the positions analogue of
+`verify_quoted_claims` (V4, 21.7) with two advantages: it costs **no judge
+tokens** and carries **no judge noise**, because both sides are already stored.
+
+**Both denominators are printed, always.** 20 of 51 checkable points (39%) and
+20 of 245 credited points (8%) are the *same twenty events*; quoting either
+alone misstates it. That is 21.43's rule — a rate is a statement about its
+denominator — applied before publishing rather than after.
+
+**Correctness is unchanged.** The count sits beside it, exactly as fabricated
+citations sit beside the score in the rules report (19.1), because folding it in
+would rebuild the confounded single number the rubric judge exists to take
+apart.
+
+Two narrowings, both tested, because a diagnostic that over-fires gets ignored:
+only key points that **open** with an action verb (one mentioning blocking
+mid-sentence is explaining a rule), and **`KEEP` is never flagged**, since an
+answer that does not mulligan has kept. An answer that parsed no actions is also
+exempt — that is Gate 1's problem, and blaming the judge for it would move a
+known failure into a new column.
