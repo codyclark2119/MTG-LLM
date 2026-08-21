@@ -5435,3 +5435,60 @@ different arms. Both warnings now print.
 self-comparison is a case that was reachable, not one that was taken. What
 changes is that the report now says which two models it compared, in the report
 whose only job is to compare two models.
+
+### 21.55 The "genuinely ambiguous" checkbox was collected, stored, and read by nothing
+
+Auditing the code that will consume B1's 60 verdicts, since that is where eight
+hours of human time turns into a number.
+
+The adjudication form asks, on every task: *"Genuinely ambiguous — I could argue
+it either way."* `rubric_server.py` stores it as `unsure` on the submission,
+`--ingest-submissions` writes it to `judge_adjudications.jsonl`, and
+`score_run()` reads `errors_present` **and nothing else**.
+
+So a reviewer who used the box changed nothing. Their explicit "this is a coin
+flip" was scored as a firm verdict, identical to one they were certain of.
+
+**That inverts the point of the whole exercise.** Human adjudication exists here
+because judge-vs-judge agreement says nothing about correctness — it is meant to
+be the tiebreaker (Track B1). A tiebreaker that silently includes the cases the
+tiebreaker called a coin flip is not one, and it is worse than a smaller sample
+because the contamination is invisible in the output.
+
+It has not corrupted anything yet — all 9 v2 verdicts have `unsure: false`. It
+was about to: the box is exactly what `pos-mulligan-0001` needed, where the
+reviewer wrote *"there isn't an explanation exactly why it mulliganed so I chose
+the most likely reason."* Telling someone to use a control that does nothing is
+worse than not having it.
+
+`score_run` now excludes `unsure` and reports three separate reasons the
+denominator is smaller than the queue — ambiguous, ungraded by this judge, and
+`not_covered` — beside the numbers rather than nowhere.
+
+#### `not_covered` is counted, deliberately, and the reason is worth stating
+
+8 of 9 verdicts carry it, so how it is scored decides the result. It is **not**
+excluded: a reviewer saying *"the rubric has no entry for what this answer did"*
+while listing no error is agreeing that no **listed** error occurred, and a
+listed error is exactly what blunder rate is defined on. Counting it as "human
+says clean" is correct *for this metric*.
+
+What it is not is "the answer was good" — `pos-blocking-0003::base_closed` is
+flagged `not_covered`, scored clean, and blocks with the same creature twice.
+The output now says so next to the number, because the gap between "committed no
+listed error" and "was a good answer" is 21.49's whole finding and it is
+invisible in a precision score.
+
+#### First human ground truth, n=12 — direction only
+
+| judge | precision | recall | F1 | blunder accuracy |
+| --- | --- | --- | --- | --- |
+| Qwen2.5-32B | 28% | 88% | 0.42 | 75% |
+| Mistral-24B | 44% | 50% | 0.47 | 67% |
+
+**Do not read these as settled.** n=12 against a 60-verdict target, 8 of them
+`not_covered`, and the two judges trade precision for recall rather than one
+dominating. What they do show is that the paired control and human ground truth
+disagree: the 32B scores +96% separation against *constructed* extremes and 28%
+precision against *real* answers. That is the gap B1 was built to measure, and
+it is the first evidence it exists.

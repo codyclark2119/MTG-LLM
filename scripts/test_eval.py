@@ -902,6 +902,64 @@ def test_judge_identity() -> int:
     return failed
 
 
+def test_adjudication_scoring() -> int:
+    """`unsure` must be excluded and every exclusion reported (21.55).
+
+    The form asks "Genuinely ambiguous — I could argue it either way", stores it
+    on the submission, and `score_run` read `errors_present` and nothing else.
+    So a reviewer following the instruction to use the box changed nothing, and
+    their coin flip entered the precision number as ground truth. Human
+    adjudication exists to be the tiebreaker; one that silently includes coin
+    flips is not one.
+    """
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from adjudicate import score_run
+
+    failed = 0
+    run = _Path(tempfile.mkdtemp()) / "run.jsonl"
+    run.write_text("\n".join(_json.dumps(r) for r in [
+        {"id": "p1", "arms": {"a": {"errors_made": [1]}}},
+        {"id": "p2", "arms": {"a": {"errors_made": [2]}}},
+        {"id": "p3", "arms": {"a": {"errors_made": []}}},
+        # Ungraded by this judge: must not be scored as "fired nothing".
+        {"id": "p4", "arms": {"a": {"errors_made": None}}},
+    ]), encoding="utf-8")
+
+    def v(key, errs, **kw):
+        return {"key": key, "errors_present": errs, **kw}
+
+    firm = [v("p1::a", [1]), v("p2::a", [2])]
+    s = score_run(run, firm, {})
+    failed += not check("two firm agreeing verdicts: precision 1.0", s["precision"], 1.0)
+    failed += not check("n counts them", s["n"], 2)
+    failed += not check("nothing excluded", s["excluded_unsure"], 0)
+
+    # The same two, plus one ambiguous verdict that would drag precision down.
+    with_unsure = firm + [v("p3::a", [3], unsure=True)]
+    s2 = score_run(run, with_unsure, {})
+    failed += not check("an ambiguous verdict does not enter precision",
+                        s2["precision"], 1.0)
+    failed += not check("it is excluded from n", s2["n"], 2)
+    failed += not check("and it is reported, not dropped silently",
+                        s2["excluded_unsure"], 1)
+
+    # An answer this judge never graded cannot count against it either way.
+    s3 = score_run(run, firm + [v("p4::a", [1])], {})
+    failed += not check("ungraded answers do not enter n", s3["n"], 2)
+    failed += not check("ungraded answers are reported", s3["unmatched"], 1)
+
+    # not_covered is COUNTED (the human agreed no listed error occurred) but
+    # must be reported, since it means the metric is narrower than "was good".
+    s4 = score_run(run, [v("p3::a", [], not_covered=True)], {})
+    failed += not check("not_covered still scores", s4["n"], 1)
+    failed += not check("not_covered is reported", s4["not_covered"], 1)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -974,6 +1032,7 @@ def main() -> None:
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),
                      ("judge_identity", test_judge_identity),
+                     ("adjudication_scoring", test_adjudication_scoring),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

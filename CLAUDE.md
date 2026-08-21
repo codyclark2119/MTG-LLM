@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (214)
+python scripts/test_eval.py                       # the scoring arithmetic (224)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
@@ -405,6 +405,15 @@ Each cost real time. They recur in new code, so they are worth knowing.
   carried 11 of 31 disputed judge calls; the one that had it drew zero. The
   lint cannot help — it checks the lines that are there, and this is a missing
   one.
+- **A control that is collected, stored, and read by nothing.** The adjudication
+  form asks "Genuinely ambiguous — I could argue it either way", the server
+  stores it, the ingest writes it to the gold-adjacent file, and `score_run`
+  read `errors_present` and nothing else — so a reviewer who used the box
+  changed no number, and their coin flip counted as a firm verdict. Every layer
+  worked; the last one never looked. Worse than not having the control, because
+  telling someone to use it makes the sample look cleaner than it is. When
+  adding a field a human fills in, grep for it in the code that computes the
+  headline before shipping the form (Section 21.55).
 - **A validity check reading a list of alternatives as a list of permissions.**
   `legal_actions` enumerates every play legal *on its own*, so an answer that
   blocks one attacker with Fog Bank and then blocks a second with it matched

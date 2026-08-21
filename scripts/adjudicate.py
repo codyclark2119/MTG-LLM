@@ -208,9 +208,24 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     tp = fp = fn = 0
     b_right = b_total = 0
     fp_only = fn_only = 0
+    n_unsure = n_not_covered = n_unmatched = 0
     for v in verdicts:
         if v["key"] not in by_key:
+            n_unmatched += 1
             continue
+        # "Genuinely ambiguous — I could argue it either way" is the reviewer
+        # telling us their own call is a coin flip. Scoring it as a firm verdict
+        # is the one thing the checkbox exists to prevent, and it was collected
+        # by the form, stored on the submission, and read by nothing — so a
+        # reviewer following the instruction to use it changed nothing, and a
+        # guess entered the precision number wearing the shape of ground truth.
+        # The whole point of human adjudication is that it is the tiebreaker;
+        # a tiebreaker that silently includes coin flips is not one.
+        if v.get("unsure"):
+            n_unsure += 1
+            continue
+        if v.get("not_covered"):
+            n_not_covered += 1
         human = set(v["errors_present"])
         judge = set(by_key[v["key"]])
         tp += len(human & judge)
@@ -228,6 +243,17 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     rec = tp / (tp + fn) if tp + fn else float("nan")
     return {
         "run": run.name, "n": b_total,
+        # Reported, never silently dropped: each is a reason the denominator is
+        # smaller than the queue, and a shrinking denominator nobody announced
+        # is how a selected subset gets read as a sample (Section 21.14).
+        "excluded_unsure": n_unsure,
+        "unmatched": n_unmatched,
+        # Not excluded — a reviewer saying "the rubric has no entry for what
+        # this answer did" while listing no error IS the human agreeing that no
+        # LISTED error occurred, which is exactly what blunder rate is defined
+        # on (Section 21.49). Counted and reported because it means the metric
+        # is narrower than "the answer was good", not because it is wrong.
+        "not_covered": n_not_covered,
         "precision": prec, "recall": rec,
         "f1": 2 * prec * rec / (prec + rec) if prec == prec and rec == rec and prec + rec else float("nan"),
         "blunder_accuracy": b_right / b_total if b_total else float("nan"),
@@ -373,11 +399,28 @@ def main() -> None:
             print()
         print(f"{'run':40s} {'n':>4s} {'prec':>6s} {'recall':>7s} {'F1':>6s} "
               f"{'blunder acc':>12s} {'false':>6s} {'missed':>7s}")
+        scored = []
         for r in args.score:
             s = score_run(r, verdicts, rubrics)
+            scored.append(s)
             print(f"{s['run']:40s} {s['n']:4d} {s['precision']:6.0%} {s['recall']:7.0%} "
                   f"{s['f1']:6.2f} {s['blunder_accuracy']:12.0%} "
                   f"{s['false_blunder']:6d} {s['missed_blunder']:7d}")
+        # Every reason the denominator is smaller than the queue, next to the
+        # numbers it qualifies. `n` alone reads as the sample size; it is the
+        # sample size AFTER three different exclusions.
+        for s in scored:
+            bits = []
+            if s["excluded_unsure"]:
+                bits.append(f"{s['excluded_unsure']} marked genuinely ambiguous (excluded)")
+            if s["unmatched"]:
+                bits.append(f"{s['unmatched']} not graded by this judge (excluded)")
+            if s["not_covered"]:
+                bits.append(f"{s['not_covered']} flagged `not_covered` (counted — the human "
+                            "agreed no LISTED error occurred, which is what blunder rate "
+                            "measures; the answer may still be bad, Section 21.49)")
+            if bits:
+                print(f"\n{s['run']}: " + "; ".join(bits))
         return
 
     ap.print_help()
