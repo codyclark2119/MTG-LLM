@@ -6035,3 +6035,81 @@ under the old grammar. They remain valid evidence about *that* run and stop bein
 evidence about the new one. Judge accuracy on the verbose arms needs fresh
 verdicts; the earlier work is not lost, it is simply about a different set of
 answers.
+
+### 21.63 The verbose grammar, measured — and a conjunctive metric that punishes it
+
+First run under `d094e3934d2d`: 24 positions × 3 arms, 32B judge, everything else
+held. Stored answers are `5c196f40afd8`, so judge-scored columns are not
+comparable across the two; **parser-derived ones are**, because the parser never
+sees the judge.
+
+#### The closed arm complies; the open arms loop
+
+```
+pos-combat-math-0005 / base_closed
+    PHASE Pre-combat main phase
+    TAP Forest FOR {G}
+    TAP Forest FOR {G}
+    TAP Mountain FOR {R}
+    CAST Shock TARGET Grizzly Bears
+    PASS
+```
+
+Exactly the format asked for. `base_open` on the same board emits **73 actions**,
+cycling `PHASE Main phase (continuing) / PASS` and re-casting a spell it has one
+copy of. Degeneracy went from **0% to 17–33%** across the arms: giving a weak
+model a new line to emit gave it a new thing to loop on.
+
+#### Per-answer legality fell; per-play legality did not
+
+| Arm | `all_legal` terse → verbose | **legal plays** terse → verbose | plays/answer |
+| --- | --- | --- | --- |
+| `base_closed` | 75% → **67%** | 84% → **90%** | 2.5 → 2.8 |
+| `base_open` | 71% → **46%** | 65% → 63% | 2.3 → 4.4 |
+| `base_cards_open` | 62% → **33%** | 68% → 62% | 1.7 → 6.5 |
+
+**`all_legal` is an AND over an answer's plays.** Verbose answers carry 1.1–3.8×
+more plays, so the same per-play quality yields a lower per-answer rate
+mechanically. On the arm Gate 1 actually reads, the model got **better** at legal
+play — 84% to 90% — while the number the gate consumes went **down**.
+
+This is 21.61's trap one level up. There it was the parser punishing lines the
+prompt demanded, fixed by scoring `plays`. Here it is the *metric*: a conjunction
+over a longer list, punishing length rather than quality. Same shape, different
+layer, and it would have read as *"the verbose grammar made the model worse at
+legal play"* — a conclusion the per-play column refutes.
+
+Both columns are printed now. **The gate still reads `all_legal`** — changing
+what Gate 1 consumes is a threshold decision and belongs with B3, not with the
+change that exposed it.
+
+#### What verbosity actually bought
+
+`only_pass` fell where the model was declining most: `base_open` **42% → 21%**,
+`base_cards_open` **46% → 12%**, `base_closed` 8% → 8%. Asking for the phase and
+the mana gave the model something to do before deciding to do nothing, and it
+did substantially less nothing. That is the one clear win, and it is on the
+behaviour 21.58 identified as the largest single failure class.
+
+#### The declarations are wrong often enough to be worth having
+
+**20 of 72 answers (28%) declare a phase that disagrees with the board**, and 21
+of 72 (29%) declare a tap the board could not produce. The most common single
+error is *"declare attackers"* stated on a **declare blockers** board, ten times.
+
+That is exactly the class 21.59 proved invisible: `pos-removal-timing-0002 /
+base_closed` casts Ambush Viper — the **correct** play — while declaring the
+wrong step. Every legality check passes it. Only the declaration reveals it.
+
+#### A denominator error, mine, in the column added to fix a denominator error
+
+The per-play column first printed **48%** for `base_closed` where the true figure
+is **90%**. `n_legal` counts matched *plays*; the row's `n_actions` counts every
+parsed line, declarations included. Dividing one by the other measured "legal
+plays per line emitted", which is not a quantity anyone wants.
+
+The row now stores `n_plays` beside `n_actions` with a note on which is which.
+Worth recording because it is the third denominator mistake in this session
+(21.52's `bool(errors_made)`, 21.56's two rates, this) and because the first
+number it produced was *plausible* — 48% is a believable legality rate, and
+nothing about it looks wrong.

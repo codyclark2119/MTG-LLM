@@ -476,7 +476,14 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 # citations get in the rules report (Section 21.56).
                 "unearned_points": unearned_action_points(
                     candidates[arm], pos.get("key_points") or [], j.get("points_hit")),
+                # Two different counts, and confusing them produced a "legal
+                # plays" column of 48% where the true figure was 90%:
+                #   n_actions  every parsed line, declarations included
+                #   n_plays    only the lines that change the game
+                # `n_legal` counts matched PLAYS, so the per-play rate must use
+                # n_plays as its denominator (Section 21.63).
                 "n_actions": len(parsed.actions),
+                "n_plays": len(parsed.plays),
                 "n_parse_failures": len(parsed.failures),
                 "parsed_ok": parsed.ok,
                 "degenerate": parsed.degenerate,
@@ -721,8 +728,14 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "failure is in what the judge PRODUCES, not what it reads — a reasoning judge "
             "spends its budget thinking before it emits JSON.\n")
     lines.append("\n| Arm | Blunder rate | Errors/answer | Correctness | Parsed ok "
-                 "| Actions/answer | All legal | Did nothing | Degenerate |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+                 "| Plays/answer | All legal | Legal plays | Did nothing | Degenerate |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    def n_pl_for_arm(arm):
+        return sum(((r["arms"][arm] or {}).get("n_plays")
+                    if (r["arms"][arm] or {}).get("n_plays") is not None
+                    else ((r["arms"][arm] or {}).get("n_actions") or 0))
+                   for r in results)
+
     summary = {}
     for arm in arm_names:
         blunder, n_b = rate(arm, "blundered")
@@ -732,7 +745,7 @@ def _write_report(results, positions, arm_names, closed_arms, args,
         parsed_ok, _ = rate(arm, "parsed_ok")
         all_legal, _ = rate(arm, "all_legal")
         degen, _ = rate(arm, "degenerate")
-        acts = sum(r["arms"][arm]["n_actions"] for r in results) / len(results)
+        acts = n_pl_for_arm(arm) / len(results)
         err_counts = [len(r["arms"][arm].get("errors_made") or []) for r in results
                       if r["arms"][arm].get("blundered") is not None]
         errs = sum(err_counts) / len(err_counts) if err_counts else float("nan")
@@ -740,8 +753,20 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                         "all_legal": all_legal, "n_judged": n_b, "degenerate": degen}
         nothing, _ = rate(arm, "only_pass")
         summary[arm]["only_pass"] = nothing
+        # `all_legal` is an AND over an answer's plays, so an answer with more
+        # plays is likelier to fail it even when each play is as good. Verbose
+        # answers carry 2-6x more plays than terse ones, and the per-answer rate
+        # fell on every arm while the per-PLAY rate held or improved
+        # (Section 21.63). Both are printed; the gate still reads `all_legal`.
+        n_ok = sum((r["arms"][arm] or {}).get("n_legal") or 0 for r in results)
+        # n_plays, never n_actions — see the note at the write site. Falls back
+        # to n_actions only for runs archived before n_plays existed, where the
+        # two are equal because no run then contained a declaration.
+        n_pl = n_pl_for_arm(arm)
+        play_legal = n_ok / n_pl if n_pl else float("nan")
         lines.append(f"| {arm} | {blunder:.0%} (n={n_b}) | {errs:.2f} | {corr:.2f} "
-                     f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} | {nothing:.0%} "
+                     f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} "
+                     f"| {play_legal:.0%} ({n_ok}/{n_pl}) | {nothing:.0%} "
                      f"| {degen:.0%} |")
 
     # Beside the correctness column, never inside it — the same separation
@@ -780,9 +805,17 @@ def _write_report(results, positions, arm_names, closed_arms, args,
     n_declared = sum(1 for r in results for a in arm_names
                      if (r["arms"].get(a) or {}).get("phase_problems") is not None)
     if n_phase_wrong or n_tap_wrong:
+        n_ans_phase = sum(1 for r in results for a in arm_names
+                          if (r["arms"].get(a) or {}).get("phase_problems"))
+        n_ans_tap = sum(1 for r in results for a in arm_names
+                        if (r["arms"].get(a) or {}).get("tap_problems"))
+        n_ans = len(results) * len(arm_names)
         lines.append(
-            f"\n- **{n_phase_wrong} phase declarations disagree with the board; "
-            f"{n_tap_wrong} declared taps the board could not produce.** Both are checked "
+            f"\n- **{n_ans_phase}/{n_ans} answers declare a phase that disagrees with the "
+            f"board ({n_ans_phase / n_ans:.0%}); {n_ans_tap}/{n_ans} declare a tap the board "
+            f"could not produce ({n_ans_tap / n_ans:.0%}).** Raw problem counts are "
+            f"{n_phase_wrong} and {n_tap_wrong}, but one looping answer contributes many, so "
+            "the per-answer rate is the one to read. Both are checked "
             "against the position and the oracle text, never the judge. A wrong phase is "
             "the one error the enumerated-`legal_actions` check cannot see — a legal action "
             "taken under a wrong belief looks identical to a correct one (Section 21.61).\n")
