@@ -979,6 +979,31 @@ def test_adjudication_scoring() -> int:
     # discard human work to enforce a field that did not exist when it was done.
     s7 = score_run(run2, [v("p5::a", [1])], {})
     failed += not check("a verdict with no digest still scores", s7["n"], 1)
+
+    # The ingest dedup, which is where the same assumption destroyed work rather
+    # than mis-scoring it: six of six regrades dropped as "already on file"
+    # because the identity was (key, author) (Section 21.65).
+    def dedup(on_file, incoming):
+        exact = {(x.get("key"), x.get("author"), x.get("answer_sha")) for x in on_file}
+        loose = {(x.get("key"), x.get("author")) for x in on_file}
+        def seen(x):
+            if x.get("answer_sha"):
+                return (x.get("key"), x.get("author"), x["answer_sha"]) in exact
+            return (x.get("key"), x.get("author")) in loose
+        return [x for x in incoming if not seen(x)]
+
+    old_v = {"key": "p::a", "author": "me", "answer_sha": "aaaaaaaaaaaa"}
+    regrade = {"key": "p::a", "author": "me", "answer_sha": "bbbbbbbbbbbb"}
+    failed += not check("a regrade against different text is kept",
+                        len(dedup([old_v], [regrade])), 1)
+    failed += not check("the identical verdict is not duplicated",
+                        len(dedup([old_v], [dict(old_v)])), 0)
+    # A legacy row must match on (key, author), or it re-appends on every ingest
+    # forever: the copy on file was backfilled with a digest it does not carry.
+    failed += not check("a legacy row with no digest is recognised",
+                        len(dedup([old_v], [{"key": "p::a", "author": "me"}])), 0)
+    failed += not check("a different author is always new",
+                        len(dedup([old_v], [dict(regrade, author="you")])), 1)
     return failed
 
 

@@ -6113,3 +6113,83 @@ Worth recording because it is the third denominator mistake in this session
 (21.52's `bool(errors_made)`, 21.56's two rates, this) and because the first
 number it produced was *plausible* — 48% is a believable legality rate, and
 nothing about it looks wrong.
+
+### 21.65 The regrade nearly discarded itself, and judge-vs-human kappa is now +0.05
+
+Six verdicts arrived against the regenerated arms. Ingesting them found the same
+identifier assumption in a third place — and this time it destroyed work rather
+than mis-scoring it.
+
+#### The dedup key was `(key, author)`
+
+`--ingest-submissions` skipped anything whose `(key, author)` was already on
+file. After a regrade, every fresh verdict on an already-adjudicated key
+collides with the old one. Dry-run, before the fix:
+
+```
+DROPPED  pos-land-sequencing-0002::base_closed
+DROPPED  pos-race-vs-stabilize-0001::base_open
+DROPPED  pos-combat-math-0004::base_open
+DROPPED  pos-trigger-ordering-0002::base_closed
+DROPPED  pos-land-sequencing-0001::base_closed
+DROPPED  pos-race-vs-stabilize-0001::base_cards_open
+```
+
+**Six of six**, silently, while eleven unrelated older rows appended in their
+place. 21.62 fixed scoring and the done-set and left the ingest — the one path
+that *deletes* the evidence rather than misreading it.
+
+#### And the first fix for it committed the error it was written to prevent
+
+The repaired ingest stamped every unstamped submission from
+`adjudication_queue.json` — which now holds the **regenerated** answers. It
+reported "stamped 35", cheerfully attributing thirty-five pre-redeploy verdicts
+to text their author never saw. The fix for 21.62 committing 21.62.
+
+Queue-stamping is gone. The form stamps at submission time, so a missing digest
+now means *collected before that existed*, and dedup has two rules:
+
+- **with** a digest → identified by `(key, author, digest)`, so a regrade is a
+  distinct verdict;
+- **without** one → falls back to `(key, author)`, or every legacy row
+  re-appends forever, since the copy on file was backfilled with a digest and no
+  longer matches.
+
+Eleven pre-redeploy verdicts that had never been pulled were recovered by
+stamping them from the **archived** queue — 11/11 resolvable, and **0** of their
+answers survive unchanged into the new run, which is the check that says the
+archive was the right source.
+
+#### The numbers, and the direction they keep moving
+
+| scored against | n | precision | recall | blunder acc | **kappa** | excluded as stale |
+| --- | --- | --- | --- | --- | --- | --- |
+| `pos_n24_verbose_32b` | 7 | 5% | 100% | 29% | **+0.05** | 20 |
+| `pos_n24_32b` | 21 | 7% | 75% | 43% | **+0.05** | 6 |
+
+Each run is scored only by the verdicts made against its own answers; the guard
+excludes the rest and says how many.
+
+**Judge-vs-human kappa is +0.05 — chance.** It was +0.23 at n=17 (21.57) and
++0.23→+0.05 as verdicts accumulated, with precision tracking it down: 28% at
+n=12, 19% at n=17, **7%** now. Three successive samples, each larger, each worse.
+An early reading of this measurement was the optimistic one every time, which is
+the argument for finishing the 60 rather than stopping at a number that looks
+tolerable.
+
+Against **+0.47** judge-vs-judge on the same answers. The judges agree with each
+other roughly ten times better than either agrees with a person.
+
+#### Two new checkable classes, from the notes
+
+The reviewer's notes on the verbose answers name two failures nothing catches:
+
+- *"It taps excess mana as lightning strike costs 1 generic mana and 1 red
+  mana"* — **over-tapping**. `tap_problems` validates each tap against the board
+  and never sums them against the spell's cost, so a correct-looking three-land
+  payment for a two-mana spell passes.
+- *"It is not seeing Serra Angel as already on the field so it is attempting to
+  cast it"* — **casting a permanent already on the battlefield**. Caught today
+  only because the string is absent from `legal_actions`, which gives no reason.
+
+Both are mechanical, both need only the board, and neither is built.

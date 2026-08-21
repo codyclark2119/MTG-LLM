@@ -368,39 +368,61 @@ def main() -> None:
         if len(incoming) != len(raw):
             print(f"  ignoring {len(raw) - len(incoming)} row(s) that are not "
                   "adjudication verdicts (the log is shared with the rubric form)")
-        have = {(v["key"], v.get("author")) for v in read_jsonl(ADJUDICATIONS_PATH)}
-        new = [v for v in incoming if (v.get("key"), v.get("author")) not in have]
+        # Dedup on the TEXT as well as the key. `(key, author)` is the identifier
+        # that survives a regeneration of the arms while its meaning changes
+        # (21.62), so after a regrade every fresh verdict on an
+        # already-adjudicated key collided with the old one and was dropped as
+        # "already on file" — six of six, silently, while eleven unrelated older
+        # rows appended in their place. Third home for the same assumption after
+        # scoring and the done-set; this one discards the work rather than
+        # mis-scoring it.
+        #
+        # A row with no digest keeps `None` as its third component, so a
+        # pre-digest verdict and a fresh one on the same key are distinct and
+        # both land.
+        on_file = read_jsonl(ADJUDICATIONS_PATH)
+        # Two dedup rules, because two kinds of row arrive.
+        #
+        # A verdict the SERVER stamped carries the digest of the exact answer it
+        # was given about, so it is identified by (key, author, digest) and a
+        # fresh verdict on a regenerated arm is correctly a different verdict.
+        #
+        # A verdict with NO digest predates server-side stamping, which means it
+        # is already on file — and it must fall back to (key, author), or every
+        # such row re-appends on every ingest, since the copy on file was
+        # backfilled with a digest and would no longer match.
+        #
+        # Stamping from the queue was a ONE-TIME recovery for those rows and is
+        # deliberately NOT done here: the queue now holds the regenerated
+        # answers, so stamping an old submission from it would attribute a
+        # verdict to text its author never saw — the exact error 21.62 exists to
+        # prevent, committed by the fix for it (Section 21.65).
+        exact = {(v.get("key"), v.get("author"), v.get("answer_sha")) for v in on_file}
+        loose = {(v.get("key"), v.get("author")) for v in on_file}
+
+        def seen(v):
+            if v.get("answer_sha"):
+                return (v.get("key"), v.get("author"), v["answer_sha"]) in exact
+            return (v.get("key"), v.get("author")) in loose
+
+        new = [v for v in incoming if not seen(v)]
+        n_unstamped = sum(1 for v in new if not v.get("answer_sha"))
         print(f"{len(incoming)} submitted, {len(new)} new, "
               f"{len(incoming) - len(new)} already on file")
+        if n_unstamped:
+            print(f"  {n_unstamped} carry no answer digest — collected before the form "
+                  "stamped them, so they cannot be checked against a run and will score "
+                  "against any of them")
+        regrades = sum(1 for v in new
+                       if v.get("answer_sha") and (v.get("key"), v.get("author")) in loose)
+        if regrades:
+            print(f"  {regrades} are fresh verdicts on a key already adjudicated against "
+                  "DIFFERENT text — the arms were regenerated, so both are kept")
         by_author = {}
         for v in new:
             by_author[v.get("author", "?")] = by_author.get(v.get("author", "?"), 0) + 1
         for a, c in sorted(by_author.items()):
             print(f"  {a}: {c}")
-        # Stamp each verdict with the text it was made against, taken from the
-        # queue that produced the task the reviewer saw. Done HERE rather than
-        # in the form: the server is deliberately self-contained and holds no
-        # queue, and a digest the client computed would be a claim by the client
-        # about what it was shown (Section 21.62).
-        q_by_key = {i["key"]: i for i in
-                    (json.loads(QUEUE_PATH.read_text()) if QUEUE_PATH.exists() else [])}
-        n_stamped = n_unstamped = 0
-        for v in new:
-            if v.get("answer_sha"):
-                continue
-            item = q_by_key.get(v.get("key"))
-            if item is None:
-                n_unstamped += 1     # a verdict on a task no longer in the queue
-                continue
-            v["answer_sha"] = answer_sha(item.get("answer") or "")
-            for k in ("source_run", "gameplay_fingerprint"):
-                if item.get(k) and not v.get(k):
-                    v[k] = item[k]
-            n_stamped += 1
-        if n_stamped or n_unstamped:
-            print(f"  stamped {n_stamped} with the answer they were made against"
-                  + (f"; {n_unstamped} could not be — their task is no longer in the "
-                     "queue, so they will score against any run" if n_unstamped else ""))
         if args.dry_run:
             print("\nDRY RUN — re-run without --dry-run to append")
             return
