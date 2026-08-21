@@ -137,6 +137,29 @@ def main() -> None:
         check(f"no auto-generated {stray} at the repo root",
               (REPO / stray).exists(), False)
 
+    # The `dockerfile` key resolves against THIS FILE's directory, while COPY
+    # paths resolve against the build context (the cwd at deploy time). Two
+    # bases, and `--copy-config` mixed them: it rewrote 'Dockerfile' to
+    # 'deploy/Dockerfile', which fly resolved to deploy/deploy/Dockerfile and
+    # failed at deploy time. Cheap to check here, expensive to find there.
+    import tomllib
+    cfg_path = REPO / "deploy/fly.toml"
+    cfg = tomllib.loads(cfg_path.read_text())
+    dockerfile = cfg.get("build", {}).get("dockerfile", "Dockerfile")
+    resolved = (cfg_path.parent / dockerfile).resolve()
+    check(f"fly.toml's dockerfile resolves to a real file ({dockerfile} -> "
+          f"{resolved.relative_to(REPO) if resolved.is_relative_to(REPO) else resolved})",
+          resolved.is_file(), True)
+    check("...and it is the narrow one, not a root Dockerfile",
+          resolved == (REPO / "deploy/Dockerfile").resolve(), True)
+
+    # A mount the app declares but the platform has no volume for is a machine
+    # that will not start; worse, without it a redeploy discards submissions.
+    check("submissions are on a mounted volume",
+          [m["destination"] for m in cfg.get("mounts", [])], ["/data"])
+    check("SUBMISSIONS_FILE lives on that mount",
+          cfg["env"]["SUBMISSIONS_FILE"].startswith("/data/"), True)
+
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:
         raise SystemExit(1)

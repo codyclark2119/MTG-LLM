@@ -23,11 +23,22 @@ app = 'mtg-llm'
 primary_region = 'ord'
 
 [build]
-  # The narrow Dockerfile, not one at the repo root. Its COPY list is four
-  # files; the root .dockerignore independently holds the build context to the
-  # same four, because fly uploads the context to its remote builder before any
-  # COPY runs.
-  dockerfile = 'deploy/Dockerfile'
+  # RELATIVE TO THIS FILE, not to the repo root — the two are different bases
+  # and mixing them is a deploy-time failure:
+  #
+  #   dockerfile   resolved against deploy/, this file's directory
+  #   COPY paths   resolved against the BUILD CONTEXT, which is
+  #                `fly deploy [WORKING_DIRECTORY]`, defaulting to the cwd
+  #
+  # `--copy-config` rewrote this to 'deploy/Dockerfile' assuming root-relative
+  # and produced `deploy/deploy/Dockerfile not found`. Plain 'Dockerfile' is
+  # correct here.
+  #
+  # **Run `fly deploy` from the repo root.** deploy/Dockerfile's COPY paths are
+  # repo-root-relative (`scripts/rubric_server.py`), and the root .dockerignore
+  # — which is what holds the context to four files — only applies when the
+  # context IS the repo root. Deploying from inside deploy/ breaks both.
+  dockerfile = 'Dockerfile'
 
 [env]
   HOST = '0.0.0.0'
