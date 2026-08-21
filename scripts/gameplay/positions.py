@@ -278,9 +278,15 @@ def validate_position(pos: dict, card_index=None,
 
 # Steps in which only instant-speed spells may be cast. A sorcery-speed spell
 # needs your own main phase with an empty stack (307.1).
-_COMBAT_STEPS = ("upkeep", "draw", "beginning of combat", "declare attackers",
-                 "declare blockers", "combat damage", "end of combat", "end step",
-                 "cleanup", "opening hand")
+# Steps where a sorcery-speed spell CANNOT be cast — i.e. every step that is not
+# a main phase. Named for what it means rather than for combat: it has always
+# included upkeep, draw, end step, cleanup and the opening hand, so a reader
+# checking "does this cover upkeep?" against the old combat-flavoured name would
+# have concluded it did not. One name, two meanings, in the direction that reads
+# as a coverage gap where there is none (Section 21.59).
+_NON_MAIN_STEPS = ("upkeep", "draw", "beginning of combat", "declare attackers",
+                   "declare blockers", "combat damage", "end of combat", "end step",
+                   "cleanup", "opening hand")
 
 
 def timing_problems(pos: dict, card_index=None) -> list[str]:
@@ -304,7 +310,7 @@ def timing_problems(pos: dict, card_index=None) -> list[str]:
     if card_index is None:
         return []
     phase = (pos.get("phase") or "").lower()
-    if not any(step in phase for step in _COMBAT_STEPS):
+    if not any(step in phase for step in _NON_MAIN_STEPS):
         return []
     out = []
     for line in pos.get("legal_actions") or []:
