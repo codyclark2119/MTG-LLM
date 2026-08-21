@@ -123,11 +123,43 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | `ingest_qa_pastes.py` / `validate_gold.py` | gold set ingestion and validation |
 | `ingest_judge_worksheets.py` | Competitive REL scenarios → structured records |
 | `build_reddit_eval.py` | community Q&A → eval set, LLM-filtered for real rulings |
-| `webui.py` / `label_store.py` | local console: label, author records and positions, run scripts |
+| `calibrate_judge.py` | **is the judge sound?** positive controls, and `--judge-report` |
+| `adjudicate.py` | human ground truth on judge calls; scores any run against it |
+| `audit_sft.py` | contamination check; exits non-zero. Run **before** training |
+| `stamp_adapter.py` / `rescore_stored.py` | prompt-fingerprint an adapter; re-derive a run with no model |
+| `webui.py` / `label_store.py` | local console: label, author records and positions, adjudicate, run scripts |
 | `common.py` | shared prompts, CR pinning, rule-id patterns, canonical paths |
 | `gameplay/actions.py` | the action grammar and its parser |
 | `gameplay/positions.py` | board-position schema, validation, rendering |
 | `gameplay/eval_positions.py` | blunder rate, legality, and the three gates |
+
+### Choosing a judge
+
+Every number here is read through an LLM judge, and **most judges do not work**.
+Before trusting one, run both halves of the error-detection control:
+
+```bash
+python scripts/calibrate_judge.py --judge-report --gold data/gold/positions.jsonl \
+    --judge-model mlx-community/Qwen2.5-32B-Instruct-4bit
+```
+
+It grades an answer that *cannot* commit a listed error and one that commits
+exactly one, verbatim, and reports **`P(fire|error) − P(fire|clean)`**. There is
+deliberately no flag for one half: a one-sided number reads as confident and was
+published wrong three times (§21.43). Measured on positions, n=24, one arm:
+
+| Judge | GB | separation | matched, n=22 |
+| --- | --- | --- | --- |
+| Qwen2.5-7B | 4.0 | +25% | +27% |
+| Llama-3.1-8B | 4.2 | +42% | +45% |
+| Qwen3-14B | 7.8 | +100% | **+100%** |
+| **Qwen2.5-32B** | 17.6 | +96% | **+100%** |
+
+`Qwen2.5-32B` is the default (`common.CALIBRATED_JUDGE_ID`) on **coverage** —
+it grades 24/24 where Qwen3-14B grades 22/24 and runs ~60× slower. The two are
+otherwise indistinguishable, so this is not a size result; a 7.8 GB judge
+matches a 17.6 GB one. Llama-3.1-8B has the *best* sensitivity of the four and
+fires at 58% of clean answers, which is why neither column ranks anything alone.
 
 `common.py` is not a grab bag: the prompts, the pinned CR version, and the rule-id regexes were each duplicated across four to eight scripts, and a divergent copy of the prompt is exactly what caused the Section 8.7 fine-tune failure. Training data and evaluation must be built from the same strings.
 
