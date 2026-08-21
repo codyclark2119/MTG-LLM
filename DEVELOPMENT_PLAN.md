@@ -4997,3 +4997,131 @@ and a scored eval decide it, not the curve above.
 Stamped immediately (`prompt_fingerprint 30badae98696`, verified against the
 training file rather than asserted), so `eval.py` will refuse it if a prompt
 changes underneath it — Section 8.7's failure, made an error message.
+
+### 21.48 Length is ruled out: the 32B holds +100% at 3.6× the answer length
+
+21.41 left one caveat open and named the construction that would close it — a
+control that is *definitionally* clean **and** answer-length. `--pad-clean`
+builds it: take the reference answer and append the **verbatim Comprehensive
+Rules text of the rules the record already cites**. That adds several hundred
+characters which cannot introduce an error, because it is the rulebook quoted on
+the rule the answer is about. The planted-error half is left untouched, so
+length is the only variable that moves.
+
+Rules gold set, 42 usable records, one arm, v3, `Qwen2.5-32B`. Every one of the
+42 clean answers padded — a record whose citation does not resolve returns
+unchanged and would have been counted as padded otherwise, which is why the
+count is printed.
+
+| clean half | median chars | max | fires at clean | fires at 1-error | **separation** |
+| --- | --- | --- | --- | --- | --- |
+| unpadded | 230 | 837 | 0/42 | 42/42, mean 1.02 | **+100%** |
+| **padded** | **838** | **4,484** | **0/42** | 42/42, mean 1.02 | **+100%** |
+
+**Identical, in every cell.** A 3.6× increase in median length — and a longest
+answer of 4,484 characters, well past the ~1,000 real rules answers run to —
+moves nothing. The judge fires at a clean answer zero times either way.
+
+So 21.41's 14% was never a length effect. That number came from *model* answers
+that credited every key point, which can state everything right and still say
+something wrong alongside it; 21.41 said so and declined to publish it as
+specificity. This is the measurement it deferred to, and it comes back flat.
+**21.40's remaining caveat is closed for the rules set.** Polarity false
+positives (21.37) are a separate mechanism and are not addressed here — one of
+21.41's three cases was one, at 752 characters.
+
+Worth noting what the test could **not** cover. 57 of 99 records are unusable
+because their `common_errors` are authored in behaviour form rather than as
+claims, so this is a selected subset, not a sample. The gold-set conversion was
+resolved as "none" on the ground that `common_errors` reaches no training
+script — correct as a training decision, and this is its cost: the sensitivity
+control is permanently capped at 42 of 99 records.
+
+### 21.49 Human adjudication found a harness bug at n=12, and Gate 3 is measuring the wrong thing
+
+B1 exists to answer a question nothing else could: judge-vs-judge agreement says
+nothing about correctness, and the paired control tests only the two extremes —
+an answer that cannot err and one carrying exactly one planted error. Real
+answers live in between. Twelve verdicts in, the set has already returned two
+things, and neither is the accuracy number it was built for.
+
+#### A reviewer's note found a legality gap the whole harness had
+
+Against `pos-blocking-0003::base_closed` the note reads *"it tries to use fog
+bank to block twice."* The harness had scored that answer `all_legal=True`:
+
+```
+BLOCK Fog Bank -> Serra Angel
+BLOCK Fog Bank -> Grizzly Bears
+PASS
+```
+
+Both actions appear in the position's `legal_actions`, so the enumerated-set
+check matched each and passed the sequence. But `legal_actions` lists
+**alternatives** — every block legal *on its own* — and one creature blocks at
+most one attacker (509.1a).
+
+This is worse than the class `rule_illegalities` was written for. A second land
+drop fails because it **is not** in the list; a second block passes because it
+**is**. The check that should catch it is the one that was fooled.
+
+**39 of 1,516** stored position answers contain a double block, concentrated in
+`base_closed` on blocking boards — which follows, since the closed arm picks
+from the enumerated list. Re-derived on the n=24 run, no model needed:
+
+| Arm | legality was | **now** | flipped |
+| --- | --- | --- | --- |
+| `base_closed` | 18/24 (75%) | **15/24 (62%)** | 3 |
+| `base_open` | 17/24 (71%) | 17/24 (71%) | 0 |
+| `base_cards_open` | 15/24 (62%) | 15/24 (62%) | 0 |
+
+Gate 1 needs 95% and already failed at 75%. It fails harder at 62%: no published
+verdict flips, and the error ran in the safe direction.
+
+**The commit that fixed this reported the sweep as "59 of 1,292" and that does
+not reproduce.** Re-running it: 1,516 stored position answers, of which 962 were
+written `all_legal=True`, of which **43** fail today — 39 for the double block
+and **4** for a *second land drop*, a check `rule_illegalities` already had.
+Those four are answers stored before it existed (`PLAY Swamp / PLAY Swamp /
+PASS`, `PLAY Swamp / PLAY Temple of Silence / PASS`), which the same reviewer
+independently flagged in two other notes. The per-arm table above reproduces
+exactly, so nothing published moves; the denominator in the commit message is
+simply wrong, and a count nobody re-ran is the shape of "a number that never
+was" (21.13) arriving again.
+
+The rule is deliberately **not** a rules engine — no menace, banding, or "may
+block an additional creature", because no position in the set grants one; adding
+such a card means this check needs the exception. `test_actions.py` gains 5
+assertions in **both** directions (89 total), since a check that also fires on
+two *different* blockers would hide every real result.
+
+The general shape recurs and belongs with the traps: **a validity check that
+consumes a list of alternatives as though it were a list of permissions.** It
+cannot see a constraint that only exists *between* two individually-legal
+choices.
+
+#### 8 of 9 verdicts say the rubric does not cover the answer
+
+Under the v2 wording, `not_covered` is checked on **8 of 9**. Reading the notes,
+they split into two kinds and neither is a strategy error:
+
+- **Illegal**: two lands in one turn (×2), six Plains with an empty hand, a
+  redundant second Doom Blade, the double block above.
+- **Legal and useless**: `PASS` alone (×3), half of a two-step line.
+
+`common_errors` enumerate *strategy* blunders — playing the wrong card, blocking
+the wrong creature. An answer that passes its turn commits none of them and is
+not a good answer. So on this model **blunder rate is measuring something the
+answers mostly do not do**, and Gate 3's 42–46% is diluted by answers that never
+reached the point of having a strategy to get wrong.
+
+The consequence is an ordering, not a threshold: **Gate 1 has to pass before
+Gate 3 means anything.** That reordering came out of nine hand-written notes, not
+out of any judge number — which is the argument for B1 continuing, independent
+of the accuracy estimate it was launched to produce.
+
+One note is worth flagging back: on `pos-mulligan-0001` the reviewer wrote
+*"there isn't an explanation exactly why it mulliganed so I chose the most likely
+reason."* That is exactly what the **genuinely ambiguous** box is for — used
+there, the guess stays out of the precision numbers instead of counting as a firm
+verdict.

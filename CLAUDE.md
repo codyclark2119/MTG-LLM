@@ -61,12 +61,12 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (113)
+python scripts/test_eval.py                       # the scoring arithmetic (187)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
-python scripts/test_deploy.py                     # what may leave the machine (79)
-python scripts/gameplay/test_actions.py           # the action grammar (84)
-python scripts/gameplay/test_eval_positions.py    # the gameplay gates (32)
+python scripts/test_deploy.py                     # what may leave the machine (83)
+python scripts/gameplay/test_actions.py           # the action grammar (89)
+python scripts/gameplay/test_eval_positions.py    # the gameplay gates (39)
 ```
 
 `test_eval.py` covers the code that turns judge JSON into published numbers, and
@@ -376,6 +376,14 @@ Each cost real time. They recur in new code, so they are worth knowing.
   carried 11 of 31 disputed judge calls; the one that had it drew zero. The
   lint cannot help — it checks the lines that are there, and this is a missing
   one.
+- **A validity check reading a list of alternatives as a list of permissions.**
+  `legal_actions` enumerates every play legal *on its own*, so an answer that
+  blocks one attacker with Fog Bank and then blocks a second with it matched
+  twice and scored `all_legal=True` — 39 stored answers did. The inverse case
+  works: a second land drop fails *because* it is not in the list. So the check
+  is blind exactly to constraints that exist only **between** two individually
+  legal choices, and it fails in the direction that reads as a pass. A human
+  reviewer found it at n=12; nothing in the harness could (Section 21.49).
 - **Prose about a play parsing AS that play.** "Play Mountain first would strand
   Shock in hand" became a `PLAY` action with a garbage operand, silently, with
   no `ParseFailure`. Any arm asked to reason would have had its legality
