@@ -59,6 +59,14 @@ from common import (lint_common_errors, stray_names, templatize, untemplatize)
 # question in the same instant would otherwise interleave a line.
 _WRITE_LOCK = threading.Lock()
 
+# Bumped whenever the adjudication form's WORDING changes in a way that could
+# move a verdict. The first eight verdicts were collected under v1, which asked
+# "which of these does it commit?" and did not say to judge the play rather than
+# the wording; they under-fire on action-list answers as a result (Section
+# 21.47). Segmenting on this is the only way to tell that apart from a real
+# change in the answers, so it rides on every submission the way `author` does.
+ADJUDICATION_FORM_VERSION = 2
+
 
 def load_tasks(path: Path) -> tuple[list[dict], str]:
     """Tasks plus which KIND of work they are.
@@ -290,6 +298,7 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
             "not_covered": bool(body.get("not_covered")),
             "note": (body.get("note") or "").strip()[:500],
             "author": (body.get("author") or "").strip()[:60],
+            "form_version": ADJUDICATION_FORM_VERSION,
             "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         })
         return {"ok": True, "key": tid}

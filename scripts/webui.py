@@ -464,6 +464,10 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
             "note": (payload.get("note") or "").strip(),
             "unsure": bool(payload.get("unsure")),
             "not_covered": bool(payload.get("not_covered")),
+            # See rubric_server.ADJUDICATION_FORM_VERSION — the local and
+            # deployed forms ask the same question and must stamp the same
+            # version, or the two sources cannot be pooled.
+            "form_version": 2,
             "author": author or "anon",
         })
         return {"ok": True}
