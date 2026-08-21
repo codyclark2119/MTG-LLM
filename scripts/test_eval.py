@@ -957,6 +957,28 @@ def test_adjudication_scoring() -> int:
     s4 = score_run(run, [v("p3::a", [], not_covered=True)], {})
     failed += not check("not_covered still scores", s4["n"], 1)
     failed += not check("not_covered is reported", s4["not_covered"], 1)
+
+    # A verdict is keyed record_id::arm, and that key is stable while the text
+    # behind it is not — regenerate the arms and the same key names a different
+    # answer (Section 21.62). Without the digest, 22 human verdicts would have
+    # scored silently against text their author never saw.
+    from adjudicate import answer_sha
+    graded = {"id": "p5", "arms": {"a": {"errors_made": [1], "answer": "CAST Shock\nPASS"}}}
+    run2 = _Path(tempfile.mkdtemp()) / "r2.jsonl"
+    run2.write_text(_json.dumps(graded), encoding="utf-8")
+    same = v("p5::a", [1], answer_sha=answer_sha("CAST Shock\nPASS"))
+    s5 = score_run(run2, [same], {})
+    failed += not check("a matching digest scores normally", s5["n"], 1)
+    failed += not check("and is not counted stale", s5["stale"], 0)
+
+    other = v("p5::a", [1], answer_sha=answer_sha("PHASE upkeep\nCAST Shock\nPASS"))
+    s6 = score_run(run2, [other], {})
+    failed += not check("a verdict on different text does not score", s6["n"], 0)
+    failed += not check("...and is reported as stale", s6["stale"], 1)
+    # Verdicts predating the digest must still score — refusing them would
+    # discard human work to enforce a field that did not exist when it was done.
+    s7 = score_run(run2, [v("p5::a", [1])], {})
+    failed += not check("a verdict with no digest still scores", s7["n"], 1)
     return failed
 
 

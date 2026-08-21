@@ -55,6 +55,7 @@ must not silently become a rubric.
 """
 
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -190,6 +191,24 @@ def append_verdict(verdict: dict, path: Path = ADJUDICATIONS_PATH) -> None:
         f.write(json.dumps(verdict, ensure_ascii=False) + "\n")
 
 
+def answer_sha(answer: str) -> str:
+    """Short digest of the exact answer text a verdict was made against.
+
+    A verdict is keyed `record_id::arm`, and that key is stable while the text
+    behind it is not: regenerate the arms — a new adapter, a new gameplay
+    grammar (21.60) — and the same key names a different answer. Nothing
+    recorded which, so 22 human verdicts would have silently re-pointed at text
+    their author never saw, and `--score` would have reported precision against
+    answers nobody adjudicated.
+
+    Exactly the identifier problem 21.13 documents one level down: anything
+    joining two files on a key must first ask whether the key survived the trip.
+    Here it survives and the *meaning* does not, which is worse, because nothing
+    fails.
+    """
+    return hashlib.sha256(answer.encode("utf-8")).hexdigest()[:12]
+
+
 def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     """Score one judge run against the human verdicts.
 
@@ -199,21 +218,30 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     binary call right.
     """
     by_key = {}
+    by_sha = {}
     for row in read_jsonl(run):
         rid = row.get("id") or row.get("gold_id")
         for arm, d in (row.get("arms") or {}).items():
             if d.get("errors_made") is not None:
                 by_key[f"{rid}::{arm}"] = [e["n"] if isinstance(e, dict) else e
                                            for e in d["errors_made"]]
+                by_sha[f"{rid}::{arm}"] = answer_sha(d.get("answer") or "")
 
     tp = fp = fn = 0
     b_right = b_total = 0
     fp_only = fn_only = 0
-    n_unsure = n_not_covered = n_unmatched = 0
+    n_unsure = n_not_covered = n_unmatched = n_stale = 0
     b_pairs: list[tuple[bool, bool]] = []
     for v in verdicts:
         if v["key"] not in by_key:
             n_unmatched += 1
+            continue
+        # The key matched; the TEXT may not have. A verdict carrying a digest
+        # that disagrees with this run's answer was made against different text
+        # and says nothing about this one.
+        want = v.get("answer_sha")
+        if want and want != by_sha.get(v["key"]):
+            n_stale += 1
             continue
         # "Genuinely ambiguous — I could argue it either way" is the reviewer
         # telling us their own call is a coin flip. Scoring it as a firm verdict
@@ -256,6 +284,7 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         # is how a selected subset gets read as a sample (Section 21.14).
         "excluded_unsure": n_unsure,
         "unmatched": n_unmatched,
+        "stale": n_stale,
         # Not excluded — a reviewer saying "the rubric has no entry for what
         # this answer did" while listing no error IS the human agreeing that no
         # LISTED error occurred, which is exactly what blunder rate is defined
@@ -425,6 +454,9 @@ def main() -> None:
                 bits.append(f"{s['excluded_unsure']} marked genuinely ambiguous (excluded)")
             if s["unmatched"]:
                 bits.append(f"{s['unmatched']} not graded by this judge (excluded)")
+            if s["stale"]:
+                bits.append(f"{s['stale']} made against a DIFFERENT answer for the same key "
+                            "(excluded — the arms were regenerated since, Section 21.62)")
             if s["not_covered"]:
                 bits.append(f"{s['not_covered']} flagged `not_covered` (counted — the human "
                             "agreed no LISTED error occurred, which is what blunder rate "

@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (267)
+python scripts/test_eval.py                       # the scoring arithmetic (272)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
@@ -484,6 +484,13 @@ Each cost real time. They recur in new code, so they are worth knowing.
   is later parsed.
 - **A helper duplicated with a guard in only some copies.** Five jsonl readers,
   three of which crashed on a trailing blank line.
+- **An identifier that survives while its meaning changes.** An adjudication is
+  keyed `record_id::arm`. Regenerate the arms — new adapter, new gameplay
+  grammar — and the same key names a different answer, so 22 human verdicts
+  would have scored against text their author never saw. Nothing fails: key,
+  arm and position all match. The inverse of the promotion case below, and
+  worse, because there the join silently missed and here it silently succeeds.
+  Verdicts carry `answer_sha` now (Section 21.62).
 - **An identifier that changes when a record is promoted.** A RulesGuru
   candidate is `rg-1156`; promoted into the gold set it becomes
   `qa-amy-casts-assassin-s-trophy-...` and keeps `rulesguru_id: 1156`. The

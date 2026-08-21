@@ -5992,3 +5992,46 @@ Retroactively inert, verified: 0 of 251 stored answers contain a line beginning
 `d094e3934d2d` — a third distinct value, with stored runs still at
 `5c196f40afd8` and `compare_judges` refusing to read agreement across them.
 Nothing has been run under the new grammar yet.
+
+### 21.62 A human verdict is about a text, not about a key
+
+Regenerating the position arms under the verbose grammar means the same board is
+answered differently. The adjudication queue is keyed `record_id::arm`, and
+**that key is stable while the text behind it is not**.
+
+Nothing recorded which text a verdict was made against. So rebuilding the queue
+from a new run would have left 22 human verdicts pointing at answers their author
+never saw, and `--score` would have reported precision, recall and kappa against
+them without a word. Nothing fails: the key matches, the arm matches, the
+position matches.
+
+This is 21.13's identifier problem one level down — *anything joining two files
+on an id must first ask whether the id survived the trip* — with the trip made
+worse by surviving. There the id changed and the join silently missed; here the
+id is preserved and its **meaning** changes, so the join silently succeeds.
+
+`answer_sha` is a 12-character digest of the exact answer text, recorded on every
+verdict and compared at score time. A verdict whose digest disagrees with the run
+being scored is excluded and **reported** as stale, next to the numbers, rather
+than dropped.
+
+Three behaviours, each tested:
+
+- a matching digest scores normally;
+- a verdict on different text does not score, and is counted;
+- **a verdict with no digest still scores** — refusing those would discard human
+  work to enforce a field that did not exist when the work was done.
+
+The 22 existing verdicts were backfilled from `adjudication_queue.json`, which
+still held the exact text each was shown, and each carries
+`answer_sha_source: "backfilled…"` so a recovered value never reads as one
+recorded at the time. Verified two ways: scoring against `pos_n24_32b` reproduces
+n=17, precision 19%, kappa +0.23 unchanged — so the digests match the run they
+were made against — and scoring the same verdicts against a synthetically
+regenerated run reports **22 stale, n=0**.
+
+**What this costs, stated plainly.** The 17 covered answers were adjudicated
+under the old grammar. They remain valid evidence about *that* run and stop being
+evidence about the new one. Judge accuracy on the verbose arms needs fresh
+verdicts; the earlier work is not lost, it is simply about a different set of
+answers.
