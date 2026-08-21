@@ -87,8 +87,43 @@ def check(label: str, got, want) -> bool:
     return False
 
 
+def check_joint_legality() -> int:
+    """Combinations that are illegal even though every action is individually so.
+
+    `legal_actions` enumerates ALTERNATIVES — on a blocking board it lists every
+    block that would be legal on its own — so the enumerated-set check matches
+    each one and cannot see that two of them cannot both be taken. Found by a
+    human adjudicator writing "it tries to use fog bank to block twice" about an
+    answer this harness had scored all_legal; 59 stored answers do it.
+    """
+    failed = 0
+    la = ["BLOCK Fog Bank -> Serra Angel",
+          "BLOCK Fog Bank -> Grizzly Bears",
+          "BLOCK Centaur Courser -> Grizzly Bears"]
+
+    r = legality(parse_output("BLOCK Fog Bank -> Serra Angel\n"
+                              "BLOCK Fog Bank -> Grizzly Bears\nPASS"), la)
+    failed += not check("one creature blocking two attackers is illegal",
+                        r["all_legal"], False)
+    failed += not check("...and says why", "509.1a" in " ".join(r["illegal"]), True)
+
+    # Both must still pass, or the check hides every real result.
+    r = legality(parse_output("BLOCK Fog Bank -> Serra Angel\n"
+                              "BLOCK Centaur Courser -> Grizzly Bears\nPASS"), la)
+    failed += not check("two DIFFERENT blockers are legal", r["all_legal"], True)
+    r = legality(parse_output("BLOCK Fog Bank -> Serra Angel\nPASS"), la)
+    failed += not check("a single block is legal", r["all_legal"], True)
+
+    # The pre-existing once-per-turn rule must be untouched.
+    r = legality(parse_output("PLAY Swamp\nPLAY Island\nPASS"),
+                 ["PLAY Swamp", "PLAY Island"])
+    failed += not check("two land drops still illegal", r["all_legal"], False)
+    return failed
+
+
 def main() -> None:
     failed = 0
+    failed += check_joint_legality()
 
     for line, want in CASES:
         result = parse_line(line)

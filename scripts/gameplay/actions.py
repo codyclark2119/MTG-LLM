@@ -415,6 +415,31 @@ def rule_illegalities(parsed: ParsedOutput) -> list[str]:
         n = sum(1 for a in parsed.actions if a.verb == verb)
         if n > 1:
             out.append(f"{verb} taken {n} times; it is allowed once per turn")
+
+    # One creature blocks at most one attacker (509.1a).
+    #
+    # This is the SECOND class the enumerated-set check structurally cannot
+    # see, and it is worse than the first because both halves look legal.
+    # `legal_actions` lists ALTERNATIVES — on a blocking board it offers every
+    # block that would be legal on its own — so an answer choosing two of them
+    # with the same blocker matches the list twice and is scored all_legal.
+    #
+    # Found by human adjudication, not by the harness: a reviewer wrote "it
+    # tries to use fog bank to block twice" about an answer the run had marked
+    # legal. Across the stored position runs, 59 answers marked all_legal=True
+    # do this. It inflates Gate 1's legality, and Gate 1 already fails — so
+    # correcting it makes that gate fail harder rather than rescuing it.
+    #
+    # No menace, banding or "can block an additional creature" handling here:
+    # this is not a rules engine, and no position in the set grants one. Adding
+    # such a card means this check needs the exception.
+    blockers: dict[str, int] = {}
+    for a in parsed.actions:
+        if a.verb == "BLOCK" and a.args:
+            blockers[a.args[0]] = blockers.get(a.args[0], 0) + 1
+    for blocker, n in blockers.items():
+        if n > 1:
+            out.append(f"{blocker} blocks {n} attackers; a creature blocks at most one (509.1a)")
     return out
 
 
