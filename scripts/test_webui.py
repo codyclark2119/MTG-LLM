@@ -1,0 +1,112 @@
+"""The served page must actually parse. Run: python scripts/test_webui.py
+
+WHY THIS EXISTS
+
+`webui.py` shipped for several commits serving JavaScript that no browser could
+run. Two Python-style `#` comments sat inside `INDEX_HTML` — a raw string — so
+Python never stripped them and the browser received them as JS, where `#` is a
+syntax error. A syntax error is fatal to the whole `<script>`, so **every view
+rendered blank**, including the three unrelated to the code the comments were
+next to.
+
+Nothing caught it. `test_imports.py` passes because the module imports fine, the
+API returns 200 with correct JSON because the server half was never broken, and
+`--help` exits 0. The failure lived entirely in a string that Python is not
+required to understand — which is the general shape worth guarding: **a string
+in one language embedded in a file of another gets no checking from either.**
+
+So this parses the served page's script with JavaScriptCore (`osascript -l
+JavaScript`, present on every macOS) and asserts the structural invariants a
+single-file app depends on. No browser, no network, no model.
+"""
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+CHECKS_RUN = 0
+FAILED = 0
+
+
+def check(label: str, got, want) -> None:
+    global CHECKS_RUN, FAILED
+    CHECKS_RUN += 1
+    if got != want:
+        FAILED += 1
+        print(f"  FAIL {label}\n       got  {got!r}\n       want {want!r}")
+
+
+def served_html() -> str:
+    """The exact bytes `GET /` returns, without starting a server."""
+    import webui
+    return webui.INDEX_HTML
+
+
+def js_of(html: str) -> str:
+    parts = re.findall(r"<script>(.*?)</script>", html, re.S)
+    check("exactly one <script> block", len(parts), 1)
+    return parts[0] if parts else ""
+
+
+def jsc_parse(js: str) -> str:
+    """Parse (never execute) the script. Returns '' on success, else the error.
+
+    `new Function(src)` compiles without running, so a page that talks to the
+    network or the DOM is still safe to check.
+    """
+    src = Path("/private/tmp/claude-501/-Users-codyclark-Documents-code-magic-llm/"
+               "d331db77-266c-4801-b4d1-a37d84de05db/scratchpad/_webui_check.js")
+    try:
+        src.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        src = Path("/tmp/_webui_check.js")
+    src.write_text(js, encoding="utf-8")
+    script = (
+        'ObjC.import("Foundation");'
+        f'var s=$.NSString.stringWithContentsOfFileEncodingError("{src}",4,null).js;'
+        'try{ new Function(s); "" }catch(e){ "" + e.message }'
+    )
+    try:
+        out = subprocess.run(["osascript", "-l", "JavaScript", "-e", script],
+                             capture_output=True, text=True, timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print("  SKIP osascript unavailable — JS not parse-checked")
+        return ""
+    return out.stdout.strip()
+
+
+def main() -> None:
+    html = served_html()
+    js = js_of(html)
+
+    # The bug itself: a Python comment inside the served string.
+    offenders = [ln for ln in html.split("\n")
+                 if ln.lstrip().startswith("#") and not ln.lstrip().startswith("#/")]
+    check("no Python-style comments in the served page", offenders, [])
+
+    err = jsc_parse(js)
+    if err:
+        print(f"  FAIL the served JavaScript does not parse: {err}")
+        global FAILED, CHECKS_RUN
+        FAILED += 1
+    CHECKS_RUN += 1
+
+    # Every route the router dispatches to must be defined, or that view is a
+    # blank pane with an error only the console shows.
+    for name in re.findall(r"return\s+(view[A-Za-z]+)\(\)", js):
+        check(f"{name} is defined", f"function {name}(" in js, True)
+
+    # Balanced template literals — an odd count silently swallows the rest of
+    # the file into a string and produces a parse error a long way from home.
+    check("backticks balanced", js.count("`") % 2, 0)
+
+    print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
+    if FAILED:
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

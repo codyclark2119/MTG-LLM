@@ -776,8 +776,16 @@ async function viewPosition(){
     '<div class="row"><div><label for="pmana">Mana available</label><input type="text" id="pmana" class="mono" placeholder="{R}{R}{G}"></div>'+
     '<div><label for="pdeck">Deck note</label><input type="text" id="pdeck" placeholder="mono-red aggro"></div></div>'+
     '<label for="pknown">Known information — one per line</label><textarea id="pknown" rows="2" placeholder="opp revealed Negate to a turn-3 Duress"></textarea>'+
-    # PASS is deliberately absent from the placeholder: it is always accepted
-    # and listing it as a play is what failed Gate 1 on a mulligan (§16.13).
+    /* PASS is deliberately absent from the placeholder: it is always accepted
+       and listing it as a play is what failed Gate 1 on a mulligan (§16.13).
+
+       These two lines were `#` comments until now. INDEX_HTML is a raw string,
+       so Python did not strip them — they were served to the browser as
+       JavaScript, where `#` is a syntax error that kills the WHOLE bundle.
+       Every view rendered blank, including the three that have nothing to do
+       with positions, because the parse fails before any of them is defined.
+       Comments inside this string are JS comments; the file being .py is not
+       enough to make `#` one. */
     '<label for="plegal">Legal actions — one per line, omit PASS</label><textarea id="plegal" rows="4" class="mono" placeholder="PLAY Mountain&#10;CAST Lightning Strike TARGET Grizzly Bears"></textarea>'+
     '<div class="hint" id="pgram"></div>'+
     '<label for="pans">The correct line</label><textarea id="pans" rows="2"></textarea>'+

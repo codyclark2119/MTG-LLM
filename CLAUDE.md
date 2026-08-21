@@ -63,6 +63,7 @@ a GPU:
 python scripts/test_imports.py                    # every script resolves every name it uses
 python scripts/test_eval.py                       # the scoring arithmetic (113)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
+python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/gameplay/test_actions.py           # the action grammar (84)
 python scripts/gameplay/test_eval_positions.py    # the gameplay gates (32)
 ```
@@ -370,6 +371,17 @@ Each cost real time. They recur in new code, so they are worth knowing.
   examples in three configs and two plan sections. It holds 1,478 distinct
   lines; the rest are exact duplicates, question and answer both. Nothing lied —
   nobody counted.
+- **A string in one language embedded in a file of another gets no checking
+  from either.** `INDEX_HTML` in `webui.py` is a raw Python string holding the
+  whole page. Two `#` comments were written inside it in Python style; Python
+  does not strip them, so the browser received them as JavaScript, where `#` is
+  a syntax error — and a syntax error is fatal to the entire `<script>`, so
+  **all four views rendered blank**, including the three unrelated to the code
+  the comments sat beside. It shipped for several commits. Nothing caught it:
+  the module imports, every API endpoint returns 200 with correct JSON, and
+  `--help` exits 0, because the server half was never broken. `test_webui.py`
+  now parse-checks the served script with JavaScriptCore. **Testing the API of
+  a page is not testing the page.**
 - **Valid JSON in an unexpected shape, read as absence.** Twice. The judge
   emitted `"points_hit": 3` where a list was expected (Section 21.12), and — for
   a single candidate — the entry *unwrapped*, without the `{"A": …}` around it
