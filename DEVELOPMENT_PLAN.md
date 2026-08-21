@@ -5191,3 +5191,57 @@ assertion, and a check with no evidence should say nothing rather than guess.
 `finetuned` (the matched-shape arm) is the honest test of whether decontaminated
 data helped. `finetuned_rag` gets measured too, and its row now carries the
 reason it is not a data result.
+
+### 21.51 The one path where the judge is guaranteed to differ was the one that did not record it
+
+Preparing the second judge for run 4. `--rescore-from` is what the two-judge
+rule is built on — it re-judges stored answers so the judge varies and *nothing
+else* does — so it was worth reading before trusting its output.
+
+`rescore()` assigns nothing at row level. Checked by AST rather than by eye,
+because "does this function write that key" is exactly the question reading
+answers wrongly:
+
+```
+subscript assignments inside rescore():
+   data['citation_score']   data['correctness']    data['errors_made']
+   data['judge_note_v2']    data['points_hit']     data['points_total']
+   data['scored_by']
+row-level ('r[...]') assignments: NONE
+```
+
+And `carry_diagnostics` copies `RUBRIC_DIAGNOSTICS` — `scoring`, `quote_drops`,
+`all_errors_fired`, `error_contradiction` — which does not include
+`judge_model`. So rescoring a 32B-judged run with Mistral produced a file whose
+every row still read `"judge_model": "mlx-community/Qwen2.5-32B-Instruct-4bit"`.
+
+**The report header was right the whole time.** It derives the judge from
+`args`, and 21.20 already hardened it twice — it stopped claiming "the v2 judge"
+when V3 had run, then stopped claiming "V3" when `--judge-prompt v4` had. Both
+fixes went to the *report*. The data file was never revisited, and the data file
+is what `--compare` reads, what a later rescore reads, and what outlives every
+report.
+
+Three things make this worse than the absence 21.40 fixed:
+
+1. **It is a wrong value, not a missing one.** A missing key reads as unknown
+   and prompts a question. `judge_model: Qwen2.5-32B` on a Mistral-judged row
+   reads as a fact, and it is exactly the fact the two-judge protocol turns on.
+2. **It fires precisely where it matters.** A rescore whose judge equals the
+   source's judge is pointless; the whole reason to run one is that the judge
+   differs. So the field is wrong on 100% of the runs anyone would care about,
+   and correct only on the ones nobody makes.
+3. **It survives a `--compare`.** Two files, both labelled with the same judge,
+   compared to see whether the judges agree.
+
+`rescore()` now stamps `judge_model`, `judge_prompt`, and `rescored_from` on
+every row it rewrites. The test is an AST check, not an execution — `rescore`
+loads a judge model and the suite must run without a GPU — asserting the
+property that broke: which row-level keys the function assigns.
+
+**And the test for 21.50 had the same class of bug, found by running it from a
+different directory.** It passed `models/mtg-rules-adapter-v4` as a cwd-relative
+path, so from `/tmp` the stamp did not resolve and `unseen_arms` returned `[]` —
+*"nothing to warn about"*. A check whose failure mode is silence must be
+anchored to `REPO_ROOT`, which is what `REPO_ROOT` is for, and running the suite
+from somewhere else is how that gets caught. Both tests now use it.

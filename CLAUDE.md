@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (194)
+python scripts/test_eval.py                       # the scoring arithmetic (198)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
@@ -163,6 +163,12 @@ Every row now records `judge_model`, `judge_prompt` and `scoring`, via
 enumerated these by hand and neither listed `scoring` at all. Runs archived
 before this carry none of it and are identified by filename only; five have
 `scoring` because a different path wrote them.
+
+`--rescore-from` stamps the row too, which it did not until Section 21.51. It is
+the one path where the judge is *guaranteed* to differ from the file it read —
+that is what a rescore is for — so the stale label was wrong on every run worth
+making and right only on the pointless ones. The derived report header was
+correct throughout; the data file is what `--compare` reads.
 
 **That 40% is a fact about the 7B, not about `errors_made`** (Section 21.40).
 Name the judge whenever quoting it. On the same 24 positions, single-arm, with

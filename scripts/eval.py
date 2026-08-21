@@ -1016,6 +1016,16 @@ def rescore(args) -> None:
             lm_generate, judge_model, judge_tokenizer, r, candidates, args.judge_max_tokens, rng,
             judge_version=args.judge_prompt,
         )
+        # The judge travels with the rate (Section 21.40) — and this is the ONE
+        # path where the judge is guaranteed to differ from the file it read,
+        # since re-judging with a different model is the entire purpose of
+        # --rescore-from. It was also the one path that did not update these,
+        # so a run rescored by Mistral kept "Qwen2.5-32B" on every row while the
+        # derived report header correctly said Mistral. An absent field reads as
+        # unknown; a wrong one reads as a fact, and --compare reads the file.
+        r["judge_model"] = args.judge_model
+        r["judge_prompt"] = args.judge_prompt
+        r["rescored_from"] = args.rescore_from.name
         for arm, data in r["arms"].items():
             entry = judged.get(arm, {})
             data["correctness"] = entry.get("correctness")

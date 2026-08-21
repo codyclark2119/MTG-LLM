@@ -719,7 +719,7 @@ def test_unseen_arms() -> int:
     import tempfile
     from pathlib import Path as _Path
 
-    from common import PROMPT_STAMP_FILE
+    from common import PROMPT_STAMP_FILE, REPO_ROOT
     from stamp_adapter import unseen_arms
 
     failed = 0
@@ -759,8 +759,50 @@ def test_unseen_arms() -> int:
                         unseen_arms(_Path(tempfile.mkdtemp()), arms), [])
     # And the adapter this was written for.
     failed += not check("v4 flags finetuned_rag on disk",
-                        unseen_arms(_Path("models/mtg-rules-adapter-v4"), arms),
+                        unseen_arms(REPO_ROOT / "models/mtg-rules-adapter-v4", arms),
                         ["finetuned_rag"])
+    return failed
+
+
+def test_rescore_stamps_judge() -> int:
+    """--rescore-from must relabel the rows it rewrites (Section 21.51).
+
+    Checked by AST rather than by running it: `rescore` loads a judge model, so
+    executing it needs a GPU and this suite may not have one. What is verified
+    is the property that broke — which row-level keys the function assigns —
+    and that survives reading the source.
+
+    The regression is specific and recurs: re-judging with a DIFFERENT model is
+    the entire purpose of --rescore-from, so it is the one path where the stored
+    `judge_model` is guaranteed wrong if nobody updates it. The report header is
+    derived from args and was right; the data file kept the old judge's name,
+    and the data file is what --compare and any later rescore read.
+    """
+    import ast as _ast
+
+    failed = 0
+    from common import REPO_ROOT
+    src = REPO_ROOT / "scripts" / "eval.py"   # never cwd-relative; this suite runs from anywhere
+    tree = _ast.parse(src.read_text(encoding="utf-8"))
+    fn = next((n for n in _ast.walk(tree)
+               if isinstance(n, _ast.FunctionDef) and n.name == "rescore"), None)
+    failed += not check("rescore() exists", fn is not None, True)
+    if fn is None:
+        return failed
+
+    assigned = set()
+    for node in _ast.walk(fn):
+        if isinstance(node, _ast.Assign):
+            for t in node.targets:
+                if isinstance(t, _ast.Subscript) and _ast.unparse(t.value) == "r":
+                    assigned.add(_ast.unparse(t.slice).strip("'\""))
+
+    for key in ("judge_model", "judge_prompt"):
+        failed += not check(f"rescore stamps {key} on the row", key in assigned, True)
+    # Provenance: which file these answers came from, since a rescore's own
+    # filename is the only other record of it.
+    failed += not check("rescore records what it rescored from",
+                        "rescored_from" in assigned, True)
     return failed
 
 
@@ -833,6 +875,7 @@ def main() -> None:
                      ("error_assertions", test_error_assertions),
                      ("half_answer", test_half_answer),
                      ("unseen_arms", test_unseen_arms),
+                     ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()
