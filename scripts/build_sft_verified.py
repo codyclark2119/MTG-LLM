@@ -100,6 +100,34 @@ def stratified_split(records: list[dict], valid_frac: float, seed: int):
     return train, valid
 
 
+def wiki_examples(path: Path) -> list[dict]:
+    """SFT lines from the wiki gloss, each carrying its provenance in the answer.
+
+    Off unless `--with-wiki` is passed. Two things make this different from every
+    other input here, and both are stated in the text the model is trained on
+    rather than only in a comment:
+
+      * it is a GLOSS, not the rules, so an answer derived from it must not
+        present itself as the Comprehensive Rules;
+      * it is editable, so the revision is the only durable identifier.
+
+    The pin is verified first. Training on a corpus that has drifted from the one
+    a number was computed against is the contamination failure in a different
+    coat: it looks like an improvement while making the run unreproducible.
+    """
+    from common import verify_wiki_pin
+    verify_wiki_pin(path)
+    out = []
+    for c in read_jsonl(path):
+        answer = (f"{c['text']}\n\n"
+                  f"(Source: MTG Wiki, {c['title']}, revision {c['revision']} — "
+                  f"community-edited reference, not the Comprehensive Rules.)")
+        out.append({"messages": build_rag_messages(
+            f"Explain: {c['title']}" + (f" ({c['heading']})" if c.get("heading") else ""))
+            + [{"role": "assistant", "content": answer}]})
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -112,6 +140,13 @@ def main() -> None:
                     help="question-token overlap with a gold record at which a "
                          "candidate is excluded as the same question reworded")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--with-wiki", action="store_true",
+                    help="also train on the MTG Wiki gloss (data/processed/wiki_chunks.jsonl). "
+                         "OFF by default and deliberately explicit: the corpus is "
+                         "community-edited, and training bakes it into weights where it can "
+                         "no longer be labelled unofficial, traced to a revision, or removed "
+                         "if a page turns out to be wrong. Licence CC BY-NC-SA 2.5 — "
+                         "noncommercial use only, and the adapter arguably inherits.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -197,7 +232,17 @@ def main() -> None:
         return
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    write_jsonl_atomic(args.out_dir / "train.jsonl", build_examples(train))
+    train_lines = build_examples(train)
+    # Wiki lines go to TRAIN only, never to valid. Validation loss is read as a
+    # signal about the verified gold set; mixing a second distribution into it
+    # would move the curve for a reason unrelated to the thing being measured.
+    if args.with_wiki:
+        from common import WIKI_CHUNKS_PATH
+        wiki = wiki_examples(WIKI_CHUNKS_PATH)
+        train_lines += wiki
+        print(f"  + {len(wiki)} wiki gloss lines (CC BY-NC-SA 2.5, unofficial) "
+              f"-> train only")
+    write_jsonl_atomic(args.out_dir / "train.jsonl", train_lines)
     write_jsonl_atomic(args.out_dir / "valid.jsonl", build_examples(valid))
     # Every exclusion, with WHICH filter caught it. Recording only the `id`
     # matches would leave the file describing 72 of the 90 — and an audit trail
@@ -207,7 +252,11 @@ def main() -> None:
                        [{"id": c["id"], "rulesguru_id": c.get("rulesguru_id"),
                          "reason": reason}
                         for c, reason in excluded])
-    print(f"\nwrote {len(train)} train / {len(valid)} valid -> {args.out_dir}")
+    # len(train_lines), not len(train): with --with-wiki the file holds more
+    # lines than there are gold records, and reporting the record count for a
+    # file that has more in it is how an epoch figure ends up describing a
+    # dataset that does not exist (Section 21.13's duplicate count, inverted).
+    print(f"\nwrote {len(train_lines)} train / {len(valid)} valid -> {args.out_dir}")
     print("excluded_ids.jsonl records what was held out, so the exclusion is auditable")
 
 

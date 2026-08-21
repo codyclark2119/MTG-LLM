@@ -99,6 +99,21 @@ CARD_PIN = {
     "n_ruling_chunks": 19726,
 }
 
+# The MTG Wiki gloss (scripts/fetch_wiki.py). Pinned for the same reason the
+# others are, and more urgently: a wiki page is edited far more often than the
+# CR is published, so a re-fetch silently changing text under a published number
+# is likelier here than anywhere else in this repo.
+#
+# UNOFFICIAL. Community-edited prose, never a citation source — every record
+# carries `authority: "unofficial"` and its page revision. CC BY-NC-SA 2.5.
+WIKI_PIN = {
+    "wiki_chunks_sha256": "b61cd5c8f40805aecdf32f6b4013bc77020383bdd67f1fc34c2ee15493f08804",
+    "n_wiki_chunks": 176,
+    "n_pages": 51,
+    "source": "mtg.fandom.com Portal:Rules",
+    "license": "CC BY-NC-SA 2.5",
+}
+
 # --- Rule-id patterns -------------------------------------------------------
 
 # Find rule ids inside prose: "...as a state-based action (704.5g) and..."
@@ -155,6 +170,7 @@ INDEX_PATH = REPO_ROOT / "data/processed/chunk_embeddings.npz"
 
 ORACLE_CARDS_PATH = REPO_ROOT / "data/cards/raw/oracle_cards.jsonl"
 CARD_CHUNKS_PATH = REPO_ROOT / "data/cards/processed/card_chunks.jsonl"
+WIKI_CHUNKS_PATH = REPO_ROOT / "data/processed/wiki_chunks.jsonl"
 RULING_CHUNKS_PATH = REPO_ROOT / "data/cards/processed/ruling_chunks.jsonl"
 
 RAW_RULINGS_PATH = REPO_ROOT / "data/cards/raw/rulings.jsonl"
@@ -1113,6 +1129,25 @@ def _verify_pin(checks: list[tuple], what: str, repin_cmd: str) -> None:
             f"  it (`git checkout {path}`) or, if the new parse is intended, re-pin with\n"
             f"  `{repin_cmd}` and re-run what depends on it."
         )
+
+
+def verify_wiki_pin(wiki_chunks_path: Path = WIKI_CHUNKS_PATH) -> None:
+    """Check the wiki gloss against `WIKI_PIN`.
+
+    Goes through `_verify_pin` like the other two — a third copy of that body
+    would be the duplicated-helper trap on the guard that exists to catch silent
+    corpus drift.
+
+    Not called from a chokepoint yet, because nothing reads this corpus: whether
+    wiki prose competes with CR text for retrieval slots is unmeasured, so it is
+    wired into no pipeline. Any future reader should call this the way
+    `CardIndex.__init__` calls `verify_card_pin`.
+    """
+    _verify_pin([("wiki chunks", wiki_chunks_path, WIKI_CHUNKS_PATH,
+                  WIKI_PIN["wiki_chunks_sha256"], WIKI_PIN["n_wiki_chunks"])],
+                "the pinned MTG Wiki snapshot",
+                "python scripts/fetch_wiki.py --refresh && "
+                "python scripts/chunk_wiki.py --update-pin")
 
 
 def verify_card_pin(card_chunks_path: Path = CARD_CHUNKS_PATH,
