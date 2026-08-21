@@ -6249,3 +6249,103 @@ as 21.49's double block — a constraint that exists *between* individually lega
 choices, or *outside* what the list can express — and it is now the fourth
 instance. The enumerated set is a good check for "is this play available" and a
 poor one for anything relational.
+
+### 21.67 A second rules corpus: the wiki gloss, pinned and unwired
+
+`rules.jsonl` is the Comprehensive Rules — authoritative, complete, written for
+judges. It says what a rule **is** and never what it **means**. A player asking
+"can a creature with summoning sickness block?" is answered by 302.6, but only
+by someone who already knows to look there.
+
+The 51 pages behind `Portal:Rules` are the other half: Object, Zone, Timing and
+priority, one page per phase. **207,574 characters, 176 chunks.**
+
+#### Fetching
+
+Plain scraping is Cloudflare-challenged — even `robots.txt` returns a JS
+challenge — so this uses the MediaWiki API the operator publishes for the
+purpose, one request at a time with a delay. Two things went wrong and both were
+found by running it:
+
+**`exlimit` documents a maximum of 20, and using it returned 3 pages of 60.**
+TextExtracts honours `exlimit > 1` only when `exintro` is set; ask for full text
+and it serves one page per request and drops the rest — no error, no `continue`,
+57 pages simply absent. The comment above `BATCH` warned about this exact
+failure and the code did it anyway. The fetcher now refuses to write a snapshot
+missing more than a quarter of what was asked for, because a corpus quietly
+holding a third of its content is worse than a failed fetch.
+
+**Nine portal links are redirects to section anchors** — `Upkeep step` →
+`Beginning phase#Upkeep step` — and looked like missing pages. They are aliases
+for text already captured. Attaching them had to happen *after* the fetch loop:
+at one title per request a redirect resolves after its target is already
+written, so filling it inline left the alias empty and the redirect still
+counted as missing.
+
+Accounting reconciles: **51 captured + 6 reached by alias + 3 template-only
+pages with no extractable prose = the 60 links.**
+
+#### What a plain scrape drags in, and what it does not
+
+TextExtracts strips Fandom's page furniture entirely — no ad markup, no cookie
+banner, no navigation. The snapshot's two hits for *"advertisement"* and
+*"subscribe"* are article prose about token cards and judge fees.
+
+What it does **not** strip is the article's own apparatus:
+
+| dropped section | pages |
+| --- | --- |
+| References — and **empty** after extraction, since citations are markup | 41 of 51 |
+| External links | 16 |
+| Trivia | 9 |
+| See also | 8 |
+| Gallery, Notes | 9 |
+
+Dropped **by heading**, never by pattern-matching the body: the wiki labels these
+itself, so no guess is required and no real content can be caught by accident.
+`History` is kept — rule changes are rules content — and an unlisted heading is
+included by default rather than silently dropped. 234,670 → 207,574 chars, with
+all **40** non-empty `Rules` sections verified present afterwards.
+
+#### Three sizing failures, each visible only in the output
+
+| symptom | cause |
+| --- | --- |
+| a 50-char chunk | page **leads** have no previous chunk to merge into |
+| a **7,235**-char chunk | TextExtracts renders lists with *single* newlines, so a long list section contained no paragraph break for the splitter to use |
+| a **4,687**-char chunk | merging a short tail into a full-size chunk undid the split — the merge ran after the split and never re-checked size |
+
+Now 361–3,397, bounded at `TARGET + MIN_CHUNK` so "soft target" is a stated
+number rather than unbounded drift.
+
+#### It is a gloss, and the corpus says so at every layer
+
+Community-edited, so it is **not a citation source**. This project's entire
+citation discipline rests on a rule id resolving against the pinned CR, and a
+corpus that reads like rules text but is not the rules text is the fastest way
+to break it. So: a separate file, `authority: "unofficial"` on every record, and
+the **page revision** on every record — *"the wiki says X"* is not a citation,
+*"revision 564208 says X"* is.
+
+`WIKI_PIN` goes through the shared `_verify_pin` body. Proved it fires on
+tampered text **at an unchanged record count**, which is the case a pin exists
+for, and that it ignores a non-canonical path.
+
+#### Licence, and the three decisions
+
+Fandom serves this **CC BY-NC-SA 2.5**, stored on every record. Noncommercial is
+satisfied — this is a hobby project — and attribution travels with the data.
+
+- **Retrieval: not wired.** Whether wiki prose competes with CR text for slots
+  is unmeasured. Cards already needed a separate budget because they outnumber
+  rules chunks 78:1; wiki prose resembles a player's *question* more closely
+  than the rule that answers it, so it would win slots on phrasing. That is a
+  measurement, not a default.
+- **Training: opt-in, `--with-wiki`.** Wiki lines go to **train only** — mixing
+  a second distribution into valid would move the loss curve for a reason
+  unrelated to the gold set being measured. Each answer carries its source and
+  revision **in the trained text**, because a comment cannot survive into
+  weights.
+- **Pinning: yes**, and more urgently than elsewhere. A wiki page is edited far
+  more often than the CR is published, so a re-fetch silently changing text
+  under a published number is likelier here than anywhere else in this repo.
