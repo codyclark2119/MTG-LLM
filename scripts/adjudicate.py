@@ -355,6 +355,27 @@ def main() -> None:
             by_author[v.get("author", "?")] = by_author.get(v.get("author", "?"), 0) + 1
         for a, c in sorted(by_author.items()):
             print(f"  {a}: {c}")
+        # Stamp each verdict with the text it was made against, taken from the
+        # queue that produced the task the reviewer saw. Done HERE rather than
+        # in the form: the server is deliberately self-contained and holds no
+        # queue, and a digest the client computed would be a claim by the client
+        # about what it was shown (Section 21.62).
+        q_by_key = {i["key"]: i for i in
+                    (json.loads(QUEUE_PATH.read_text()) if QUEUE_PATH.exists() else [])}
+        n_stamped = n_unstamped = 0
+        for v in new:
+            if v.get("answer_sha"):
+                continue
+            item = q_by_key.get(v.get("key"))
+            if item is None:
+                n_unstamped += 1     # a verdict on a task no longer in the queue
+                continue
+            v["answer_sha"] = answer_sha(item.get("answer") or "")
+            n_stamped += 1
+        if n_stamped or n_unstamped:
+            print(f"  stamped {n_stamped} with the answer they were made against"
+                  + (f"; {n_unstamped} could not be — their task is no longer in the "
+                     "queue, so they will score against any run" if n_unstamped else ""))
         if args.dry_run:
             print("\nDRY RUN — re-run without --dry-run to append")
             return
