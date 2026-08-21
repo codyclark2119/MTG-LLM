@@ -6193,3 +6193,59 @@ The reviewer's notes on the verbose answers name two failures nothing catches:
   only because the string is absent from `legal_actions`, which gives no reason.
 
 Both are mechanical, both need only the board, and neither is built.
+
+### 21.66 Two checks the reviewer's notes asked for, and what they found
+
+Both come from notes on the verbose answers, and both are mechanical — board and
+oracle text, no judge.
+
+#### Taps that do not pay for the casts
+
+*"It taps excess mana as lightning strike costs 1 generic mana and 1 red mana."*
+
+`tap_problems` (21.60) checks each tap on its own — is it yours, is it untapped,
+can it add that colour — and never adds them up. So three lands tapped for a
+two-mana spell passes with every individual tap correct. `payment_problems`
+compares the declared pool against the summed cost of the `CAST` actions beside
+it, reporting **short** and **floated** separately, since they are different
+mistakes.
+
+| verbose run, 72 answers | |
+| --- | --- |
+| declared taps that do not pay | **24 (33%)** |
+| — of which floated mana for nothing | 16 |
+| — of which short | 8 |
+
+**Zero on the terse run**, which is the check working rather than a gap: it is
+silent unless an answer declares at least one tap *and* casts at least one
+spell. An answer that declares nothing is not over-tapping — that is
+`only_pass`'s finding, and firing here would manufacture a result on every run
+made before the grammar existed.
+
+#### Casting a permanent already on the battlefield
+
+*"It is not seeing Serra Angel as already on the field so it is attempting to
+cast it."*
+
+Caught today only because the string is absent from `legal_actions`, which
+reports "not a legal action" and gives no reason — and would not catch it at all
+on a position that enumerated that card for some other purpose.
+
+Needs no card data at all: the board says what is in play and what is in hand.
+**8 of 72 (11%)** on the verbose run and **6 of 72 (8%)** on the terse one — so
+this one predates the grammar change and was simply never named.
+
+A card in **both** hand and play is fine, because a second copy is castable, so
+the check is "on your battlefield and *not* in hand" — the only unambiguous
+case. Asserted, along with the opponent's permanents being none of your
+business.
+
+#### Both were invisible for the same reason
+
+`legal_actions` enumerates plays that are individually legal. An over-tapped
+payment consists **entirely** of legal taps; a spell already in play is missing
+from the list, and a missing entry cannot explain itself. That is the same shape
+as 21.49's double block — a constraint that exists *between* individually legal
+choices, or *outside* what the list can express — and it is now the fourth
+instance. The enumerated set is a good check for "is this play available" and a
+poor one for anything relational.

@@ -471,6 +471,100 @@ def tap_problems(pos: dict, actions, card_index=None) -> list[str]:
     return out
 
 
+def payment_problems(pos: dict, actions, card_index=None) -> list[str]:
+    """Declared taps that do not pay for the spells declared alongside them.
+
+    `tap_problems` checks each tap on its own — is it yours, is it untapped, can
+    it add that colour. It never adds them up, so a reviewer found the gap the
+    moment the verbose grammar produced one: *"It taps excess mana as lightning
+    strike costs 1 generic mana and 1 red mana"* — three lands tapped for a
+    two-mana spell, every individual tap correct (Section 21.66).
+
+    Compares the declared pool against the summed cost of the `CAST` actions in
+    the same answer. Two findings, deliberately separate: **short** means the
+    declaration cannot pay for the plays, **excess** means mana was floated for
+    nothing. Only the colours a cost actually demands are checked against the
+    pool; generic is paid from whatever is left.
+
+    Silent unless the answer declares at least one tap AND casts at least one
+    spell — an answer that declares nothing is not over-tapping, it is a
+    different finding that `only_pass` and the prompt already cover. Silent too
+    when any cost involved is one `parse_mana` refuses to model, because a
+    partial total is worse than none.
+    """
+    if card_index is None:
+        return []
+    taps = [a for a in actions if a.verb == "TAP" and len(a.args) >= 2]
+    casts = [a for a in actions if a.verb == "CAST" and a.args]
+    if not taps or not casts:
+        return []
+
+    pool: dict[str, int] = {}
+    for a in taps:
+        parsed = parse_mana(a.args[1])
+        if parsed is None:
+            return []
+        coloured, generic = parsed
+        for c, n in coloured.items():
+            pool[c] = pool.get(c, 0) + n
+        if generic:                      # "TAP Foo FOR {2}" — colourless amount
+            pool["*"] = pool.get("*", 0) + generic
+
+    need: dict[str, int] = {}
+    generic_total = 0
+    for a in casts:
+        card, how = card_index.resolve(a.args[0])
+        if card is None or how != "exact":
+            return []                    # an unknown card cannot be costed
+        parsed = parse_mana(card.get("mana_cost") or "")
+        if parsed is None:
+            return []
+        coloured, generic = parsed
+        for c, n in coloured.items():
+            need[c] = need.get(c, 0) + n
+        generic_total += generic
+
+    out = []
+    have_total = sum(pool.values())
+    short = [f"{n - pool.get(c, 0)}x{{{c}}}" for c, n in need.items() if pool.get(c, 0) < n]
+    if short:
+        out.append(f"declared taps are short {', '.join(short)} for the spells cast")
+    cost_total = sum(need.values()) + generic_total
+    if have_total < cost_total:
+        out.append(f"declared {have_total} mana but cast {cost_total} mana of spells")
+    elif have_total > cost_total:
+        out.append(f"declared {have_total} mana for {cost_total} mana of spells "
+                   f"({have_total - cost_total} floated for nothing)")
+    return out
+
+
+def battlefield_cast_problems(pos: dict, actions) -> list[str]:
+    """Casting a permanent that is already on the battlefield.
+
+    From a reviewer's note: *"It is not seeing Serra Angel as already on the
+    field so it is attempting to cast it."* Caught today only because the string
+    is absent from `legal_actions`, which reports "not a legal action" and gives
+    no reason — and would not catch it at all on a position that happened to
+    enumerate the card for another purpose.
+
+    Needs no card data: the board says what is in play and what is in hand. A
+    card in BOTH is fine — a second copy is castable — so the check is "on the
+    battlefield and not in hand", which is the only unambiguous case.
+    """
+    hand = {c.lower() for c in (pos.get("players", {}).get("you", {}).get("hand") or [])}
+    mine = {b["card"].lower() for b in (pos.get("battlefield") or [])
+            if b.get("controller") == "you"}
+    out = []
+    for a in actions:
+        if a.verb != "CAST" or not a.args:
+            continue
+        name = a.args[0]
+        low = name.lower()
+        if low in mine and low not in hand:
+            out.append(f"CAST {name}: it is already on your battlefield, not in hand")
+    return out
+
+
 def mana_problems(pos: dict, card_index=None) -> list[str]:
     """A `legal_action` the position could not actually pay for.
 

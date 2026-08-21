@@ -1192,6 +1192,74 @@ def test_phase_declaration() -> int:
     return failed
 
 
+def test_payment_and_battlefield_casts() -> int:
+    """Taps that do not pay for the casts, and casting what is already in play (21.66).
+
+    Both came from reviewer notes on real verbose answers, and neither is
+    visible to `legal_actions`: an over-tapped payment names only legal taps,
+    and a spell already on the battlefield is absent from the list for a reason
+    the list cannot state.
+    """
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from actions import parse_output
+    from positions import battlefield_cast_problems, payment_problems
+
+    failed = 0
+    board = {"battlefield": [{"controller": "you", "card": "Plains", "tapped": False},
+                             {"controller": "you", "card": "Plains", "tapped": False},
+                             {"controller": "you", "card": "Mountain", "tapped": False},
+                             {"controller": "you", "card": "Serra Angel", "tapped": False}],
+             "players": {"you": {"hand": ["Lightning Strike"]}}}
+
+    class _Idx:                       # Lightning Strike is {1}{R}
+        def resolve(self, name): return {"mana_cost": "{1}{R}", "name": name}, "exact"
+
+    def pay(ans):
+        return payment_problems(board, parse_output(ans).actions, _Idx())
+
+    strike = "CAST Lightning Strike TARGET Wall of Omens"
+    failed += not check("an exact payment is clean",
+                        pay(f"TAP Plains FOR {{W}}\nTAP Mountain FOR {{R}}\n{strike}"), [])
+    # The reviewer's case: three lands for a two-mana spell.
+    failed += not check("over-tapping is caught",
+                        len(pay(f"TAP Plains FOR {{W}}\nTAP Plains FOR {{W}}\n"
+                                f"TAP Mountain FOR {{R}}\n{strike}")), 1)
+    failed += not check("under-tapping is caught",
+                        len(pay(f"TAP Mountain FOR {{R}}\n{strike}")), 1)
+    # Enough mana, wrong colours: two Plains cannot pay {1}{R}.
+    failed += not check("a colour the pool lacks is caught",
+                        any("{R}" in x for x in
+                            pay(f"TAP Plains FOR {{W}}\nTAP Plains FOR {{W}}\n{strike}")), True)
+    # Silence where nothing was declared — a terse answer is not over-tapping,
+    # and firing here would report a finding on every run predating the grammar.
+    failed += not check("no taps declared reports nothing", pay(strike), [])
+    failed += not check("taps with no cast reports nothing",
+                        pay("TAP Plains FOR {W}\nPASS"), [])
+    failed += not check("no card index reports nothing",
+                        payment_problems(board, parse_output(
+                            f"TAP Plains FOR {{W}}\n{strike}").actions, None), [])
+
+    # Casting something already on the battlefield. Needs no card data.
+    failed += not check("casting a permanent already in play is caught",
+                        len(battlefield_cast_problems(board,
+                            parse_output("CAST Serra Angel\nPASS").actions)), 1)
+    failed += not check("casting from hand is clean",
+                        battlefield_cast_problems(board, parse_output(strike).actions), [])
+    # A card in BOTH is a second copy and is castable — the only unambiguous
+    # case is on the battlefield and NOT in hand.
+    both = {**board, "players": {"you": {"hand": ["Serra Angel"]}}}
+    failed += not check("a second copy in hand is castable",
+                        battlefield_cast_problems(both,
+                            parse_output("CAST Serra Angel\nPASS").actions), [])
+    # The opponent's permanents are not yours and say nothing about your hand.
+    opp = {"battlefield": [{"controller": "opp", "card": "Serra Angel", "tapped": False}],
+           "players": {"you": {"hand": []}}}
+    failed += not check("the opponent's permanent is not flagged",
+                        battlefield_cast_problems(opp,
+                            parse_output("CAST Serra Angel\nPASS").actions), [])
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1269,6 +1337,7 @@ def main() -> None:
                      ("mana_problems", test_mana_problems),
                      ("tap_problems", test_tap_problems),
                      ("phase_declaration", test_phase_declaration),
+                     ("payment_and_battlefield", test_payment_and_battlefield_casts),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

@@ -41,7 +41,8 @@ from common import (  # noqa: E402
     pearson_r,
     render_position,
 )
-from positions import (load_positions, phase_problems, position_card_names,
+from positions import (battlefield_cast_problems, load_positions,
+                       payment_problems, phase_problems, position_card_names,
                        tap_problems)  # noqa: E402
 
 # Four arms, matching the judge prompt's "labeled A, B, C, D". Each of the
@@ -500,6 +501,13 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 # check structurally cannot see: a legal action taken under a
                 # wrong belief looks identical to a correct one (21.61).
                 "phase_problems": phase_problems(pos, parsed.actions),
+                # Do the declared taps ADD UP to what was cast, and is the
+                # thing being cast even in hand? tap_problems checks each tap
+                # alone and neither of these (Section 21.66).
+                "payment_problems": (
+                    payment_problems(pos, parsed.actions, _card_index_for_taps())
+                    if any(a.verb == "TAP" for a in parsed.actions) else []),
+                "battlefield_cast_problems": battlefield_cast_problems(pos, parsed.actions),
                 "tap_problems": (
                     tap_problems(pos, parsed.actions, _card_index_for_taps())
                     if any(a.verb == "TAP" for a in parsed.actions) else []),
@@ -819,6 +827,22 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "against the position and the oracle text, never the judge. A wrong phase is "
             "the one error the enumerated-`legal_actions` check cannot see — a legal action "
             "taken under a wrong belief looks identical to a correct one (Section 21.61).\n")
+
+    # Two more judge-free checks, both from reviewer notes on real answers.
+    n_pay = sum(1 for r in results for a in arm_names
+                if (r["arms"].get(a) or {}).get("payment_problems"))
+    n_bf = sum(1 for r in results for a in arm_names
+               if (r["arms"].get(a) or {}).get("battlefield_cast_problems"))
+    if n_pay or n_bf:
+        _n = len(results) * len(arm_names)
+        lines.append(
+            f"\n- **{n_pay}/{_n} answers declare taps that do not pay for what they cast "
+            f"({n_pay / _n:.0%}); {n_bf}/{_n} cast a permanent already on the battlefield "
+            f"({n_bf / _n:.0%}).** Neither is visible to `legal_actions`: an over-tapped "
+            "payment names only legal taps, and a spell already in play is absent from the "
+            "list for a reason the list cannot state. The payment check is silent on answers "
+            "that declare no taps, so it reports nothing on runs made before the verbose "
+            "grammar rather than crediting them (Section 21.66).\n")
 
     n_unearned = n_credited = n_checkable = 0
     for r in results:
