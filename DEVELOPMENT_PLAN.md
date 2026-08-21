@@ -5825,3 +5825,94 @@ and must infer `{B}{B}{B}{B}{B}` itself. Making that explicit everywhere is a
 would invalidate all 251 stored position answers for comparison. That is a
 decision with a real cost attached, not a cleanup, and it is left for the
 gameplay track to take deliberately rather than made here as a side effect.
+
+### 21.60 A verbose grammar: TAP declarations, and the guard that had to exist first
+
+A reviewer's decision, and the reasoning is right: real play *is* verbose. A
+player states the phase and says which land taps for which mana, because some
+lands add more than one colour and some add a colour only under a condition.
+Enforcing that gives a mechanical check where terse answers give none.
+
+Building it needed a guard first.
+
+#### `GAMEPLAY_SYSTEM_PROMPT` was not fingerprinted at all
+
+`prompt_fingerprint` guards the rules track — three system prompts and the
+assembled message shape — and does not cover the gameplay prompt. So an edit to
+the **grammar block the model is told to answer in** changed the output contract
+with no trace in any run file. Section 8.7's mechanism, unguarded, on the one
+prompt whose *text is the output format*.
+
+`gameplay_fingerprint()` is deliberately **separate** rather than a fifth part of
+the existing digest. The two tracks share no prompt, and folding them together
+would make a gameplay-grammar edit invalidate a rules adapter that never saw it —
+trading a missing guard for a false one. Confirmed: adding it left the rules
+fingerprint at `30badae98696`, so **no adapter needed re-stamping**.
+
+Every position run now records it, and `compare_judges` refuses to interpret an
+agreement number across two different values — answers produced under two
+grammars are not the same answers, whatever the judge did with them.
+
+#### The grammar
+
+```
+TAP <permanent> FOR <mana>        tap for mana, one permanent per line
+```
+
+`FOR` is **required**. `TAP Forest` says a land was tapped and not what it
+produced, and on a land with two mana abilities those are different statements —
+an optional operand would read as fine on basics and be ambiguous on exactly the
+cards the verbosity exists for. A `TAP` without it is a **`ParseFailure`**, not
+prose: the line opened with a known verb, so the model meant to act and
+malformed it.
+
+The prompt now also says, in words: *"Be explicit rather than brief… a land that
+can add more than one colour produces only what you name… Do not leave mana
+implicit."*
+
+#### `ONCE_PER_TURN` could not absorb TAP, and the split says why
+
+The collapser skips repeated lines for `ONCE_PER_TURN` verbs so a second land
+drop stays visible. `TAP` needs the same treatment for a different reason:
+repeating the line means tapping *another copy*. But it is not once per turn —
+you may tap many lands — and folding it in would have made
+`rule_illegalities` assert a land-drop restriction on tapping.
+
+So `REPEAT_IS_MEANINGFUL = ONCE_PER_TURN + ("TAP",)`, a separate name, because
+`ONCE_PER_TURN` is a claim about the **rules** (305.2) and this is a claim about
+the **parser**. Caught by a failing test rather than by reasoning: with `TAP`
+collapsed, an answer tapping three copies of a land it had two of reported *ok*.
+
+#### What it checks, without a judge
+
+`tap_problems()` reads the battlefield and the oracle text — `mana_abilities()`
+parses `{T}: Add {G}.` and `{T}: Add {W} or {B}.` out of the card text, since
+this corpus has no `produced_mana` field. Three distinct claims are checked:
+tapping something you do not control, tapping more copies than are untapped, and
+naming mana the permanent cannot add. `mana_abilities` returns **None** when it
+finds no ability, never `[]` — "cannot parse this" rendered as "produces
+nothing" would flag every correct tap of that land.
+
+#### Retroactive safety, verified rather than assumed
+
+Adding a verb changes how *existing* text parses. Re-parsing all 251 stored
+answers: **0 TAP actions produced, 0 parse-failure counts moved.** Eight action
+counts do differ from what was stored — all in `positions_n22.jsonl`, all
+repeated `PLAY`, which is the earlier `ONCE_PER_TURN` change and predates this
+one. No `pos_n24_*` row moves.
+
+**The new prompt is not yet run.** Every stored position answer was generated
+under `5c196f40afd8`; the current prompt is `a4218f5de4e2`. Numbers from the two
+are not comparable, which is now enforced rather than remembered, and getting
+comparable ones means re-running the arms.
+
+#### What it cannot exercise yet
+
+Every battlefield in the 24 positions holds **only basic lands** — Swamp,
+Forest, Plains, Mountain, Island. The dual and conditional cases the verbosity is
+*for* appear in hand (`Temple of Silence`, `Dismal Backwater`) but never in play,
+so on this set every untapped land taps for exactly one colour and the check can
+only ever confirm the obvious. `mana_abilities` is verified against
+`Temple of Silence` and `Ancient Tomb` in tests instead. The machinery is right;
+the positions have not caught up to it, and that is an authoring gap rather than
+a code one.

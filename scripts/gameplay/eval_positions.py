@@ -37,10 +37,11 @@ from common import (  # noqa: E402
     REPO_ROOT,
     build_position_messages,
     cohens_kappa,
+    gameplay_fingerprint,
     pearson_r,
     render_position,
 )
-from positions import load_positions, position_card_names  # noqa: E402
+from positions import load_positions, tap_problems, position_card_names  # noqa: E402
 
 # Four arms, matching the judge prompt's "labeled A, B, C, D". Each of the
 # three pre-registered predictions is a difference between two of them:
@@ -165,12 +166,25 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
 
     rows_a, rows_b = list(a.values()), list(b.values())
     _warn = rules_eval.assert_two_judges(rows_a, rows_b)
+    # Answers generated under two different grammars are not the same answers,
+    # whatever the judge did with them (Section 21.60).
+    fa = {r.get("gameplay_fingerprint") for r in rows_a if r.get("gameplay_fingerprint")}
+    fb = {r.get("gameplay_fingerprint") for r in rows_b if r.get("gameplay_fingerprint")}
+    _grammar = None
+    if fa and fb and fa != fb:
+        _grammar = (f"> **These runs used different gameplay prompts** — "
+                    f"`{sorted(fa)[0][:12]}` vs `{sorted(fb)[0][:12]}`. The model was told to "
+                    "answer in a different grammar, so these are not the same answers "
+                    "judged twice and no agreement number below is interpretable "
+                    "(Section 21.60).\n")
     lines = ["# Position Judge Agreement\n",
              f"`{path_a.name}` vs `{path_b.name}` — identical stored answers.\n",
              "- " + rules_eval.judges_of(rows_a, path_a.stem),
              "- " + rules_eval.judges_of(rows_b, path_b.stem), ""]
     if _warn:
         lines.append(_warn)
+    if _grammar:
+        lines.append(_grammar)
     lines += [
              f"- {n} arm-position blunder calls over {len(shared_ids)} positions x {len(arms)} arms",
              f"- **Cohen's kappa on the blunder call: {kappa:+.2f}** "
@@ -470,6 +484,12 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 # commit no LISTED strategy error — the highest-scoring thing
                 # a model can do here is decline to play (Section 21.58).
                 "only_pass": parsed.only_pass,
+                # Declared taps that the board could not have produced. Checked
+                # against the battlefield and oracle text, never the judge
+                # (Section 21.60). Empty list when nothing was declared.
+                "tap_problems": (
+                    tap_problems(pos, parsed.actions, _card_index_for_taps())
+                    if any(a.verb == "TAP" for a in parsed.actions) else []),
                 "repeats_collapsed": parsed.repeats_collapsed,
                 "n_legal": len(matched),
                 "all_legal": legal_info["all_legal"],
@@ -488,7 +508,14 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
         # judge is not interpretable.
         results.append({"id": pos["id"], "category": pos["category"],
                         "difficulty": pos["difficulty"],
-                        "judge_model": judge_model_id, "arms": per_arm})
+                        "judge_model": judge_model_id,
+                        # The grammar the model was told to answer in. Until
+                        # 21.60 nothing recorded it, so an edit to
+                        # GAMEPLAY_SYSTEM_PROMPT changed the output contract
+                        # with no trace in any run file — 8.7 unguarded, on the
+                        # one prompt whose text IS the output format.
+                        "gameplay_fingerprint": gameplay_fingerprint()["gameplay_fingerprint"],
+                        "arms": per_arm})
         print(f"  judged {i + 1}/{len(positions)}")
     return results
 
@@ -503,6 +530,28 @@ def _write_results(results: list[dict], out: Path) -> None:
 GATE2_MIN_SPREAD = 0.5      # points on the 1-5 correctness scale
 GATE2_MIN_FRACTION = 0.50   # of judged positions
 GATE3_MAX_BLUNDER = 0.25    # best arm, basic+intermediate positions
+
+
+_CARD_INDEX = None
+
+
+def _card_index_for_taps():
+    """Load the card index once, and only if something actually declared a tap.
+
+    `CardIndex()` verifies the card pin and is not free, while every run made
+    before the verbose grammar (21.60) contains zero TAP actions. Loading it
+    unconditionally would put a corpus dependency on every position run to check
+    a thing none of them do. Returns None if it cannot load, and the caller
+    reports that as coverage — a tap nothing checked is not a tap that passed.
+    """
+    global _CARD_INDEX
+    if _CARD_INDEX is None:
+        try:
+            from card_lookup import CardIndex
+            _CARD_INDEX = CardIndex()
+        except Exception:
+            _CARD_INDEX = False
+    return _CARD_INDEX or None
 
 
 def gate2_discrimination(results, arm_names) -> tuple[int, int, float, bool]:

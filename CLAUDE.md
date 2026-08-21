@@ -61,11 +61,11 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (242)
+python scripts/test_eval.py                       # the scoring arithmetic (256)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
-python scripts/gameplay/test_actions.py           # the action grammar (98)
+python scripts/gameplay/test_actions.py           # the action grammar (107)
 python scripts/gameplay/test_eval_positions.py    # the gameplay gates (47)
 ```
 
@@ -118,6 +118,16 @@ directory. Paths a user passes on the command line stay relative to their cwd.
 **both** training and inference. Changing a prompt in `common.py` invalidates
 the trained adapter — an adapter is only valid for the format it saw. This is
 the project's #1 documented failure mode (Section 8.7).
+
+**The gameplay prompt has its own fingerprint.** `prompt_fingerprint` covers the
+rules track only, so until Section 21.60 an edit to `GAMEPLAY_SYSTEM_PROMPT` —
+the grammar block that *is* the output contract — left no trace in any run file.
+`common.gameplay_fingerprint()` is deliberately separate: the two tracks share no
+prompt, and one digest would make a grammar edit invalidate a rules adapter that
+never saw it. Every position run records it and `compare_judges` refuses to
+interpret agreement across two values. Stored position runs are `5c196f40afd8`;
+the current prompt is `a4218f5de4e2`, so **no stored position number is
+comparable to a new run** until the arms are regenerated.
 
 `common.prompt_fingerprint()` hashes the three system prompts **and the
 assembled message shape**; Section 8.7 was a shape change with every prompt

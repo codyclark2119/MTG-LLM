@@ -349,6 +349,83 @@ def parse_mana(cost: str) -> tuple[dict[str, int], int] | None:
     return need, generic
 
 
+_ADD_RE = re.compile(r"\{T\}[^:\n]*:\s*Add ([^.\n]*)\.", re.I)
+
+
+def mana_abilities(card: dict) -> list[str] | None:
+    """Which mana a land can produce, as a list of `{X}`-style strings, or None.
+
+    Scryfall's `produced_mana` is not in this corpus, so the abilities are read
+    out of the oracle text (`{T}: Add {G}.`, `{T}: Add {W} or {B}.`). Returns
+    None when no `{T}: Add` clause is found, which must NOT be read as "produces
+    nothing" — a land whose ability this cannot parse is a land this cannot
+    check, and treating it as producing nothing would flag every correct tap of
+    it (Section 21.60).
+    """
+    clauses = _ADD_RE.findall(card.get("text") or "")
+    if not clauses:
+        return None
+    out = []
+    for clause in clauses:
+        for option in re.split(r"\bor\b", clause, flags=re.I):
+            syms = _MANA_SYMBOL_RE.findall(option)
+            if syms:
+                out.append("".join(f"{{{x.upper()}}}" for x in syms))
+    return out or None
+
+
+def tap_problems(pos: dict, actions, card_index=None) -> list[str]:
+    """Declared taps that a permanent could not have produced, or does not exist.
+
+    The verbose grammar (21.60) asks the model to say `TAP Forest FOR {G}`
+    rather than leaving mana implicit. That declaration is only worth asking for
+    if it is checked, and it is checkable without a judge: the battlefield says
+    which permanents are untapped and the oracle text says what each can add.
+
+    Three problems, each a different claim:
+      * tapping something not on your battlefield
+      * tapping something already tapped
+      * naming mana the permanent cannot produce
+
+    Silent when the card index is absent or the ability does not parse, and the
+    caller reports that as coverage rather than as a pass.
+    """
+    if card_index is None:
+        return []
+    untapped: dict[str, int] = {}
+    for b in pos.get("battlefield") or []:
+        if b.get("controller") != "you" or b.get("tapped"):
+            continue
+        untapped[b["card"].lower()] = untapped.get(b["card"].lower(), 0) + 1
+    used: dict[str, int] = {}
+    out = []
+    for a in actions:
+        if a.verb != "TAP" or len(a.args) < 2:
+            continue
+        name, mana = a.args[0], a.args[1]
+        key = name.lower()
+        on_bf = any(b["card"].lower() == key and b.get("controller") == "you"
+                    for b in pos.get("battlefield") or [])
+        if not on_bf:
+            out.append(f"TAP {name}: you control no such permanent")
+            continue
+        used[key] = used.get(key, 0) + 1
+        if used[key] > untapped.get(key, 0):
+            out.append(f"TAP {name}: only {untapped.get(key, 0)} untapped copies, "
+                       f"tapped {used[key]} times")
+            continue
+        card, how = card_index.resolve(name)
+        if card is None or how != "exact":
+            continue
+        can = mana_abilities(card)
+        if can is None:
+            continue
+        want = "".join(f"{{{x.upper()}}}" for x in _MANA_SYMBOL_RE.findall(mana)) or mana
+        if want not in can:
+            out.append(f"TAP {name} FOR {mana}: it can only add {' or '.join(can)}")
+    return out
+
+
 def mana_problems(pos: dict, card_index=None) -> list[str]:
     """A `legal_action` the position could not actually pay for.
 

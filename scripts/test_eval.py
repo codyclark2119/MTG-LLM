@@ -1039,6 +1039,64 @@ def test_mana_problems() -> int:
     return failed
 
 
+def test_tap_problems() -> int:
+    """Declared taps checked against the board, never the judge (21.60)."""
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from actions import parse_output
+    from positions import mana_abilities, tap_problems
+
+    failed = 0
+    forest = {"text": "Forest\nBasic Land — Forest\n({T}: Add {G}.)"}
+    temple = {"text": "Temple of Silence\nLand\nThis land enters tapped.\n{T}: Add {W} or {B}."}
+    tomb = {"text": "Ancient Tomb\nLand\n{T}: Add {C}{C}. This land deals 2 damage to you."}
+    bear = {"text": "Grizzly Bears\nCreature — Bear"}
+
+    failed += not check("a basic's ability", mana_abilities(forest), ["{G}"])
+    failed += not check("both halves of a dual", mana_abilities(temple), ["{W}", "{B}"])
+    failed += not check("a multi-symbol ability", mana_abilities(tomb), ["{C}{C}"])
+    # None, not [] — "cannot parse an ability" must not become "produces
+    # nothing", which would flag every correct tap of that land.
+    failed += not check("no mana ability reads as unknown", mana_abilities(bear), None)
+
+    class _Idx:
+        def __init__(self, card): self.card = card
+        def resolve(self, name): return self.card, "exact"
+
+    board = {"battlefield": [{"controller": "you", "card": "Forest", "tapped": False},
+                             {"controller": "you", "card": "Forest", "tapped": False},
+                             {"controller": "opp", "card": "Mountain", "tapped": False}]}
+    def probs(ans, idx=None):
+        return tap_problems(board, parse_output(ans).actions, idx or _Idx(forest))
+
+    failed += not check("a correct tap is clean", probs("TAP Forest FOR {G}\nPASS"), [])
+    failed += not check("two taps of two copies is clean",
+                        probs("TAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS"), [])
+    failed += not check("a third tap exceeds what is untapped",
+                        len(probs("TAP Forest FOR {G}\n" * 3 + "PASS")), 1)
+    failed += not check("mana the land cannot add is caught",
+                        len(probs("TAP Forest FOR {B}\nPASS")), 1)
+    # Your opponent's lands are not yours to tap.
+    failed += not check("tapping the opponent's permanent is caught",
+                        len(probs("TAP Mountain FOR {R}\nPASS")), 1)
+    failed += not check("tapping something absent is caught",
+                        len(probs("TAP Island FOR {U}\nPASS")), 1)
+    # A dual produces either half, and neither is wrong.
+    board2 = {"battlefield": [{"controller": "you", "card": "Temple of Silence", "tapped": False}]}
+    for colour in ("{W}", "{B}"):
+        failed += not check(f"a dual may add {colour}",
+                            tap_problems(board2, parse_output(f"TAP Temple of Silence FOR {colour}").actions,
+                                         _Idx(temple)), [])
+    # Silence, not a pass: no card index means unchecked.
+    failed += not check("no card index means skipped",
+                        tap_problems(board, parse_output("TAP Forest FOR {B}").actions, None), [])
+    # An already-tapped land is not available.
+    tappedboard = {"battlefield": [{"controller": "you", "card": "Forest", "tapped": True}]}
+    failed += not check("an already-tapped land cannot be tapped",
+                        len(tap_problems(tappedboard, parse_output("TAP Forest FOR {G}").actions,
+                                         _Idx(forest))), 1)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1114,6 +1172,7 @@ def main() -> None:
                      ("adjudication_scoring", test_adjudication_scoring),
                      ("cohens_kappa", test_cohens_kappa),
                      ("mana_problems", test_mana_problems),
+                     ("tap_problems", test_tap_problems),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

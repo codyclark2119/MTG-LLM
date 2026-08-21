@@ -165,10 +165,56 @@ def test_degenerate_and_only_pass() -> int:
     return failed
 
 
+def test_tap_grammar() -> int:
+    """`TAP <permanent> FOR <mana>`, and why FOR is mandatory (21.60).
+
+    A reviewer asked for verbose answers: the phase stated, and lands declared
+    with what they tap for, because a land with two mana abilities produces only
+    what you name. `TAP Forest` alone cannot express that, so the operand is
+    required rather than optional — an optional one would read as fine on basics
+    and be ambiguous on exactly the cards the verbosity is for.
+    """
+    failed = 0
+    a = parse_line("TAP Forest FOR {G}")
+    failed += not check("TAP parses", isinstance(a, Action), True)
+    failed += not check("TAP key", a.key(), "TAP Forest, {G}")
+    failed += not check("multi-word permanent",
+                        parse_line("TAP Temple of Silence FOR {B}").key(),
+                        "TAP Temple of Silence, {B}")
+    # Missing FOR is a FAILURE, not prose: the line opened with a known verb, so
+    # the model meant to act and malformed it. Folding it into prose would hide
+    # an under-specified declaration inside the "narration" bucket.
+    bare = parse_line("TAP Forest")
+    failed += not check("TAP without FOR is a parse failure",
+                        isinstance(bare, ParseFailure), True)
+    # The participle trap, which this repo has already been bitten by twice.
+    failed += not check("'Tapping ...' is narration, not a TAP",
+                        parse_line("Tapping my lands first is correct"), None)
+
+    # Repetition is MEANINGFUL for TAP: two lines means two permanents. The
+    # collapser leaves it alone, or an answer tapping three copies of a land it
+    # has two of would report no actions to check.
+    three = parse_output("TAP Forest FOR {G}\n" * 3 + "PASS")
+    failed += not check("three taps stay three actions",
+                        sum(1 for x in three.actions if x.verb == "TAP"), 3)
+    failed += not check("...and are not counted as a collapsed loop",
+                        three.repeats_collapsed, 0)
+    # But TAP must NOT have inherited the land-drop rule by being folded into
+    # ONCE_PER_TURN — tapping many lands is legal.
+    failed += not check("repeated taps are not a once-per-turn violation",
+                        any("once per turn" in m for m in rule_illegalities(three)), False)
+    # And PLAY is unchanged by the split.
+    failed += not check("two land drops are still illegal",
+                        any("once per turn" in m for m in
+                            rule_illegalities(parse_output("PLAY Swamp\nPLAY Swamp"))), True)
+    return failed
+
+
 def main() -> None:
     failed = 0
     failed += check_joint_legality()
     failed += test_degenerate_and_only_pass()
+    failed += test_tap_grammar()
 
     for line, want in CASES:
         result = parse_line(line)

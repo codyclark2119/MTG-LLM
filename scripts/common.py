@@ -213,6 +213,7 @@ ACTION_GRAMMAR = (
     "MULLIGAN                          ship the opening hand\n"
     "KEEP                              keep the opening hand as it is\n"
     "KEEP BOTTOM <a>, <b>              keep, naming the cards put on the bottom\n"
+    "TAP <permanent> FOR <mana>        tap for mana, one permanent per line\n"
     "PASS                              take no further action"
 )
 
@@ -223,7 +224,11 @@ GAMEPLAY_SYSTEM_PROMPT = (
     f"grammar:\n\n{ACTION_GRAMMAR}\n\n"
     "Write card names exactly as the position shows them, with no brackets or "
     "quotation marks around them. Give your reasoning first if you want to, "
-    "then the actions. End with a single PASS."
+    "then the actions. End with a single PASS.\n\n"
+    "Be explicit rather than brief. Before casting anything, TAP the lands that "
+    "pay for it, one line each, naming the mana each one produces — a land that "
+    "can add more than one colour produces only what you name, and some can add "
+    "a colour only if a condition is met. Do not leave mana implicit."
 )
 
 
@@ -291,6 +296,47 @@ def build_rag_messages(question: str, context: str | None = None,
 CALIBRATED_JUDGE_ID = "mlx-community/Qwen2.5-32B-Instruct-4bit"
 
 PROMPT_STAMP_FILE = "prompt_fingerprint.json"
+
+
+def gameplay_fingerprint() -> dict:
+    """Identify the prompt shape a POSITION run was generated under.
+
+    `prompt_fingerprint` guards the rules track and does not cover
+    `GAMEPLAY_SYSTEM_PROMPT` at all, so until this existed a change to the
+    gameplay prompt — the grammar the model is told to answer in — was
+    completely invisible. That is Section 8.7's mechanism with no guard on it,
+    on the one prompt whose *text is the output format*: edit the grammar block
+    and every stored answer was produced under a different contract, while
+    nothing in any run file records which.
+
+    Deliberately SEPARATE from `prompt_fingerprint` rather than a fifth part of
+    it. The two tracks share no prompt, and folding them together would make a
+    gameplay-grammar edit invalidate a rules adapter that never saw it —
+    trading a missing guard for a false one.
+
+    Hashes the system prompt AND the assembled message shape, for the reason
+    8.7 gives: the failure there was a shape change with every string intact.
+    """
+    # A fixed minimal board, so the digest tracks the FORMAT and not whichever
+    # position happened to be passed in — the same reason prompt_fingerprint
+    # renders with placeholder text.
+    stub = {"turn": 1, "phase": "precombat main", "active_player": "you",
+            "priority": "you", "battlefield": [],
+            "players": {"you": {"life": 20, "hand": ["<CARD>"], "library_count": 0},
+                        "opp": {"life": 20, "hand_count": 0, "library_count": 0}},
+            "legal_actions": ["<ACTION>"]}
+    shapes = [
+        "|".join(m["role"] + ":" + m["content"] for m in build_position_messages(stub)),
+        "|".join(m["role"] + ":" + m["content"]
+                 for m in build_position_messages(stub, closed=True)),
+    ]
+    parts = {"GAMEPLAY_SYSTEM_PROMPT": GAMEPLAY_SYSTEM_PROMPT,
+             "message_shapes": "\n----\n".join(shapes)}
+    digests = {k: hashlib.sha256(v.encode()).hexdigest()[:16] for k, v in parts.items()}
+    combined = hashlib.sha256(
+        "\n".join(f"{k}={digests[k]}" for k in sorted(digests)).encode()
+    ).hexdigest()
+    return {"gameplay_fingerprint": combined, "parts": digests}
 
 
 def prompt_fingerprint() -> dict:

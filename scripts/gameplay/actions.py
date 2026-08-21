@@ -40,7 +40,7 @@ import re
 from dataclasses import dataclass, field
 
 VERBS = ("PLAY", "CAST", "ACTIVATE", "ATTACK", "BLOCK", "ORDER TRIGGERS",
-         "MULLIGAN", "KEEP", "PASS")
+         "MULLIGAN", "KEEP", "PASS", "TAP")
 
 # Markdown/list scaffolding the model wraps its answer in. Stripped, not failed.
 _SCAFFOLD_RE = re.compile(r"^\s*(?:[-*+•]|\d+[.)])\s*")
@@ -209,6 +209,21 @@ def parse_line(line: str) -> Action | ParseFailure | None:
     if verb == "PASS":
         # "PASS" and "PASS priority" / "PASS the turn" are the same play.
         return Action("PASS", (), line)
+
+    if verb == "TAP":
+        # `TAP <permanent> FOR <mana>` — the mana declaration (Section 21.60).
+        # FOR is required: `TAP Forest` alone says a land was tapped but not what
+        # it produced, and on a land with more than one mana ability those are
+        # different statements. A land that taps for one thing makes them look
+        # interchangeable, which is exactly when an under-specified grammar
+        # looks fine and later is not.
+        m = re.match(r"^(.*?)\s+FOR\s+(.+)$", body, re.I)
+        if not m:
+            return ParseFailure(line, "TAP needs `FOR <mana>` — say what it taps for")
+        perm, mana = _norm(m.group(1)), _norm(m.group(2))
+        if not perm or not mana:
+            return ParseFailure(line, "TAP needs a permanent and the mana it produces")
+        return Action("TAP", (perm, mana), line)
 
     if verb == "MULLIGAN":
         return Action("MULLIGAN", (), line)
@@ -386,7 +401,7 @@ def parse_output(text: str) -> ParsedOutput:
             else:
                 run = 1
             if (out.actions and out.actions[-1].key() == result.key()
-                    and result.verb not in ONCE_PER_TURN):
+                    and result.verb not in REPEAT_IS_MEANINGFUL):
                 out.repeats_collapsed += 1
             else:
                 out.actions.append(result)
@@ -448,6 +463,17 @@ def match_to_legal(action: Action, legal_actions: list[str]) -> str | None:
 # model splitting one declaration across two lines would be punished for
 # formatting rather than for play — so it is deliberately left out.
 ONCE_PER_TURN = ("PLAY",)
+
+# Verbs where repeating the LINE means doing it again, so the collapser must
+# leave it alone. A superset of ONCE_PER_TURN and deliberately a separate name:
+# ONCE_PER_TURN is a claim about the RULES (305.2, one land per turn) and is
+# what `rule_illegalities` reads; this is a claim about the PARSER. `TAP` is not
+# once per turn — you may tap many lands — but `TAP Forest FOR {G}` twice means
+# two Forests, and collapsing it reported "ok" for an answer tapping three
+# copies of a land it had two of. Folding TAP into ONCE_PER_TURN instead would
+# have made the legality rule assert a land-drop restriction on tapping
+# (Section 21.60).
+REPEAT_IS_MEANINGFUL = ONCE_PER_TURN + ("TAP",)
 
 
 def rule_illegalities(parsed: ParsedOutput) -> list[str]:
