@@ -465,6 +465,11 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 "n_parse_failures": len(parsed.failures),
                 "parsed_ok": parsed.ok,
                 "degenerate": parsed.degenerate,
+                # Legal, parseable, and does nothing. PASS always matches
+                # legal_actions (16.13), so these score all_legal=True and
+                # commit no LISTED strategy error — the highest-scoring thing
+                # a model can do here is decline to play (Section 21.58).
+                "only_pass": parsed.only_pass,
                 "repeats_collapsed": parsed.repeats_collapsed,
                 "n_legal": len(matched),
                 "all_legal": legal_info["all_legal"],
@@ -610,7 +615,12 @@ def _write_report(results, positions, arm_names, closed_arms, args,
                   base_model, adapter_path, judge_model_id, report_out) -> None:
     # ---- aggregate ---------------------------------------------------------
     def rate(arm, key):
-        vals = [r["arms"][arm][key] for r in results if r["arms"][arm][key] is not None]
+        # .get, not [key]: runs archived before a diagnostic existed do not carry
+        # it, and a missing field is "not measured" — the same treatment an
+        # ungraded answer gets. Direct indexing raised KeyError on every stored
+        # run the moment `only_pass` was added (Section 21.58).
+        vals = [(r["arms"][arm] or {}).get(key) for r in results]
+        vals = [v for v in vals if v is not None]
         return (sum(bool(v) for v in vals) / len(vals), len(vals)) if vals else (float("nan"), 0)
 
     lines = ["# Position Evaluation Report\n"]
@@ -656,8 +666,8 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "failure is in what the judge PRODUCES, not what it reads — a reasoning judge "
             "spends its budget thinking before it emits JSON.\n")
     lines.append("\n| Arm | Blunder rate | Errors/answer | Correctness | Parsed ok "
-                 "| Actions/answer | All legal | Degenerate |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+                 "| Actions/answer | All legal | Did nothing | Degenerate |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     summary = {}
     for arm in arm_names:
         blunder, n_b = rate(arm, "blundered")
@@ -673,8 +683,11 @@ def _write_report(results, positions, arm_names, closed_arms, args,
         errs = sum(err_counts) / len(err_counts) if err_counts else float("nan")
         summary[arm] = {"blunder": blunder, "errs": errs, "corr": corr, "parsed_ok": parsed_ok,
                         "all_legal": all_legal, "n_judged": n_b, "degenerate": degen}
+        nothing, _ = rate(arm, "only_pass")
+        summary[arm]["only_pass"] = nothing
         lines.append(f"| {arm} | {blunder:.0%} (n={n_b}) | {errs:.2f} | {corr:.2f} "
-                     f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} | {degen:.0%} |")
+                     f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} | {nothing:.0%} "
+                     f"| {degen:.0%} |")
 
     # Beside the correctness column, never inside it — the same separation
     # fabricated citations get in the rules report, and for the same reason:
@@ -683,6 +696,25 @@ def _write_report(results, positions, arm_names, closed_arms, args,
     # checkable points" and "8% of all credited points" are the same 20 events,
     # and quoting either alone misstates it (Sections 21.43, 21.56).
     by_id = {p["id"]: p for p in positions}
+    # An answer that declines to play passes Gate 1 (PASS always matches) and
+    # commits no LISTED strategy error, so both gates are blind to it. The two
+    # calibrated judges also disagree about it more than about anything else —
+    # 9% vs 57% blunder on the same do-nothing answers — which is the whole of
+    # 21.52's arm reversal. Called out rather than left in a table column.
+    def _op(a):
+        v = summary[a].get("only_pass")
+        return v if isinstance(v, float) and v == v else 0.0   # NaN -> 0
+    nothing_rate = max(_op(a) for a in arm_names)
+    if nothing_rate >= 0.20:
+        worst = max(arm_names, key=_op)
+        lines.append(
+            f"\n> **`{worst}` declines to play on {nothing_rate:.0%} of positions.** Its only "
+            "action is `PASS`, which always matches `legal_actions` (16.13), so it scores "
+            "legal; and doing nothing commits none of the enumerated `common_errors`, which "
+            "are strategies. **Both gates are blind to it.** Read the blunder rate of any arm "
+            "with a high figure here as a statement about the rubric, not the play "
+            "(Section 21.58).\n")
+
     n_unearned = n_credited = n_checkable = 0
     for r in results:
         kps = (by_id.get(r["id"]) or {}).get("key_points") or []

@@ -5658,3 +5658,88 @@ the rubric cannot describe them; the judge therefore fires the wrong error or
 none.** Gate 1 is measuring real failures, and Gate 3 is measuring the judge's
 guesses about failures the rubric never enumerated. That is why Gate 1 has to
 pass first, now with a number attached rather than an argument.
+
+### 21.58 The best-scoring thing a model can do here is decline to play
+
+Ten of the seventeen adjudicated answers are flagged `not_covered`, and reading
+the reviewer's notes against the rubrics they were scored under shows why. Every
+one of the ten positions enumerates **alternative strategies** in
+`common_errors` — *"Serra Angel should stay home as a blocker"*, *"Ambush Viper
+should be cast at end of turn instead"*. Every one of the notes describes
+something else entirely:
+
+| reviewer's note | class |
+| --- | --- |
+| *"It only passes and makes no moves"* (×3) | **did nothing** |
+| *"It only lightning strikes… and does no other attacks"* | did half the line |
+| *"It played two swamps before passing"*, *"6 Plains"* | illegal repetition |
+| *"Casts 4 Forests… tries to cast Grizzly Bears as a non-creature spell"* | wrong action type |
+| *"tries to use fog bank to block twice"* | illegal assignment |
+
+None is a strategy error. They are **protocol** failures, and they are
+position-independent — which is why adding them to 24 hand-written rubrics would
+be both enormous and wrong. Three of the five classes are already caught by
+`rule_illegalities`. The first two were caught by nothing.
+
+#### Doing nothing scores better than playing
+
+`PASS` always matches `legal_actions`, because it is the protocol terminator
+every answer must end with (16.13). So an answer whose only action is `PASS`:
+
+- scores **`all_legal=True` on 69 of 69** such answers across the three n=24
+  judgings, and
+- is called **clean on 37 of 59 graded (63%)**, because doing nothing commits
+  none of the enumerated strategies.
+
+**Gate 1 passes it and Gate 3 calls it clean.** And it is not rare — `base_open`
+declines to play on **42%** of positions, `base_cards_open` on **46%**, against
+`base_closed`'s 8%.
+
+#### This is the whole of 21.52's arm reversal
+
+Splitting blunder rate by whether the answer did anything at all, on identical
+text, graded answers only:
+
+| judge | did nothing | made a play |
+| --- | --- | --- |
+| Qwen2.5-32B | 13/23 (**57%**) | 29/49 (59%) |
+| Mistral-24B | 2/23 (**9%**) | 24/49 (49%) |
+| Qwen3-14B | 7/13 (54%) | 20/32 (62%) |
+
+On answers that make a play the two calibrated judges are ten points apart. On
+answers that do nothing they are **forty-eight** apart. The 32B treats declining
+to play as roughly as bad as playing badly; Mistral treats it as almost always
+clean.
+
+`base_cards_open` is 46% do-nothing answers and `base_closed` is 8%. That is the
+entire mechanism of 21.52's reversal — the arm that plays least looks **best**
+under Mistral (33%) and **worst** under the 32B (71%). Not judge quality, and
+not a 38-point spread needing a wider bar: a specific disagreement about one
+behaviour the rubric never names, amplified by how much of each arm consists of
+it.
+
+`only_pass` is now measured, reported as its own column, and called out above
+20%. It is deliberately **not** folded into a gate — that is a threshold
+decision, and B3 should make it with this number in hand.
+
+#### A loop the loop-detector could not see
+
+`repeats_collapsed` skips `ONCE_PER_TURN` verbs on purpose, so that
+`PLAY Swamp / PLAY Swamp` stays visible to `rule_illegalities` as a second land
+drop. `degenerate` was derived from that field alone and therefore inherited
+half its meaning: an answer emitting **`PLAY Plains` 133 times** reported
+`degenerate=False`, and the report's Degenerate column read **0%**.
+
+The comment above `ONCE_PER_TURN` already names this — *"`repeats_collapsed` was
+carrying two meanings at once"* — and split them one level up. The split needed
+to go one further: `repeats_collapsed` is about the action **list**, `degenerate`
+is about the **output**. A loop is a loop whichever verb it loops on.
+
+**Measurement changed, stated rather than silent:** per-arm degenerate on the
+published n=24 run moves `base_closed` 0% → 4% and `base_open` 0% → 4%;
+`base_cards_open` stays 0%. No gate reads this column, so no verdict moves.
+
+Adding the field also broke `test_eval_positions.py` immediately — `rate()`
+indexed `r["arms"][arm][key]` directly and raised `KeyError` on every archived
+run. It now uses `.get()`, so a diagnostic that did not exist when a run was
+written reads as *not measured*, the same treatment an ungraded answer gets.

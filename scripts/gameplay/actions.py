@@ -106,6 +106,10 @@ class ParsedOutput:
     # play. The count is kept rather than discarded because the looping itself
     # is a real finding — the v2 adapter does exactly this on board states.
     repeats_collapsed: int = 0
+    # The longest run of identical consecutive actions in the OUTPUT, counted
+    # before ONCE_PER_TURN exemptions are applied. `repeats_collapsed` cannot
+    # answer "did this loop" on its own — see `degenerate`.
+    max_repeat: int = 0
 
     @property
     def ok(self) -> bool:
@@ -114,8 +118,45 @@ class ParsedOutput:
 
     @property
     def degenerate(self) -> bool:
-        """True when the output was mostly repetition rather than a line of play."""
-        return self.repeats_collapsed >= 5
+        """True when the output was mostly repetition rather than a line of play.
+
+        Counts BOTH kinds of repetition. `repeats_collapsed` deliberately skips
+        ONCE_PER_TURN verbs, because collapsing `PLAY Swamp / PLAY Swamp` hid a
+        second land drop from the legality check — the right call for the action
+        list, and the wrong one here. Deriving "did this output loop" from that
+        field alone inherited half its meaning: `PLAY Plains` **133 times**
+        reported `degenerate=False`, and the report's Degenerate column read 0%
+        (Section 21.58).
+
+        The split the comment above ONCE_PER_TURN describes goes one level
+        further, then: `repeats_collapsed` is about the action LIST, and this is
+        about the OUTPUT. A loop is a loop whichever verb it loops on.
+        """
+        return self.repeats_collapsed >= 5 or self.max_repeat >= 5
+
+    @property
+    def only_pass(self) -> bool:
+        """The answer parsed, is legal, and does nothing.
+
+        `PASS` always matches `legal_actions` (Section 16.13 — it is the
+        protocol terminator every answer must end with), so an answer whose only
+        action is `PASS` scores `all_legal=True`. Measured across the three n=24
+        judgings: **69 of 69 (100%)** such answers passed the legality check, and
+        the judge called them clean on **37 of 59** graded (63%) — because doing
+        nothing commits no *listed strategy error*, and `common_errors` enumerate
+        strategies (Section 21.49).
+
+        So the highest-scoring thing a model can do on this instrument is
+        decline to play. Both gates are blind to it: Gate 1 asks whether the
+        protocol worked, and it did; Gate 3 asks which enumerated blunder was
+        committed, and none was.
+
+        Not over-firing on this set is checked, not assumed: **no** position in
+        `positions.jsonl` lists `PASS` among its `legal_actions`, and **no** key
+        point opens with pass/hold/decline. A position where doing nothing is
+        correct would need this reconsidered, and there are none.
+        """
+        return bool(self.actions) and all(a.verb == "PASS" for a in self.actions)
 
     def keys(self) -> list[str]:
         return [a.key() for a in self.actions]
@@ -321,6 +362,7 @@ def parse_output(text: str) -> ParsedOutput:
     if marker is not None:
         out.ignored.extend(ln.strip() for ln in lines[:marker] if ln.strip())
         lines = lines[marker + 1:]
+    run = 1
     for line in lines:
         if _FENCE_RE.match(line):
             in_fence = not in_fence
@@ -338,6 +380,11 @@ def parse_output(text: str) -> ParsedOutput:
             # line IS doing it more than once and that is an illegal play, not
             # a decode loop. Collapsing "PLAY Swamp / PLAY Swamp" hid a second
             # land drop from the legality check entirely — see rule_illegalities.
+            if out.actions and out.actions[-1].key() == result.key():
+                run += 1
+                out.max_repeat = max(out.max_repeat, run)
+            else:
+                run = 1
             if (out.actions and out.actions[-1].key() == result.key()
                     and result.verb not in ONCE_PER_TURN):
                 out.repeats_collapsed += 1

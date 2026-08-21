@@ -14,7 +14,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from actions import Action, ParseFailure, legality, match_to_legal, parse_line, parse_output  # noqa: E402
+from actions import (  # noqa: E402
+    Action, ParseFailure, legality, match_to_legal, parse_line, parse_output,
+    rule_illegalities,
+)
 
 CASES: list[tuple[str, str | None]] = [
     # (input line, expected canonical key or None for "prose")
@@ -121,9 +124,51 @@ def check_joint_legality() -> int:
     return failed
 
 
+def test_degenerate_and_only_pass() -> int:
+    """Loop detection over BOTH repetition kinds, and the do-nothing case (21.58).
+
+    `repeats_collapsed` deliberately exempts ONCE_PER_TURN verbs so a second
+    land drop stays visible to `rule_illegalities`. Deriving "did this output
+    loop" from that field alone inherited half the meaning: an answer that
+    emitted `PLAY Plains` 133 times reported `degenerate=False`, and the
+    report's Degenerate column read 0%.
+    """
+    failed = 0
+
+    loop = parse_output("PLAY Plains\n" * 6 + "PASS")
+    failed += not check("a once-per-turn loop is degenerate", loop.degenerate, True)
+    failed += not check("...and is still NOT collapsed, so legality sees it",
+                        loop.repeats_collapsed, 0)
+    failed += not check("...so the second land drop is still caught",
+                        any("once per turn" in m for m in rule_illegalities(loop)), True)
+
+    collapsible = parse_output("PASS\n" * 6)
+    failed += not check("a collapsible loop is still degenerate",
+                        collapsible.degenerate, True)
+
+    # Two DIFFERENT lands is a legality question, never a loop.
+    two = parse_output("PLAY Swamp\nPLAY Forest\nPASS")
+    failed += not check("two different lands is not a loop", two.degenerate, False)
+    # Four repeats is under the bar; five is the bar.
+    failed += not check("four repeats is not yet degenerate",
+                        parse_output("ATTACK Bear\n" * 4).degenerate, False)
+
+    # only_pass: legal, parseable, does nothing.
+    failed += not check("PASS alone is only_pass",
+                        parse_output("PASS").only_pass, True)
+    failed += not check("a real line is not only_pass",
+                        parse_output("CAST Shock TARGET Bear\nPASS").only_pass, False)
+    # An answer with no actions has not "declined to play", it failed to parse —
+    # that is Gate 1's, and conflating them would double-count one failure.
+    failed += not check("an unparseable answer is not only_pass",
+                        parse_output("I would just pass here").only_pass, False)
+    return failed
+
+
 def main() -> None:
     failed = 0
     failed += check_joint_legality()
+    failed += test_degenerate_and_only_pass()
 
     for line, want in CASES:
         result = parse_line(line)

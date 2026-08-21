@@ -65,7 +65,7 @@ python scripts/test_eval.py                       # the scoring arithmetic (230)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
-python scripts/gameplay/test_actions.py           # the action grammar (89)
+python scripts/gameplay/test_actions.py           # the action grammar (98)
 python scripts/gameplay/test_eval_positions.py    # the gameplay gates (47)
 ```
 
@@ -303,6 +303,16 @@ scale; ~40 positions for blunder rate, because a proportion with a large
 expected effect needs far fewer.
 
 ## Gameplay (`scripts/gameplay/`)
+
+**An answer that declines to play beats one that plays.** `PASS` is the protocol
+terminator, so it always matches `legal_actions` — an answer whose only action is
+`PASS` scored `all_legal=True` on **69 of 69**, and the judge called it clean on
+**63%**, because doing nothing commits none of the enumerated *strategies*.
+`base_open` does this on 42% of positions and `base_cards_open` on 46%. It is
+also where the two calibrated judges disagree most: 9% vs 57% blunder on
+do-nothing answers against 49% vs 59% on answers that play — which is the whole
+of 21.52's arm reversal, not a judge-quality difference. `only_pass` is measured
+and reported; whether it becomes a gate is B3's call (Section 21.58).
 
 A **position** is a gold record whose question is a board. `key_points` is the
 correct line, **`common_errors` is the blunder list**, and blunder rate is just
