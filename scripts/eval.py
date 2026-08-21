@@ -989,6 +989,41 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
     print(f"\n-> {report_out}")
 
 
+def coverage_lines(results: list[dict]) -> list[str]:
+    """How much of the set the judge actually graded, as report lines.
+
+    The per-arm "(n=)" beside each mean carries this, but as a parenthetical,
+    which reads as a footnote rather than as the headline it is: a V4 run scored
+    14 of 99 and the report presented four confident-looking averages over the
+    14 (Section 21.14). A judge's parse failures are not random — they track
+    rubric size — so the graded subset is SELECTED, and a mean over it is a mean
+    over the short rubrics.
+
+    Lives here as ONE definition because it did not: the guard was written into
+    `rescore()` and the first-pass writer never got it, so the report for a fresh
+    run — the common case, and the one a V4 experiment actually produces — had no
+    coverage warning at all. Same defect as the judge stamp in 21.51 and the
+    diagnostics copy list before `carry_diagnostics`: a hardening applied to one
+    of two writers is a hardening that fires on half the runs.
+    """
+    n_unjudged = sum(1 for r in results for d in r["arms"].values()
+                     if d.get("correctness") is None)
+    n_total = sum(len(r["arms"]) for r in results)
+    if not n_unjudged:
+        return []
+    frac = n_unjudged / n_total
+    out = [f"> **{n_unjudged} of {n_total} arm-answers ({frac:.0%}) went unjudged** — the "
+           "judge returned JSON that could not be parsed, usually by running out of "
+           "output tokens. They are excluded rather than counted as wrong.\n"]
+    if frac >= 0.2:
+        out.append(
+            "> The failures are not spread evenly: longer rubrics need longer judge "
+            "output, so what remains is a subset selected by rubric size rather than "
+            "by anything about the answers. **Read nothing into the means below** "
+            "until the run is repeated with a larger `--judge-max-tokens`.\n")
+    return out
+
+
 def rescore(args) -> None:
     """Re-judge stored answers with the recalibrated judge.
 
@@ -1124,28 +1159,7 @@ def rescore(args) -> None:
             "common error the judge asserted and then could not quote from the "
             "candidate it was grading (V4, Section 21.7).\n"
         )
-    # How much of the set the judge actually graded. The per-arm "(n=)" below
-    # carries this, but as a parenthetical next to a mean, which reads as a
-    # footnote rather than as the headline it is: a V4 run scored 14 of 99 and
-    # the report presented four confident-looking averages over the 14. A
-    # judge's parse failures are not random — they track rubric size — so the
-    # graded subset is SELECTED, and a mean over it is a mean over easy
-    # questions. Same defect as the n=9 Qwen3 position run (Section 21.x).
-    n_unjudged = sum(1 for r in results for d in r["arms"].values()
-                     if d.get("correctness") is None)
-    n_total = sum(len(r["arms"]) for r in results)
-    if n_unjudged:
-        frac = n_unjudged / n_total
-        lines.append(
-            f"> **{n_unjudged} of {n_total} arm-answers ({frac:.0%}) went unjudged** — the "
-            "judge returned JSON that could not be parsed, usually by running out of "
-            "output tokens. They are excluded rather than counted as wrong.\n")
-        if frac >= 0.2:
-            lines.append(
-                "> The failures are not spread evenly: longer rubrics need longer judge "
-                "output, so what remains is a subset selected by rubric size rather than "
-                "by anything about the answers. **Read nothing into the means below** "
-                "until the run is repeated with a larger `--judge-max-tokens`.\n")
+    lines += coverage_lines(results)
     # The all-errors-fired rate, which is judge-specific and large: measured
     # 50% of Qwen's blunder calls against 16% of Llama's on this same set
     # (Section 21.26).
@@ -1432,6 +1446,9 @@ def main() -> None:
         )
     else:
         lines.append("")
+    # The same coverage guard the rescore path has carried since 21.14. It must
+    # sit ABOVE the table, because the thing it qualifies is every mean in it.
+    lines += coverage_lines(results)
     # Grounding is reported BESIDE the score, never folded into it. Section 19.1
     # measured `base` scoring highest under Qwen while fabricating a rule id on
     # 35 of 99 questions: the V3 judge scores which enumerated claims an answer

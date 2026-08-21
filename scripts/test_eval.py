@@ -806,6 +806,62 @@ def test_rescore_stamps_judge() -> int:
     return failed
 
 
+def test_coverage_lines() -> int:
+    """The unjudged-coverage guard, and that BOTH writers emit it (21.53).
+
+    Section 21.14's V4 run scored 14 of 99 and printed four confident averages
+    over the 14. The guard written for that lived in `rescore()` only, so a
+    fresh run — the common case — had no coverage warning at all. The structural
+    half of this test is the point: the arithmetic was never broken, the second
+    caller was missing.
+    """
+    import ast as _ast
+
+    from common import REPO_ROOT
+    from eval import coverage_lines
+
+    failed = 0
+    def rows(n_arms: int, n_rows: int, n_ungraded: int):
+        out = []
+        left = n_ungraded
+        for _ in range(n_rows):
+            arms = {}
+            for a in range(n_arms):
+                arms[f"arm{a}"] = {"correctness": None if left > 0 else 3.0}
+                if left > 0:
+                    left -= 1
+            out.append({"arms": arms})
+        return out
+
+    failed += not check("full coverage says nothing", coverage_lines(rows(4, 10, 0)), [])
+    # Below the 20% bar: report the count, but do not tell the reader to stop.
+    one = coverage_lines(rows(4, 10, 4))          # 4/40 = 10%
+    failed += not check("10% unjudged reports the count", len(one), 1)
+    failed += not check("10% unjudged does not withhold",
+                        any("Read nothing into" in x for x in one), False)
+    # At and above it, the means are over a subset selected by rubric size.
+    two = coverage_lines(rows(4, 10, 8))          # 8/40 = 20%
+    failed += not check("20% unjudged withholds the means",
+                        any("Read nothing into" in x for x in two), True)
+    failed += not check("the count is reported as a fraction of arm-answers",
+                        "8 of 40" in two[0], True)
+    # The real case: 14 of 99 questions graded, four arms.
+    v4 = coverage_lines(rows(4, 99, (99 - 14) * 4))
+    failed += not check("a 14/99 run withholds",
+                        any("Read nothing into" in x for x in v4), True)
+
+    # Structural: both report writers must call it. The arithmetic above passed
+    # for a year while only one of them did.
+    tree = _ast.parse((REPO_ROOT / "scripts" / "eval.py").read_text(encoding="utf-8"))
+    for name in ("rescore", "main"):
+        fn = next((n for n in _ast.walk(tree)
+                   if isinstance(n, _ast.FunctionDef) and n.name == name), None)
+        calls = {_ast.unparse(n.func) for n in _ast.walk(fn) if isinstance(n, _ast.Call)}
+        failed += not check(f"{name}() emits the coverage guard",
+                            "coverage_lines" in calls, True)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -876,6 +932,7 @@ def main() -> None:
                      ("half_answer", test_half_answer),
                      ("unseen_arms", test_unseen_arms),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
+                     ("coverage_lines", test_coverage_lines),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

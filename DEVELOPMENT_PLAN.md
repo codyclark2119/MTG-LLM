@@ -5332,3 +5332,46 @@ Setting a number is not the useful move here. Three findings constrain it:
    about which arm is winning. That is 9.9 and 16.12 a third time, and 21.47's
    "two calibrated judges reverse an arm" showing up in the gate metric rather
    than in kappa.
+
+### 21.53 The coverage guard fired on half the runs, and the half it missed is the common one
+
+Auditing the report path of the run that was generating, rather than waiting to
+read its output. Both writers assemble a table of per-arm means; only one warns
+when the judge failed to grade the set.
+
+```
+rescore  calls coverage_lines: True
+main     calls coverage_lines: False      <- the first-pass writer
+```
+
+21.14's V4 run scored **14 of 99** and printed four confident-looking averages
+over the 14. The guard written in response — report the unjudged count, and above
+20% tell the reader to read nothing into the means, because a judge's parse
+failures track rubric size and the survivors are a subset *selected* by rubric
+size — went into `rescore()`. The first-pass writer never got it.
+
+**That is backwards from where it is needed.** A rescore re-reads answers that
+were already graded once, so its coverage is usually inherited and fine. The
+first pass is where a judge meets a rubric for the first time and runs out of
+tokens — it is where 21.14 happened, where 21.39's unwrapped JSON happened, and
+where 21.44's 0/72 happened. The guard was absent from every one of those paths
+and present on the one that mostly does not need it.
+
+Third instance of one shape: **a hardening applied to one of two writers.**
+`carry_diagnostics` (both writers enumerated diagnostics by hand, neither listed
+`scoring`), 21.51 (`judge_model` stamped by the first-pass writer, not by the
+rescore), and now this — and note the direction flips each time, so "check the
+other writer" is the rule rather than "check `rescore`". It is now one function,
+`coverage_lines`, called by both.
+
+**The test asserts the structure, not just the arithmetic.** The arithmetic was
+never wrong; the second caller was missing, and no test over inputs and outputs
+can see that. So the test parses `eval.py` and asserts both `main()` and
+`rescore()` call it — verified by deleting a caller and watching it fail, since a
+check that only ever passes is one this repo has shipped before.
+
+**Not a correction to any published number.** Every archived rules run has
+uniform per-arm coverage — 0 or 1 answers apart — because `judge_batch_rubric`
+grades all arms in one call, so a question is either graded for every arm or for
+none. The means were over the same questions in every case. What was missing was
+the sentence saying *how many* questions that was.
