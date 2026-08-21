@@ -253,6 +253,12 @@ def main() -> None:
     ap.add_argument("--status", action="store_true", help="how far through the queue")
     ap.add_argument("--score", type=Path, nargs="+",
                     help="score run(s) against the human verdicts collected so far")
+    ap.add_argument("--form-version", type=int, default=None, metavar="N",
+                    help="score only verdicts collected under this form wording. "
+                         "v1 asked 'which of these does it commit?' and under-fires "
+                         "on action-list answers; v2 says to judge the play rather "
+                         "than the wording (Section 21.47). Pooling them mixes two "
+                         "standards, so a mixed set is reported and can be split.")
     args = ap.parse_args()
 
     if args.build:
@@ -306,7 +312,39 @@ def main() -> None:
         if not verdicts:
             raise SystemExit(f"no verdicts in {ADJUDICATIONS_PATH} yet")
         rubrics = _rubric_index()
-        print(f"scored against {len(verdicts)} human verdicts\n")
+
+        vers = {}
+        for v in verdicts:
+            vers.setdefault(v.get("form_version", 1), []).append(v)
+        if args.form_version is not None:
+            verdicts = vers.get(args.form_version, [])
+            if not verdicts:
+                raise SystemExit(f"no verdicts at form_version {args.form_version}; "
+                                 f"have {sorted(vers)}")
+            print(f"scored against {len(verdicts)} verdicts at form_version "
+                  f"{args.form_version}\n")
+        else:
+            print(f"scored against {len(verdicts)} human verdicts "
+                  f"({', '.join(f'v{k}: {len(x)}' for k, x in sorted(vers.items()))})")
+            if len(vers) > 1:
+                print("  > MIXED WORDING. v1 under-fires on action-list answers, so a\n"
+                      "  > judge's precision is understated where v1 dominates. Split\n"
+                      "  > with --form-version N before quoting a number (21.47).")
+            print()
+
+        # Answers that are wrong in a way the rubric does not describe. No judge
+        # number can see these: an answer committing no LISTED error scores as
+        # clean, so a judge is credited for "correctly" finding nothing in an
+        # answer that does nothing. This measures the RUBRIC, not the judge.
+        nc = [v for v in verdicts if v.get("not_covered")]
+        if nc:
+            print(f"rubric coverage: {len(nc)}/{len(verdicts)} answers were bad for a "
+                  f"reason no listed error describes")
+            from collections import Counter
+            for cat, n in Counter(v["record_id"].rsplit("-", 1)[0].replace("pos-", "")
+                                  for v in nc).most_common(4):
+                print(f"    {cat:24s} {n}")
+            print()
         print(f"{'run':40s} {'n':>4s} {'prec':>6s} {'recall':>7s} {'F1':>6s} "
               f"{'blunder acc':>12s} {'false':>6s} {'missed':>7s}")
         for r in args.score:
