@@ -6442,3 +6442,96 @@ measurement establishes is that the *merge* design was wrong, not that the
 aligned one is right. Serving a glossary definition and its wiki expansion
 together, under one retrieval slot rather than two competing ones, is the design
 the evidence points at and is not yet built or measured.
+
+### 21.69 One page, read closely: the wiki's Rules sections are an index, not prose
+
+Preparing the corpus for training use meant reading a single page against the CR
+rather than counting things across all of them. `Target` — CR §115, 26 rules
+chunks against 4 wiki chunks.
+
+#### What each side actually provides
+
+| | CR §115 | wiki `Target` |
+| --- | --- | --- |
+| size | 11,371 chars | 7,402 chars |
+| content | normative definition, when targets are declared, the "target [something]" test, worked examples | plain definition, **what does not target**, hexproof/shroud/fizzling gathered in one place, **common misconceptions** |
+
+The wiki's unique contribution there is **negative space** — *"a card does not
+target a creature just because it damages or destroys one"* — which the CR
+establishes only by omission, and **cross-concept gathering** of material the CR
+scatters across sections.
+
+**And `Target` is not representative.** *"Common misconceptions"*, *"Key ideas"*
+and *"Related mechanics"* appear on **exactly one page each**. Reading one page
+and generalising from its structure was the obvious mistake available here, and
+the headings that actually recur are `Rules` (40 pages) and `Description` (25).
+
+#### The Rules sections extract to zero characters — correctly
+
+35 of 40 `Rules` sections are under 200 characters, and on inspection **empty**.
+The wikitext says why:
+
+```
+Activated ability:  {{CR|glossary|Activated Ability}}
+                    {{CR|Activating Activated Abilities}}
+                    {{CR|glossary|Activation Cost}}
+Artifact:           {{CR+G|Artifact|s}}
+```
+
+They **transclude the official rules text**. The rendered page shows CR text;
+`explaintext` strips the template and leaves nothing.
+
+That is the right outcome, not a loss. The CR is already held verbatim and
+pinned, and a paraphrase of it competing with the original is the single thing
+that would actively hurt — 21.68 already measured merged retrieval costing
+cited-rule recall.
+
+**The templates are the valuable part.** Each `Rules` section is a hand-curated
+index from a concept to the CR passages that govern it, written by someone who
+knows the game. That is a better artifact than the prose around it.
+
+#### Resolving the index
+
+The first survey found 72 templates by matching `{{CR|`. The real pattern is a
+family — `CR` (69) and `CR+G` (27) — so **96**, and a narrow regex had quietly
+dropped a quarter of them.
+
+Resolution needs three tables, and the third was missing:
+
+| reference kind | resolved against | n |
+| --- | --- | --- |
+| `{{CR\|glossary\|Priority}}` | `glossary.jsonl` terms | 39 |
+| `{{CR\|Targets}}` | **CR rule-group headings** | 33 |
+| `{{CR\|701.11}}` | rule ids | 13 |
+
+`rules.jsonl` carries only the nine top-level part titles ("Game Concepts",
+"Zones"), so matching a template against those resolved **nothing**. The 294
+rule-group headings — `602. Activating Activated Abilities` — exist only in the
+raw CR text, and parsing them there resolves every probe exactly: *Targets* →
+115, *Timing and Priority* → 117, *Artifacts* → 301.
+
+**85 of 98 references resolve (87%)**, across 38 of 46 pages.
+
+#### The 12 that do not are a finding, not a gap
+
+`Mono Artifact`, `Poly Artifact`, `In Play`, `Global Enchantment`,
+`Remove from the Game`, `At End of Turn`. These are **obsolete terms** the modern
+CR no longer defines and the wiki documents as historical. They are kept and
+labelled `unresolved` rather than dropped: a model that treats them as current
+vocabulary is exactly the failure this corpus should help avoid, and deleting the
+evidence would remove the only signal that they are dead terms.
+
+#### Where this leaves training
+
+The split is cleaner than "train on the wiki":
+
+- **`Description` and the lead are trainable** — explanatory prose with no CR
+  equivalent, which is what the model lacks.
+- **`Rules` sections are links, not text.** They contribute a concept→CR index
+  and no prose at all, so there is nothing there to train on and nothing lost by
+  it being empty.
+
+Counted per page after a first attempt reported **265 resolved references where
+there are 85** — every chunk of a page repeats that page's citations, so summing
+over chunks multiplied a 13-chunk page by thirteen. The same denominator error
+as 21.63 and 21.56, and the inflated number was again perfectly plausible.

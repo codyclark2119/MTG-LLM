@@ -107,7 +107,7 @@ CARD_PIN = {
 # UNOFFICIAL. Community-edited prose, never a citation source — every record
 # carries `authority: "unofficial"` and its page revision. CC BY-NC-SA 2.5.
 WIKI_PIN = {
-    "wiki_chunks_sha256": "7b114005006f5cb07892a23b767fc36fc91da3381aac6e7f47356e4d5daef473",
+    "wiki_chunks_sha256": "c866bf0b7c39829559398ae2f3b1328d6c8bed9d2f3c577d9479f4addfe361da",
     "n_wiki_chunks": 141,
     "n_pages": 46,
     "source": "mtg.fandom.com Portal:Rules",

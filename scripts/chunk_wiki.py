@@ -85,6 +85,56 @@ _NOT_RULES = {
 _CR_SECTION_RE = re.compile(r"\brule\s+(\d{3})\b", re.I)
 
 
+def cr_group_index() -> dict:
+    """CR rule-group headings -> group number, from the raw Comprehensive Rules.
+
+    "602. Activating Activated Abilities" gives {"activating activated
+    abilities": "602"}. 294 of them, and they are what the wiki's
+    `{{CR|Activating Activated Abilities}}` templates name.
+
+    Read from the CR text rather than from `rules.jsonl`, which carries only the
+    nine top-level part titles ("Game Concepts", "Zones") — matching a template
+    against those resolved nothing (Section 21.69).
+    """
+    from common import CR_TEXT_PATH
+    txt = CR_TEXT_PATH.read_text(encoding="utf-8", errors="replace")
+    return {t.strip().lower(): n
+            for n, t in re.findall(r"^(\d{3})\.\s+([A-Z][^\n]{3,70})$", txt, re.M)}
+
+
+def resolve_cr_references(refs: list[dict], gloss: dict, groups: dict) -> dict:
+    """The wiki's own citations, resolved against the pinned CR.
+
+    Returns {"glossary": [...], "sections": [...], "rules": [...], "unresolved": [...]}.
+
+    An unresolved GLOSSARY term is usually not an error: "Mono Artifact", "In
+    Play", "Remove from the Game", "At End of Turn" are terms the modern CR no
+    longer defines, and the wiki documents them as obsolete. Kept and labelled
+    rather than dropped — a model that treats them as current vocabulary is
+    exactly what this corpus should help avoid.
+    """
+    out = {"glossary": [], "sections": [], "rules": [], "unresolved": []}
+    for ref in refs or []:
+        parts = ref.get("args") or []
+        if not parts:
+            continue
+        if parts[0].lower() == "glossary":
+            for term in [x.strip() for x in "|".join(parts[1:]).split(",") if x.strip()]:
+                entry = gloss.get(term.lower())
+                (out["glossary"].append(entry["term"]) if entry
+                 else out["unresolved"].append({"kind": "glossary", "name": term}))
+        elif re.match(r"^\d{3}(\.\d+[a-z]?)?$", parts[0]):
+            out["rules"].append(parts[0])
+        else:
+            # {{CR+G|Artifact|s}} names the section "Artifacts".
+            n = groups.get("".join(parts).lower()) or groups.get(parts[0].lower())
+            (out["sections"].append(n) if n
+             else out["unresolved"].append({"kind": "section", "name": parts[0]}))
+    for k in ("glossary", "sections", "rules"):
+        out[k] = sorted(set(out[k]))
+    return out
+
+
 def glossary_index() -> dict:
     """CR glossary terms, lowercased, for the wiki-to-CR join."""
     return {(g.get("term") or "").lower(): g for g in read_jsonl(GLOSSARY_PATH)}
@@ -132,7 +182,8 @@ def _split_long(body: str, target: int = TARGET) -> list[str]:
     return [body[i:i + target].strip() for i in range(0, len(body), target)]
 
 
-def chunk_page(page: dict, gloss: dict | None = None) -> list[dict]:
+def chunk_page(page: dict, gloss: dict | None = None,
+               groups: dict | None = None) -> list[dict]:
     pieces: list[tuple[str, str]] = []
     for heading, body in split_sections(page["text"]):
         for part in _split_long(body):
@@ -176,6 +227,7 @@ def chunk_page(page: dict, gloss: dict | None = None) -> list[dict]:
         merged[0:2] = [(h2, f"{lead}\n\n{b2}")]   # the lead has no heading to keep
 
     entry = (gloss or {}).get(page["title"].lower())
+    cited = resolve_cr_references(page.get("cr_references"), gloss or {}, groups or {})
     out = []
     for i, (heading, body) in enumerate(merged):
         out.append({
@@ -210,6 +262,11 @@ def chunk_page(page: dict, gloss: dict | None = None) -> list[dict]:
             # of chunks where the chain is actually available on nearly all.
             "cr_sections": sorted(set(_CR_SECTION_RE.findall(
                 (entry or {}).get("definition") or ""))),
+            # The page's OWN curated citations, resolved. Distinct from the
+            # fields above, which are inferred from the matched glossary entry:
+            # these were written by a person who decided this concept is
+            # governed by these passages.
+            "cited_cr": cited,
         })
     return out
 
@@ -234,7 +291,8 @@ def main() -> None:
     gloss = glossary_index()
     kept = [p for p in pages if p["title"].lower() not in _NOT_RULES]
     dropped = [p["title"] for p in pages if p["title"].lower() in _NOT_RULES]
-    chunks = [c for p in kept for c in chunk_page(p, gloss)]
+    groups = cr_group_index()
+    chunks = [c for p in kept for c in chunk_page(p, gloss, groups)]
     args.out.parent.mkdir(parents=True, exist_ok=True)
     write_jsonl_atomic(args.out, chunks)
 
@@ -243,6 +301,19 @@ def main() -> None:
         print(f"dropped {len(dropped)} non-rules pages: {', '.join(sorted(dropped))}")
     joined = sum(1 for c in chunks if c["cr_glossary_term"])
     print(f"{len(kept)} pages -> {len(chunks)} chunks")
+    cited = sum(1 for c in chunks
+                if any(c["cited_cr"][k] for k in ("glossary", "sections", "rules")))
+    # Counted per PAGE, not per chunk: every chunk of a page repeats that page's
+    # citations, so summing over chunks multiplied a 13-chunk page's references
+    # by thirteen and reported 265 where there are 85.
+    per_page = {c["title"]: c["cited_cr"] for c in chunks}
+    n_ref = sum(len(v[k]) for v in per_page.values()
+                for k in ("glossary", "sections", "rules"))
+    n_un = sum(len(v["unresolved"]) for v in per_page.values())
+    pages_cited = len({c["title"] for c in chunks
+                       if any(c["cited_cr"][k] for k in ("glossary", "sections", "rules"))})
+    print(f"  the wiki's OWN CR citations, resolved: {pages_cited}/{len(kept)} pages carry them; "
+          f"{n_ref} resolve, {n_un} do not (mostly obsolete terminology)")
     chained = sum(1 for c in chunks if c["cr_rule_ids"] or c["cr_sections"])
     print(f"  chaining to a CR rule or section: {chained}/{len(chunks)} chunks "
           f"({chained / len(chunks):.0%})")

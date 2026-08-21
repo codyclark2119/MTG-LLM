@@ -57,6 +57,7 @@ numbers were computed from.
 
 import argparse
 import json
+import re
 import sys
 import time
 import urllib.parse
@@ -92,6 +93,31 @@ DELAY_S = 1.0
 # following them would turn a 63-page snapshot into a crawl of the whole wiki.
 SKIP_PREFIXES = ("File:", "Category:", "Template:", "Help:", "Special:",
                  "Talk:", "User:", "Portal:", "MediaWiki:")
+
+
+# `{{CR|...}}` and `{{CR+G|...}}`. The wiki's "Rules" section is nothing but
+# these — it TRANSCLUDES the official rules text rather than restating it, which
+# is why plaintext extraction leaves those sections empty on 35 of 40 pages
+# (Section 21.69). Empty is the right outcome for the prose: the CR is already
+# held verbatim and pinned, and a paraphrase competing with the original is the
+# one thing that would actively hurt.
+#
+# The templates themselves are the valuable part — a hand-curated index from a
+# concept to the CR passages that govern it, written by people who know the
+# game. Captured here, at fetch time, because they exist only in wikitext and
+# TextExtracts deletes them.
+_CR_TEMPLATE_RE = re.compile(r"\{\{\s*(CR[^|}\s]*)\s*\|([^}]*)\}\}", re.I)
+
+
+def cr_references(wikitext: str) -> list[dict]:
+    """Raw `{{CR|...}}` arguments, unresolved. Resolution is chunk_wiki's job."""
+    out = []
+    for name, args in _CR_TEMPLATE_RE.findall(wikitext or ""):
+        parts = [a.strip() for a in args.split("|") if a.strip()]
+        if not parts or "=" in parts[0]:
+            continue          # {{CR|toc=true}} is a display option, not a reference
+        out.append({"template": name, "args": parts})
+    return out
 
 
 def _get(params: dict) -> dict:
@@ -130,7 +156,8 @@ def fetch_pages(titles: list[str]) -> list[dict]:
         chunk = titles[i:i + BATCH]
         data = _get({"action": "query", "prop": "extracts|info|revisions",
                      "explaintext": "1", "exlimit": "1",
-                     "rvprop": "ids|timestamp", "inprop": "url",
+                     "rvprop": "ids|timestamp|content", "rvslots": "main",
+                     "inprop": "url",
                      # Nine of the sixty portal links are redirects to a section
                      # anchor: "Upkeep step" -> "Beginning phase#Upkeep step".
                      # Unresolved they look like missing pages; resolved they are
@@ -163,6 +190,8 @@ def fetch_pages(titles: list[str]) -> list[dict]:
                 "text": text,
                 "chars": len(text),
                 "aliases": [],   # filled after the loop; see below
+                "cr_references": cr_references(
+                    (rev.get("slots") or {}).get("main", {}).get("*", "")),
                 # Never merge this with the CR. See the module docstring.
                 "authority": "unofficial",
                 "source": "mtg.fandom.com",
