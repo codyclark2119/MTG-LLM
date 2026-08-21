@@ -60,12 +60,33 @@ from common import (lint_common_errors, stray_names, templatize, untemplatize)
 _WRITE_LOCK = threading.Lock()
 
 
-def load_tasks(path: Path) -> list[dict]:
+def load_tasks(path: Path) -> tuple[list[dict], str]:
+    """Tasks plus which KIND of work they are.
+
+    The kind comes from the data, never from a flag. A `--mode` flag that
+    disagreed with the file would serve the wrong form against the right
+    tasks, and the failure would look like a rendering bug rather than a
+    configuration one.
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
     tasks = payload["tasks"] if isinstance(payload, dict) else payload
+    kind = payload.get("kind", "rubric") if isinstance(payload, dict) else "rubric"
     if not tasks:
         raise SystemExit(f"{path} has no tasks")
-    return tasks
+    if kind not in ("rubric", "adjudication"):
+        raise SystemExit(f"{path}: unknown task kind {kind!r}")
+    if kind == "adjudication":
+        # The whole value of an adjudication is that it was made without
+        # seeing the judge. If the export ever leaks that, the verdicts are
+        # worthless and nothing downstream would be able to tell.
+        leaked = {k for t in tasks for k in t} & {
+            "errors_made", "judge_model", "fired", "blundered", "run", "judge"}
+        if leaked:
+            raise SystemExit(
+                f"{path}: tasks carry judge output {sorted(leaked)}. A verdict "
+                "collected while looking at the judge is not independent of it; "
+                "re-export with `adjudicate.py --export-tasks`.")
+    return tasks, kind
 
 
 def read_submissions(path: Path) -> list[dict]:
@@ -84,13 +105,15 @@ def append_submission(path: Path, row: dict) -> None:
             os.fsync(f.fileno())
 
 
-def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
+def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
+              kind: str = "rubric"):
     from fastapi import FastAPI, Request
     from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-    app = FastAPI(title="magic-llm rubrics")
-    by_id = {t["id"]: t for t in tasks}
-    categories = sorted({t["category"] for t in tasks})
+    app = FastAPI(title=f"magic-llm {kind}")
+    id_key = "key" if kind == "adjudication" else "id"
+    by_id = {t[id_key]: t for t in tasks}
+    categories = sorted({t.get("category") or "" for t in tasks})
 
     @app.middleware("http")
     async def auth(request: Request, call_next):
@@ -113,7 +136,7 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
 
     @app.get("/", response_class=HTMLResponse)
     def index():
-        return INDEX_HTML
+        return ADJUDICATE_HTML if kind == "adjudication" else INDEX_HTML
 
     @app.get("/api/tasks")
     def api_tasks(author: str = ""):
@@ -125,6 +148,15 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
         rubric is useful rather than wasted.
         """
         subs = read_submissions(submissions_path)
+        if kind == "adjudication":
+            # The whole task inlines, because the reviewer needs every field at
+            # once and there are only ~60 of them. Same per-author progress
+            # rule as below: a verdict is "done" for the person who gave it.
+            live = {t["key"] for t in tasks}
+            mine = {s["key"] for s in subs
+                    if s.get("author") == author and "errors_present" in s} & live
+            return {"tasks": [dict(t, done=t["key"] in mine) for t in tasks],
+                    "done_by_me": len(mine), "total": len(tasks)}
         # Intersect with the CURRENT task list. The submissions log is
         # append-only and outlives any one export, so after an ingest the
         # questions it covers are promoted out of tasks.json while their rows
@@ -219,6 +251,42 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None):
         }
         append_submission(submissions_path, row)
         return {"ok": True, "id": tid}
+
+    @app.post("/api/adjudicate")
+    async def api_adjudicate(request: Request):
+        """One blind verdict: which listed errors does this answer commit?
+
+        An EMPTY list is a real verdict and the most common one, so it is
+        accepted and recorded; only a missing field is an error. Treating
+        "commits none" as a non-answer would drop exactly the cases that
+        measure a judge's false positives.
+        """
+        body = await request.json()
+        tid = body.get("key")
+        if tid not in by_id:
+            return JSONResponse({"error": "unknown key"}, 404)
+        present = body.get("errors_present")
+        if not isinstance(present, list):
+            return JSONResponse({"error": "errors_present must be a list"}, 400)
+        n_errors = len(by_id[tid].get("common_errors") or [])
+        try:
+            nums = sorted({int(n) for n in present})
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "errors_present must be numbers"}, 400)
+        if any(n < 1 or n > n_errors for n in nums):
+            return JSONResponse({"error": f"error numbers must be 1..{n_errors}"}, 400)
+        append_submission(submissions_path, {
+            "key": tid,
+            "record_id": by_id[tid].get("record_id"),
+            "arm": by_id[tid].get("arm"),
+            "errors_present": nums,
+            "blundered": bool(nums),
+            "unsure": bool(body.get("unsure")),
+            "note": (body.get("note") or "").strip()[:500],
+            "author": (body.get("author") or "").strip()[:60],
+            "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        })
+        return {"ok": True, "key": tid}
 
     @app.get("/api/export")
     def api_export():
@@ -545,6 +613,112 @@ refresh();
 """
 
 
+# The adjudication form. A separate page from the rubric one on purpose: they
+# ask for different things and sharing a template would mean branching inside
+# every block. Both are served by the same program, chosen by task kind.
+#
+# Deliberately mobile-first. The point of deploying this is doing the 60
+# verdicts away from the machine that holds the gold set, which in practice
+# means a phone.
+ADJUDICATE_HTML = r"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Judge adjudication</title>
+<style>
+:root{--paper:#F5F6F8;--panel:#fff;--ink:#131820;--soft:#59636F;--faint:#8A939E;
+ --accent:#1C5A8C;--accent-bg:#EAF1F7;--ok:#1E7A4B;--rule:#D9DEE4;
+ --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+ --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --paper:#0F1319;--panel:#161B22;--ink:#E6EAF0;--soft:#9BA5B2;--faint:#6B7683;
+ --accent:#6FA8D6;--accent-bg:#16232E;--ok:#5BB98B;--rule:#2A313A}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+ font-size:16px;line-height:1.5}
+header{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--rule);
+ padding:.6rem .9rem;display:flex;gap:.7rem;align-items:center;flex-wrap:wrap;z-index:5}
+header b{font-size:.9rem}
+main{max-width:44rem;margin:0 auto;padding:1rem .9rem 5rem}
+h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);
+ margin:1.3rem 0 .4rem;font-weight:600}
+pre{font-family:var(--mono);font-size:.8rem;line-height:1.45;white-space:pre-wrap;
+ background:var(--panel);border:1px solid var(--rule);padding:.7rem;margin:0;border-radius:4px}
+.answer{border:0;border-left:3px solid var(--accent);border-radius:0;background:transparent;
+ padding:.3rem 0 .3rem .8rem;font-size:.9rem}
+ul{margin:.2rem 0;padding-left:1.2rem;color:var(--soft);font-size:.9rem}
+label.opt{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;margin-bottom:.4rem;
+ background:var(--panel);border:1px solid var(--rule);border-radius:4px;cursor:pointer}
+label.opt:has(input:checked){border-color:var(--accent);background:var(--accent-bg)}
+label.opt input{margin:.25rem 0 0;width:1.1rem;height:1.1rem;flex:none}
+.hint{font-size:.8rem;color:var(--faint);margin:.5rem 0 0}
+input[type=text]{width:100%;padding:.55rem .6rem;font:inherit;font-size:.9rem;
+ background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:4px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);
+ border-top:1px solid var(--rule);padding:.7rem .9rem;display:flex;gap:.6rem;
+ max-width:44rem;margin:0 auto}
+button{font:inherit;font-size:.9rem;padding:.6rem 1rem;border-radius:4px;
+ border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer}
+button.go{background:var(--accent);border-color:var(--accent);color:#fff;flex:1;font-weight:600}
+.done{color:var(--ok);font-size:.8rem}
+.mut{color:var(--faint);font-size:.78rem;font-family:var(--mono)}
+</style></head><body>
+<header><b id="prog">-</b><span class="mut" id="meta"></span>
+  <input type="text" id="who" placeholder="your name" style="width:9rem;margin-left:auto">
+</header>
+<main id="main"></main>
+<div class="bar"><button id="skip">Skip</button><button id="go" class="go">Save &amp; next</button></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>{const d=document.createElement('div');d.textContent=s??'';return d.innerHTML};
+let T=[],i=0;
+const who=()=>$('#who').value.trim();
+$('#who').value=localStorage.getItem('adjWho')||'';
+$('#who').oninput=()=>localStorage.setItem('adjWho',who());
+
+async function load(){
+  const r=await fetch('/api/tasks'+(who()?'?author='+encodeURIComponent(who()):''));
+  const d=await r.json();T=d.tasks;
+  const first=T.findIndex(t=>!t.done);i=first===-1?0:first;render();
+}
+function render(){
+  const t=T[i];
+  if(!t){$('#main').innerHTML='<p>Nothing queued.</p>';return}
+  $('#prog').textContent=T.filter(x=>x.done).length+'/'+T.length;
+  $('#meta').textContent=t.record_id+' · '+t.arm+(t.done?' · saved':'');
+  $('#main').innerHTML=
+    '<h2>The situation</h2><pre>'+esc(t.question)+'</pre>'+
+    '<h2>The correct line</h2><ul>'+(t.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
+    '<h2>The answer under review</h2><pre class="answer">'+esc(t.answer)+'</pre>'+
+    '<h2>Which of these does it commit?</h2>'+
+    (t.common_errors||[]).map((e,n)=>
+      '<label class="opt"><input type="checkbox" class="e" value="'+(n+1)+'">'+
+      '<span><b>'+(n+1)+'.</b> '+esc(e)+'</span></label>').join('')+
+    '<p class="hint">Check every error it actually makes. <b>Check none if it commits '+
+    'none</b> — that is a real verdict and a common one, not a skip. You are not '+
+    'being asked whether a judge was right.</p>'+
+    '<label class="opt"><input type="checkbox" id="unsure"><span>Genuinely ambiguous</span></label>'+
+    '<input type="text" id="note" placeholder="note (optional)">';
+}
+$('#skip').onclick=()=>{i=Math.min(T.length-1,i+1);render();scrollTo(0,0)};
+$('#go').onclick=async()=>{
+  const t=T[i];if(!t)return;
+  const present=[...document.querySelectorAll('.e')].filter(c=>c.checked).map(c=>+c.value);
+  const r=await fetch('/api/adjudicate',{method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({key:t.key,errors_present:present,author:who(),
+      unsure:$('#unsure').checked,note:$('#note').value})});
+  const d=await r.json();
+  if(!d.ok){alert(d.error||'save failed');return}
+  t.done=true;
+  const nxt=T.findIndex((x,n)=>n>i&&!x.done);
+  i=nxt===-1?Math.min(T.length-1,i+1):nxt;render();scrollTo(0,0);
+};
+load();
+</script></body></html>
+"""
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -563,7 +737,7 @@ def main() -> None:
                         help="serve without auth. Only sane on loopback.")
     args = parser.parse_args()
 
-    tasks = load_tasks(args.tasks)
+    tasks, kind = load_tasks(args.tasks)
 
     # A public bind with no token would put the form — and every contributor's
     # work — behind nothing at all. Refuse rather than warn.
@@ -581,7 +755,7 @@ def main() -> None:
         print(f"generated token: {token}  (set RUBRIC_TOKEN to keep it stable across restarts)\n")
 
     import uvicorn
-    uvicorn.run(build_app(tasks, args.submissions, token), host=args.host, port=args.port,
+    uvicorn.run(build_app(tasks, args.submissions, token, kind), host=args.host, port=args.port,
                 log_level="warning")
 
 

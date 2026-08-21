@@ -154,6 +154,35 @@ def task_for(item: dict, rubrics: dict) -> dict | None:
     }
 
 
+def export_tasks(queue: list[dict], out: Path) -> int:
+    """Write a SELF-CONTAINED task file for the deployable form.
+
+    The same contract `author_rubrics.py --export-tasks` follows, and for the
+    same reason: `rubric_server.py` must be able to serve this with no access to
+    the gold set, the runs, the corpora or any model. Every field the reviewer
+    needs is inlined here, so the deployed container copies one file.
+
+    Two things are deliberately absent. **No judge output** — not the errors it
+    fired, not its score, not which run the answer came from — because a verdict
+    collected while looking at the judge is not independent of it. And no record
+    beyond what is being reviewed: no rubric ids that would let the form fetch
+    more, since there is nothing on the far side to fetch from.
+    """
+    rubrics = _rubric_index()
+    tasks = []
+    for item in queue:
+        t = task_for(item, rubrics)
+        if not t:
+            continue
+        leaked = set(t) & {"errors_made", "judge_model", "fired", "blundered", "run"}
+        assert not leaked, f"judge output would leak to the public form: {leaked}"
+        tasks.append(t)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"kind": "adjudication", "tasks": tasks},
+                              ensure_ascii=False, indent=1), encoding="utf-8")
+    return len(tasks)
+
+
 def append_verdict(verdict: dict, path: Path = ADJUDICATIONS_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -215,6 +244,12 @@ def main() -> None:
                     help="run file(s); a second one drives disagreement-first sampling")
     ap.add_argument("--n", type=int, default=60)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--export-tasks", type=Path, metavar="OUT",
+                    help="write a self-contained task file for rubric_server.py "
+                         "(no gold set, no runs, no judge output)")
+    ap.add_argument("--ingest-submissions", type=Path, metavar="FILE",
+                    help="merge verdicts collected by the deployed form")
+    ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--status", action="store_true", help="how far through the queue")
     ap.add_argument("--score", type=Path, nargs="+",
                     help="score run(s) against the human verdicts collected so far")
@@ -227,6 +262,35 @@ def main() -> None:
         QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
         QUEUE_PATH.write_text(json.dumps(q, indent=1), encoding="utf-8")
         print(f"{len(q)} tasks -> {QUEUE_PATH}")
+        return
+
+    if args.export_tasks:
+        q = json.loads(QUEUE_PATH.read_text()) if QUEUE_PATH.exists() else []
+        if not q:
+            raise SystemExit(f"no queue at {QUEUE_PATH}; run --build first")
+        n = export_tasks(q, args.export_tasks)
+        print(f"{n} self-contained tasks -> {args.export_tasks}")
+        return
+
+    if args.ingest_submissions:
+        # Promotion is local and reviewed, the same invariant rubric_server
+        # keeps for rubrics: the deployed form never writes this file itself.
+        incoming = read_jsonl(args.ingest_submissions)
+        have = {(v["key"], v.get("author")) for v in read_jsonl(ADJUDICATIONS_PATH)}
+        new = [v for v in incoming if (v.get("key"), v.get("author")) not in have]
+        print(f"{len(incoming)} submitted, {len(new)} new, "
+              f"{len(incoming) - len(new)} already on file")
+        by_author = {}
+        for v in new:
+            by_author[v.get("author", "?")] = by_author.get(v.get("author", "?"), 0) + 1
+        for a, c in sorted(by_author.items()):
+            print(f"  {a}: {c}")
+        if args.dry_run:
+            print("\nDRY RUN — re-run without --dry-run to append")
+            return
+        for v in new:
+            append_verdict(v)
+        print(f"appended {len(new)} -> {ADJUDICATIONS_PATH}")
         return
 
     if args.status:

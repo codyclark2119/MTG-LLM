@@ -78,30 +78,44 @@ def jsc_parse(js: str) -> str:
     return out.stdout.strip()
 
 
-def main() -> None:
-    html = served_html()
+def check_page(label: str, html: str) -> None:
+    global FAILED, CHECKS_RUN
     js = js_of(html)
 
-    # The bug itself: a Python comment inside the served string.
-    offenders = [ln for ln in html.split("\n")
+    # The bug itself: a Python comment inside the SCRIPT. Scoped to the script
+    # rather than the whole page on purpose — a CSS id selector at the start of
+    # a line (`#prog{...}`) is legitimate and lives in <style>, so checking the
+    # whole page would flag eleven innocent lines in the rubric form and train
+    # everyone to ignore the check.
+    offenders = [ln for ln in js.split("\n")
                  if ln.lstrip().startswith("#") and not ln.lstrip().startswith("#/")]
-    check("no Python-style comments in the served page", offenders, [])
+    check(f"{label}: no Python-style comments in the script", offenders, [])
 
     err = jsc_parse(js)
     if err:
-        print(f"  FAIL the served JavaScript does not parse: {err}")
-        global FAILED, CHECKS_RUN
+        print(f"  FAIL {label}: the served JavaScript does not parse: {err}")
         FAILED += 1
     CHECKS_RUN += 1
 
     # Every route the router dispatches to must be defined, or that view is a
     # blank pane with an error only the console shows.
     for name in re.findall(r"return\s+(view[A-Za-z]+)\(\)", js):
-        check(f"{name} is defined", f"function {name}(" in js, True)
+        check(f"{label}: {name} is defined", f"function {name}(" in js, True)
 
     # Balanced template literals — an odd count silently swallows the rest of
     # the file into a string and produces a parse error a long way from home.
-    check("backticks balanced", js.count("`") % 2, 0)
+    check(f"{label}: backticks balanced", js.count("`") % 2, 0)
+
+
+def main() -> None:
+    check_page("webui", served_html())
+
+    # The deployable half serves two pages, chosen by task kind. Both ship to a
+    # public host, so a syntax error there is worse than locally: nobody is
+    # watching a terminal, and the page simply looks empty.
+    import rubric_server
+    check_page("rubric_server/rubric", rubric_server.INDEX_HTML)
+    check_page("rubric_server/adjudicate", rubric_server.ADJUDICATE_HTML)
 
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:
