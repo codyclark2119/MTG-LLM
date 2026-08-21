@@ -434,7 +434,16 @@ def main() -> None:
     if args.status:
         q = json.loads(QUEUE_PATH.read_text()) if QUEUE_PATH.exists() else []
         rows = read_jsonl(ADJUDICATIONS_PATH)
-        done = {v["key"] for v in rows}
+        # Coverage against the CURRENT queue, not against any verdict ever given.
+        # A key adjudicated under an earlier grammar is not covered now — its
+        # verdict is about text the queue no longer serves, and --score excludes
+        # it. Reporting 27/60 while 16 verdicts actually apply is the same
+        # key-survives-meaning-changes error one more time (Section 21.62), here
+        # inflating apparent progress by 11 tasks.
+        live = {i["key"]: answer_sha(i.get("answer") or "") for i in q}
+        done = {v["key"] for v in rows
+                if v.get("answer_sha") and live.get(v["key"]) == v["answer_sha"]}
+        stale_only = {v["key"] for v in rows} & set(live) - done
         # Rows and keys are different numbers once anything is re-adjudicated,
         # and reporting the key count as "verdicts on file" made three appended
         # rows look like nothing had happened. Same phantom-progress shape the
@@ -442,9 +451,16 @@ def main() -> None:
         from collections import Counter
         vers = Counter(v.get("form_version", 1) for v in rows)
         print(f"queue      : {len(q)}")
-        print(f"covered    : {len(done & {i['key'] for i in q})}/{len(q)} of the queue")
-        print(f"verdicts   : {len(rows)} rows over {len(done)} distinct answers"
-              + (f" ({len(rows) - len(done)} re-adjudicated)" if len(rows) > len(done) else ""))
+        print(f"covered    : {len(done)}/{len(q)} of the queue")
+        if stale_only:
+            print(f"             ({len(stale_only)} more keys carry a verdict on an EARLIER "
+                  "answer, which --score excludes)")
+        # Rows and answers are different numbers, and mixing the all-time row
+        # count with the current-queue key count made "32 re-adjudicated" out of
+        # rows that mostly describe answers the queue no longer serves.
+        n_answers = len({(v["key"], v.get("answer_sha")) for v in rows})
+        print(f"verdicts   : {len(rows)} rows over {n_answers} distinct answers"
+              + (f" ({len(rows) - n_answers} re-adjudicated)" if len(rows) > n_answers else ""))
         print(f"by wording : {', '.join(f'v{k}: {n}' for k, n in sorted(vers.items()))}")
         return
 
