@@ -6349,3 +6349,96 @@ satisfied — this is a hobby project — and attribution travels with the data.
 - **Pinning: yes**, and more urgently than elsewhere. A wiki page is edited far
   more often than the CR is published, so a re-fetch silently changing text
   under a published number is likelier here than anywhere else in this repo.
+
+### 21.68 The wiki should annotate the CR, not compete with it
+
+The retrieval question from 21.67, measured — and the answer changed the design.
+
+#### Competing costs cited-rule retrieval
+
+Embedding the 99 gold questions against a merged index and counting which corpus
+wins each slot:
+
+| top-k | wiki share of slots |
+| --- | --- |
+| 1 | 29% |
+| 3 | 26% |
+| 5 | 25% |
+| 10 | 24% |
+
+Against a **28% chance baseline** (176 of 624 chunks). So wiki text takes almost
+exactly its proportional share and slightly *less* than chance at k=10.
+**21.67's stated prediction — that wiki prose would win slots on phrasing — is
+wrong**, and the crowding number alone would have said "merge freely".
+
+It would have been the wrong conclusion. Share is not harm. Asking instead
+whether the rule the gold record *cites* still gets retrieved:
+
+| k | rules only | rules + wiki | delta |
+| --- | --- | --- | --- |
+| 3 | 17/99 (17%) | 15/99 (15%) | **−2** |
+| 5 | 23/99 (23%) | 21/99 (21%) | **−2** |
+| 10 | 34/99 (34%) | 31/99 (31%) | **−3** |
+
+Small, and consistently negative at every budget. Merging strictly loses the
+thing every citation check depends on.
+
+#### The wiki carries its own CR references — in markup `explaintext` deletes
+
+Only **4 of 176** chunks showed a rule id, which looked like the wiki simply not
+citing rules. It cites them constantly; TextExtracts strips the markup, which is
+the same reason References sections came out empty (21.67):
+
+```
+Timing and priority   {{CR|Timing and Priority}}  {{CR|glossary|Pass}}
+                      {{CR|glossary|Priority}}    {{CR|glossary|In Response To}}
+Exile                 {{CR|701.11}}               {{CR|glossary|Set Aside}}
+```
+
+72 templates across 29 of 51 pages — **51 glossary references, 14 rule numbers,
+7 section names**. Thin, and mostly not numbered rules.
+
+#### The dense join is the page title itself
+
+**42 of 51 page titles match a CR glossary term exactly (82%).** A wiki page
+*is* an expanded gloss of a glossary entry, and the term is the join key. That
+is structural rather than a similarity heuristic, and an order of magnitude
+denser than the templates.
+
+The nine that do not match are informative rather than a gap:
+
+| | |
+| --- | --- |
+| **not rules content** — Commander series, DCI, Judge, Magic tournament, Set | dropped |
+| CR *sections* rather than glossary terms — Timing and priority, Turn structure | kept |
+| design vocabulary — Evergreen, Comprehensive Rules | kept |
+
+Those five are precisely the "unrelated content" a portal scrape drags in, and
+they were identified **structurally** — no glossary term and no rules citation —
+rather than by taste.
+
+#### Chaining through the glossary, and the granularity trap
+
+The join carries `cr_rule_ids` and `cr_sections` from the matched entry, so
+*wiki page → glossary term → CR rule* is followable. The first attempt reached
+**5%** of chunks, because `RULE_ID_RE` matches `117.1a` and a glossary entry
+mostly says *"See rule 117"* — a **section**, three digits, no decimal. Measured:
+**89%** of the 739 entries cite a section and only 65% a numbered rule.
+
+`_CR_SECTION_RE` is deliberately separate from `common.RULE_ID_RE` rather than a
+loosened version of it. `RULE_ID_RE` validates citations; making it also match
+bare section numbers would mean one name for two granularities, silently
+disagreeing about whether "117" is a rule id — the trap `CROSS_REF_RE` and
+`PASS` already cost this project.
+
+**5% → 90% of chunks chain to a rule or section**, reaching 38 distinct CR
+sections.
+
+#### Where this leaves retrieval
+
+Final corpus: **46 pages, 141 chunks**, 91% joined to a glossary term, 90%
+chaining to a rule or section. Still wired into no pipeline — what the
+measurement establishes is that the *merge* design was wrong, not that the
+aligned one is right. Serving a glossary definition and its wiki expansion
+together, under one retrieval slot rather than two competing ones, is the design
+the evidence points at and is not yet built or measured.

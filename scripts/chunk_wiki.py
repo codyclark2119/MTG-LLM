@@ -29,7 +29,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from common import REPO_ROOT, read_jsonl, write_jsonl_atomic  # noqa: E402
+from common import (  # noqa: E402
+    GLOSSARY_PATH, REPO_ROOT, RULE_ID_RE, read_jsonl, write_jsonl_atomic,
+)
 
 WIKI_RAW_PATH = REPO_ROOT / "data/raw/wiki_pages.jsonl"
 WIKI_CHUNKS_PATH = REPO_ROOT / "data/processed/wiki_chunks.jsonl"
@@ -59,6 +61,33 @@ _DROP_SECTIONS = {
     "references", "external links", "see also", "gallery", "notes", "trivia",
     "sources", "further reading", "flavor", "flavour",
 }
+
+
+# Pages that are not rules content at all. The portal links them because it is a
+# directory of the whole rules *area*, which includes the organisation that runs
+# tournaments and the products the game ships in. None of them describes a rule.
+#
+# Identified structurally rather than by taste: these are exactly the pages whose
+# title matches no CR glossary term AND which carry no rules citation — 42 of 51
+# titles ARE glossary terms, and the residue splits cleanly into six product and
+# organisation pages and three genuine concepts (Timing and priority, Turn
+# structure, Evergreen), which are kept.
+_NOT_RULES = {
+    "commander series", "dci", "judge", "magic tournament", "set",
+}
+
+
+# "See rule 117, 'Timing and Priority.'" — a CR SECTION, three digits and no
+# decimal point. Deliberately not folded into `common.RULE_ID_RE`, which matches
+# a numbered rule (`117.1a`) and is used to validate citations: one name for two
+# granularities is the trap this repo keeps rediscovering, and here the two
+# would silently disagree about whether "117" is a rule id.
+_CR_SECTION_RE = re.compile(r"\brule\s+(\d{3})\b", re.I)
+
+
+def glossary_index() -> dict:
+    """CR glossary terms, lowercased, for the wiki-to-CR join."""
+    return {(g.get("term") or "").lower(): g for g in read_jsonl(GLOSSARY_PATH)}
 
 
 def split_sections(text: str) -> list[tuple[str, str]]:
@@ -103,7 +132,7 @@ def _split_long(body: str, target: int = TARGET) -> list[str]:
     return [body[i:i + target].strip() for i in range(0, len(body), target)]
 
 
-def chunk_page(page: dict) -> list[dict]:
+def chunk_page(page: dict, gloss: dict | None = None) -> list[dict]:
     pieces: list[tuple[str, str]] = []
     for heading, body in split_sections(page["text"]):
         for part in _split_long(body):
@@ -146,6 +175,7 @@ def chunk_page(page: dict) -> list[dict]:
         (_, lead), (h2, b2) = merged[0], merged[1]
         merged[0:2] = [(h2, f"{lead}\n\n{b2}")]   # the lead has no heading to keep
 
+    entry = (gloss or {}).get(page["title"].lower())
     out = []
     for i, (heading, body) in enumerate(merged):
         out.append({
@@ -164,6 +194,22 @@ def chunk_page(page: dict) -> list[dict]:
             "authority": "unofficial",
             "source": page["source"],
             "license": page["license"],
+            # THE JOIN. A wiki page is an expanded gloss of a CR glossary entry:
+            # 42 of 51 titles match a glossary term exactly. Recorded so the two
+            # corpora can be served TOGETHER — official definition beside
+            # community explanation — instead of competing for the same slot,
+            # which measurably costs cited-rule retrieval (Section 21.68).
+            "cr_glossary_term": (entry or {}).get("term"),
+            # The rules that entry points at ("See rule 117, ...") — so the
+            # chain wiki page -> glossary term -> rule id is followable.
+            "cr_rule_ids": sorted(set(RULE_ID_RE.findall(
+                (entry or {}).get("definition") or ""))
+                | set((entry or {}).get("related_rules") or [])),
+            # Section-level too. 89% of glossary entries point at a section and
+            # only 65% at a numbered rule, so matching decimals alone reached 5%
+            # of chunks where the chain is actually available on nearly all.
+            "cr_sections": sorted(set(_CR_SECTION_RE.findall(
+                (entry or {}).get("definition") or ""))),
         })
     return out
 
@@ -185,12 +231,24 @@ def main() -> None:
     if not pages:
         raise SystemExit(f"no pages in {args.pages} — run scripts/fetch_wiki.py first")
 
-    chunks = [c for p in pages for c in chunk_page(p)]
+    gloss = glossary_index()
+    kept = [p for p in pages if p["title"].lower() not in _NOT_RULES]
+    dropped = [p["title"] for p in pages if p["title"].lower() in _NOT_RULES]
+    chunks = [c for p in kept for c in chunk_page(p, gloss)]
     args.out.parent.mkdir(parents=True, exist_ok=True)
     write_jsonl_atomic(args.out, chunks)
 
     lens = sorted(c["chars"] for c in chunks)
-    print(f"{len(pages)} pages -> {len(chunks)} chunks")
+    if dropped:
+        print(f"dropped {len(dropped)} non-rules pages: {', '.join(sorted(dropped))}")
+    joined = sum(1 for c in chunks if c["cr_glossary_term"])
+    print(f"{len(kept)} pages -> {len(chunks)} chunks")
+    chained = sum(1 for c in chunks if c["cr_rule_ids"] or c["cr_sections"])
+    print(f"  chaining to a CR rule or section: {chained}/{len(chunks)} chunks "
+          f"({chained / len(chunks):.0%})")
+    print(f"  joined to a CR glossary term: {joined}/{len(chunks)} chunks "
+          f"({joined / len(chunks):.0%}), "
+          f"{len({c['title'] for c in chunks if c['cr_glossary_term']})}/{len(kept)} pages")
     print(f"  chars: median {lens[len(lens) // 2]}, min {lens[0]}, max {lens[-1]}")
     print(f"  -> {args.out}")
     print(f"  every chunk marked unofficial: {all(c['authority'] == 'unofficial' for c in chunks)}")
@@ -199,7 +257,7 @@ def main() -> None:
         print("\nWIKI_PIN = " + json.dumps({
             "wiki_chunks_sha256": sha256_file(args.out),
             "n_wiki_chunks": len(chunks),
-            "n_pages": len(pages),
+            "n_pages": len(kept),
             "source": "mtg.fandom.com Portal:Rules",
             "license": "CC BY-NC-SA 2.5",
         }, indent=4))
