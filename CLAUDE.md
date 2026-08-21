@@ -61,12 +61,12 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (224)
+python scripts/test_eval.py                       # the scoring arithmetic (230)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
 python scripts/gameplay/test_actions.py           # the action grammar (89)
-python scripts/gameplay/test_eval_positions.py    # the gameplay gates (39)
+python scripts/gameplay/test_eval_positions.py    # the gameplay gates (47)
 ```
 
 `test_eval.py` covers the code that turns judge JSON into published numbers, and
@@ -236,6 +236,15 @@ is a statement about that judge, and that applies to diagnosing a metric exactly
 as it applies to ranking arms.
 
 ## Evaluation — read this before trusting any number
+
+**Judge-vs-judge agreement is not correctness.** Measured: kappa **+0.47**
+between two calibrated judges on the same answers, and **+0.17 to +0.23** between
+each of them and a human on the same blunder calls (Section 21.57). They agree
+with each other about twice as well as any agrees with the person. So two judges
+is a floor, not a proof — and a constructed control cannot close the gap, because
+its sensitivity half asserts a **listed** error while 12 of 17 real answers are
+bad for a reason the rubric never enumerated. A control built from the rubric
+cannot detect that the rubric is missing entries.
 
 **Two judges, always.** Two reasonable judges reversed the arm ranking on
 identical answers (Section 9.9) and reversed two of three gameplay gates

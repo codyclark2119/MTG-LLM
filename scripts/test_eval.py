@@ -960,6 +960,40 @@ def test_adjudication_scoring() -> int:
     return failed
 
 
+def test_cohens_kappa() -> int:
+    """Chance-corrected agreement, one definition (21.57).
+
+    Raw agreement flatters a skewed call, which is why
+    `eval_positions.compare_judges` reports kappa first and says so in its
+    docstring. `adjudicate.score_run` — the judge-versus-HUMAN comparison,
+    where the human's blunder calls are skewed and chance correction matters
+    MORE — reported raw agreement with no correction at all.
+    """
+    from common import cohens_kappa
+
+    failed = 0
+    failed += not check("perfect agreement is 1.0",
+                        cohens_kappa([(True, True), (False, False)] * 5), 1.0)
+    failed += not check("independent calls are ~0",
+                        round(cohens_kappa([(True, False), (False, True),
+                                            (True, True), (False, False)]), 2), 0.0)
+    # The case raw agreement gets wrong: both sides say True 90% of the time and
+    # agree 82% — which is chance, not agreement.
+    skewed = [(True, True)] * 8 + [(True, False), (False, True)]
+    failed += not check("a skewed call agrees 80% by raw count",
+                        round(sum(1 for x, y in skewed if x == y) / len(skewed), 2), 0.8)
+    failed += not check("...and kappa sees through it",
+                        cohens_kappa(skewed) < 0.15, True)
+    # Undefined rather than 1.0 when one side never varies: with pe == 1 the
+    # formula divides by zero, and returning 1.0 there would report perfect
+    # agreement for a judge that said the same thing every time.
+    failed += not check("a constant call is NaN, not 1.0",
+                        cohens_kappa([(True, True)] * 10) != cohens_kappa([(True, True)] * 10),
+                        True)
+    failed += not check("empty is NaN", cohens_kappa([]) != cohens_kappa([]), True)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1033,6 +1067,7 @@ def main() -> None:
                      ("coverage_lines", test_coverage_lines),
                      ("judge_identity", test_judge_identity),
                      ("adjudication_scoring", test_adjudication_scoring),
+                     ("cohens_kappa", test_cohens_kappa),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

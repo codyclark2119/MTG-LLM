@@ -36,6 +36,7 @@ from common import (  # noqa: E402
     POSITIONS_PATH,
     REPO_ROOT,
     build_position_messages,
+    cohens_kappa,
     pearson_r,
     render_position,
 )
@@ -152,7 +153,8 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
     pa1 = sum(x for x, _, *_ in pairs) / n if n else 0
     pb1 = sum(y for _, y, *_ in pairs) / n if n else 0
     pe = pa1 * pb1 + (1 - pa1) * (1 - pb1)
-    kappa = (po - pe) / (1 - pe) if pe < 1 else float("nan")
+    # one definition, in common.py — see cohens_kappa's docstring
+    kappa = cohens_kappa([(x, y) for x, y, *_ in pairs])
 
     r = pearson_r(corr_pairs)  # one definition, in common.py
 

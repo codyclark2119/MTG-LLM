@@ -523,6 +523,29 @@ def pearson_r(pairs: list[tuple[float, float]]) -> float:
     return num / den if den else float("nan")
 
 
+def cohens_kappa(pairs: list[tuple[bool, bool]]) -> float:
+    """Chance-corrected agreement on a binary call. NaN when undefined.
+
+    Raw percent agreement flatters a skewed call: if both sides say "blundered"
+    80% of the time they agree ~68% by chance alone. Kappa subtracts that.
+
+    One definition, for the same reason `pearson_r` is one: this is the number
+    the gameplay track's headline agreement is stated in (Section 21.47's
+    +0.47), it was computed inline in `eval_positions.compare_judges`, and
+    `adjudicate.score_run` — the judge-versus-HUMAN comparison, where chance
+    correction matters most because the human's blunder calls are skewed —
+    reported raw agreement with no correction at all (Section 21.57).
+    """
+    n = len(pairs)
+    if not n:
+        return float("nan")
+    po = sum(1 for x, y in pairs if x == y) / n
+    pa1 = sum(1 for x, _ in pairs if x) / n
+    pb1 = sum(1 for _, y in pairs if y) / n
+    pe = pa1 * pb1 + (1 - pa1) * (1 - pb1)
+    return (po - pe) / (1 - pe) if pe < 1 else float("nan")
+
+
 # --- Card slots -------------------------------------------------------------
 #
 # RulesGuru returns the same ruling instantiated on different cards each time an

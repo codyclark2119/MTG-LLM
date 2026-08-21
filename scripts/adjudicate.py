@@ -64,6 +64,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from common import (  # noqa: E402
     GOLD_PATH,
+    cohens_kappa,
     POSITIONS_PATH,
     REPO_ROOT,
     read_jsonl,
@@ -209,6 +210,7 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     b_right = b_total = 0
     fp_only = fn_only = 0
     n_unsure = n_not_covered = n_unmatched = 0
+    b_pairs: list[tuple[bool, bool]] = []
     for v in verdicts:
         if v["key"] not in by_key:
             n_unmatched += 1
@@ -232,6 +234,7 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         fp += len(judge - human)
         fn += len(human - judge)
         b_total += 1
+        b_pairs.append((bool(human), bool(judge)))
         if bool(human) == bool(judge):
             b_right += 1
         elif judge and not human:
@@ -241,6 +244,11 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
 
     prec = tp / (tp + fp) if tp + fp else float("nan")
     rec = tp / (tp + fn) if tp + fn else float("nan")
+    # Raw agreement flatters a skewed call, and the human blunder calls ARE
+    # skewed. eval_positions.compare_judges says so in its docstring and reports
+    # kappa first; this — the judge-versus-HUMAN comparison, where it matters
+    # more — reported the raw number alone (Section 21.57).
+    kappa = cohens_kappa(b_pairs)
     return {
         "run": run.name, "n": b_total,
         # Reported, never silently dropped: each is a reason the denominator is
@@ -257,6 +265,7 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         "precision": prec, "recall": rec,
         "f1": 2 * prec * rec / (prec + rec) if prec == prec and rec == rec and prec + rec else float("nan"),
         "blunder_accuracy": b_right / b_total if b_total else float("nan"),
+        "blunder_kappa": kappa,
         "false_blunder": fp_only, "missed_blunder": fn_only,
         "tp": tp, "fp": fp, "fn": fn,
     }
@@ -398,13 +407,14 @@ def main() -> None:
                 print(f"    {cat:24s} {n}")
             print()
         print(f"{'run':40s} {'n':>4s} {'prec':>6s} {'recall':>7s} {'F1':>6s} "
-              f"{'blunder acc':>12s} {'false':>6s} {'missed':>7s}")
+              f"{'blunder acc':>12s} {'kappa':>7s} {'false':>6s} {'missed':>7s}")
         scored = []
         for r in args.score:
             s = score_run(r, verdicts, rubrics)
             scored.append(s)
             print(f"{s['run']:40s} {s['n']:4d} {s['precision']:6.0%} {s['recall']:7.0%} "
                   f"{s['f1']:6.2f} {s['blunder_accuracy']:12.0%} "
+                  f"{s['blunder_kappa']:+7.2f} "
                   f"{s['false_blunder']:6d} {s['missed_blunder']:7d}")
         # Every reason the denominator is smaller than the queue, next to the
         # numbers it qualifies. `n` alone reads as the sample size; it is the

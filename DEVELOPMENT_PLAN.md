@@ -5586,3 +5586,75 @@ mid-sentence is explaining a rule), and **`KEEP` is never flagged**, since an
 answer that does not mulligan has kept. An answer that parsed no actions is also
 exempt — that is Gate 1's problem, and blaming the judge for it would move a
 known failure into a new column.
+
+### 21.57 Judge-vs-human kappa is +0.20. Judge-vs-judge is +0.47
+
+Seventeen verdicts in, and the number B1 exists to produce is measurable. It
+required one fix first: `adjudicate.score_run` reported **raw agreement** on the
+blunder call. `eval_positions.compare_judges` explicitly refuses to do that —
+*"raw percent agreement flatters a skewed one: if both judges say 'blundered'
+80% of the time, they agree ~68% by chance alone"* — and reports Cohen's kappa
+first. That reasoning applies harder to the judge-versus-**human** comparison,
+because the human's calls are the skewed ones, and that is the one place it was
+not applied. Kappa is now one definition in `common.py`, beside `pearson_r`, for
+the reason `pearson_r` is one. The shared version reproduces 21.47's **+0.47**
+exactly.
+
+| judge | n | precision | recall | F1 | blunder acc | **kappa vs human** |
+| --- | --- | --- | --- | --- | --- | --- |
+| Qwen2.5-32B | 17 | 19% | 88% | 0.32 | 59% | **+0.23** |
+| Mistral-24B | 17 | 25% | 50% | 0.33 | 59% | **+0.17** |
+| Qwen3-14B | 12 | 27% | 67% | 0.38 | 58% | **+0.21** |
+
+Against **+0.47** between two of those same judges on the same answers.
+
+**The judges agree with each other about twice as well as any of them agrees
+with the human.** That is the entire premise of B1 confirmed the hard way:
+inter-judge agreement is not a proxy for correctness, and a project that had
+only ever measured judge-vs-judge would have read +0.47 as the instrument
+working. All three judges sit in the band `eval_positions`' own verdict text
+calls *"barely agreeing beyond chance… not yet a usable gate metric"*.
+
+Note the numbers **got worse** as verdicts arrived — the 32B was 28% precision
+and 75% blunder accuracy at n=12, and is 19% and 59% at n=17. An n=12 reading
+would have been the optimistic one.
+
+#### Why the paired control could not have found this
+
+The 32B separates blundered from clean at **+96%** on the paired control and
+sits at **+0.23** against human ground truth. Both are correct measurements of
+different things, and the gap has a mechanism:
+
+**12 of 17 adjudicated answers are flagged `not_covered`** — bad for a reason no
+listed error describes. The paired control constructs its sensitivity half by
+asserting a **listed** error verbatim. So it measures the judge on exactly the
+case that mostly does not occur, and cannot measure it on the case that does.
+
+That is not a flaw in the control; it is the limit of what a constructed control
+can do, and it is the same lesson as 21.43 one level up. **A control built from
+the rubric cannot detect that the rubric is missing entries.** Only a human
+looking at the answer can, which is what B1 is.
+
+#### What the reviewer's notes name, and what the harness does with it
+
+The new notes describe two model behaviours precisely:
+
+- *"Casts 4 Forests (assuming it meant to Tap them) then tries to cast Grizzly
+  Bears as a non-creature spell"*
+- *"It didnt declare any tapping of lands to cast Ambush Viper"*
+- *"Temple of Silence is casted so its being assumed to be a spell"*
+
+Measured across 251 distinct stored answers: **5 (2.0%)** cast a land rather
+than playing it, concentrated in `pos-land-sequencing-0002`. My first pass
+looked for `TAP` lines and found zero — the pattern is `CAST <land>`, not a tap
+line, and the check missed it by looking for the wrong token.
+
+**All five score `all_legal=False`.** Gate 1 catches every one, because
+`CAST Forest` is a different string from `PLAY Forest`. The same is true of the
+targeting error (21.56) and of the double block once 509.1a was added.
+
+So the consistent picture across 17 verdicts: **the legality checker sees these;
+the rubric cannot describe them; the judge therefore fires the wrong error or
+none.** Gate 1 is measuring real failures, and Gate 3 is measuring the judge's
+guesses about failures the rubric never enumerated. That is why Gate 1 has to
+pass first, now with a number attached rather than an argument.
