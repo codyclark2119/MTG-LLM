@@ -451,6 +451,44 @@ def judge_prompt_for(base: str, labels: list[str]) -> str:
     return base.replace(_FOUR_LABEL_PHRASE, named)
 
 
+def apply_judge_template(judge_tokenizer, messages: list[dict]) -> str:
+    """Render a JUDGE prompt, folding `system` into the first user turn when the
+    model's chat template refuses a system role.
+
+    `gemma-2-27b-it` raises `TemplateError: System role not supported` and dies
+    before grading anything — a whole model family unusable as a judge over a
+    formatting convention. All three judge prompts open with a system message.
+
+    **Judge paths only, deliberately.** `build_prompt()` renders the prompt for
+    the model UNDER TEST from `common.build_rag_messages`, and an adapter is
+    only valid for the format it was trained on (Section 8.7) — silently
+    reshaping that would invalidate the adapter and present as a capability
+    result. Evaluating a Gemma-family model as a subject needs a deliberate
+    decision and a re-stamp, not a fallback. So this is not called there.
+
+    Judges are stateless graders with no adapter, so the same reshaping is free.
+    It does change the judge prompt for such a model, which is a reason to
+    compare its numbers only against other runs of itself.
+    """
+    try:
+        return judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    except Exception as exc:                      # jinja2.TemplateError, and kin
+        if "system" not in str(exc).lower():
+            raise
+        folded, carried = [], ""
+        for m in messages:
+            if m["role"] == "system":
+                carried += m["content"].rstrip() + "\n\n"
+            elif m["role"] == "user" and carried:
+                folded.append({"role": "user", "content": carried + m["content"]})
+                carried = ""
+            else:
+                folded.append(m)
+        if carried:                               # system with no user turn after it
+            folded.append({"role": "user", "content": carried.rstrip()})
+        return judge_tokenizer.apply_chat_template(folded, add_generation_prompt=True)
+
+
 def judge_batch_rubric(
     lm_generate, judge_model, judge_tokenizer, question: str,
     key_points: list[str], common_errors: list[str],
@@ -482,7 +520,7 @@ def judge_batch_rubric(
             list(label_to_arm))},
         {"role": "user", "content": user},
     ]
-    prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    prompt = apply_judge_template(judge_tokenizer, messages)
     raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
 
     start, end = raw.find("{"), raw.rfind("}")
@@ -786,7 +824,7 @@ def judge_batch_anonymized(
             JUDGE_SYSTEM_PROMPT_V2, list(label_to_arm))},
         {"role": "user", "content": user},
     ]
-    prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    prompt = apply_judge_template(judge_tokenizer, messages)
     raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
 
     start, end = raw.find("{"), raw.rfind("}")

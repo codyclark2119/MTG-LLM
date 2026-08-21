@@ -49,9 +49,27 @@ This is a plan to find out when that stops being true.
 > first size that would not fit), and the 32B is already at 0% false errors and
 > 100% ordering accuracy on the four-arm trip-wire.
 >
-> **One open item, and it is not hardware-shaped.** Every gate verdict published
-> so far is **single-judge**, and Gates 2 and 3 have both reversed between judges
-> on byte-identical answers — now runnable, since Qwen3-14B passes the control.
+> **The last trip-wire has been measured, and it does not pass** (Section
+> 21.47). Kappa on the blunder call between two judges that both clear the
+> paired control — Qwen2.5-32B and Mistral-Small-24B, a different vendor — is
+> **+0.47** against a **≥0.60** bar. Replacing the 40%-false-positive judge
+> roughly doubled it from +0.24 and did not reach the target.
+>
+> **Self-preference is closed:** Mistral-24B scores +100% separation at full
+> coverage, so the 32B's numbers are not a Qwen flattering a Qwen.
+>
+> **But passing the control does not make two judges agree.** On identical
+> answers, `base_cards_open` is the **worst** arm under the 32B (71% blunder)
+> and the **best** under Mistral (33%). Gate 3 fails under both only because
+> both sit far from the 25% line. Ten of fifteen disputed calls are `blocking`
+> positions, and the cause is structural: `common_errors` are *claims* (21.35)
+> while position answers are *action lists*, so `PASS` asserts nothing and the
+> judge flags everything. That also means the control's +96/+100 were measured
+> on prose candidates and do not transfer to the gate as cleanly as 21.44 read.
+>
+> So the remaining work is **rubric form on positions**, not hardware and not
+> judge capacity — and human adjudication is the instrument, since it is the only
+> thing that has adjudicated a dispute correctly so far.
 >
 > The Llama 4%-vs-58% discrepancy is **resolved** (Section 21.45) and did not
 > invalidate the table. Holding records fixed, arm count accounts for +17 points

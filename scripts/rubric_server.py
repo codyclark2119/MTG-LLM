@@ -282,6 +282,12 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
             "errors_present": nums,
             "blundered": bool(nums),
             "unsure": bool(body.get("unsure")),
+            # "wrong, but none of the listed mistakes describe it" — the case
+            # that produced the first disagreements: an answer of `PASS` or a
+            # repeated action commits no CLAIM in the rubric while being
+            # obviously bad. Recorded separately because it measures rubric
+            # COVERAGE, which no judge number can (Section 21.47).
+            "not_covered": bool(body.get("not_covered")),
             "note": (body.get("note") or "").strip()[:500],
             "author": (body.get("author") or "").strip()[:60],
             "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -690,15 +696,24 @@ function render(){
     '<h2>The situation</h2><pre>'+esc(t.question)+'</pre>'+
     '<h2>The correct line</h2><ul>'+(t.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
     '<h2>The answer under review</h2><pre class="answer">'+esc(t.answer)+'</pre>'+
-    '<h2>Which of these does it commit?</h2>'+
+    '<h2>Which of these mistakes does the answer make?</h2>'+
+    '<p class="hint">Judge the <b>play</b>, not the wording. Check an item if the answer '+
+    'does that thing. An action list like <code>PASS</code> still "takes 2 from the '+
+    'Vanguard" even though it never says those words.</p>'+
     (t.common_errors||[]).map((e,n)=>
       '<label class="opt"><input type="checkbox" class="e" value="'+(n+1)+'">'+
       '<span><b>'+(n+1)+'.</b> '+esc(e)+'</span></label>').join('')+
-    '<p class="hint">Check every error it actually makes. <b>Check none if it commits '+
-    'none</b> — that is a real verdict and a common one, not a skip. You are not '+
-    'being asked whether a judge was right.</p>'+
-    '<label class="opt"><input type="checkbox" id="unsure"><span>Genuinely ambiguous</span></label>'+
-    '<input type="text" id="note" placeholder="note (optional)">';
+    '<p class="hint"><b>Check none if it makes none of them</b> — a real verdict and a '+
+    'common one, not a skip. You are not being asked whether a judge was right.</p>'+
+    '<label class="opt"><input type="checkbox" id="notcovered"><span><b>Bad, but not '+
+    'for any reason above.</b> The answer is wrong or useless — does nothing, repeats '+
+    'itself, plays something illegal — and none of the listed mistakes describe it. '+
+    'This measures gaps in the rubric, so flagging it is worth as much as the '+
+    'checkboxes.</span></label>'+
+    '<label class="opt"><input type="checkbox" id="unsure"><span>Genuinely ambiguous — '+
+    'I could argue it either way</span></label>'+
+    '<input type="text" id="note" placeholder="what the answer actually did, if a box '+
+    'above does not capture it">';
 }
 $('#skip').onclick=()=>{i=Math.min(T.length-1,i+1);render();scrollTo(0,0)};
 $('#go').onclick=async()=>{
@@ -707,7 +722,8 @@ $('#go').onclick=async()=>{
   const r=await fetch('/api/adjudicate',{method:'POST',
     headers:{'content-type':'application/json'},
     body:JSON.stringify({key:t.key,errors_present:present,author:who(),
-      unsure:$('#unsure').checked,note:$('#note').value})});
+      unsure:$('#unsure').checked,not_covered:$('#notcovered').checked,
+      note:$('#note').value})});
   const d=await r.json();
   if(!d.ok){alert(d.error||'save failed');return}
   t.done=true;

@@ -463,6 +463,7 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
             "blundered": bool(present),
             "note": (payload.get("note") or "").strip(),
             "unsure": bool(payload.get("unsure")),
+            "not_covered": bool(payload.get("not_covered")),
             "author": author or "anon",
         })
         return {"ok": True}

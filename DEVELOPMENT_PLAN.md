@@ -4796,6 +4796,108 @@ Twice now the guard is what surfaced this rather than a wrong number: the
 first run printed three bold gate FAILs computed from zero gradings before
 `_write_report` learned to withhold below 90% coverage.
 
+### 21.47 Kappa is +0.47, and the two judges reverse an arm
+
+**Self-preference, closed.** `Mistral-Small-24B` — a different vendor, not a
+different generation — passes the paired control at full coverage:
+
+| positions, n=24, one arm | clean | 1-error | mean | caught the planted one | **sep** |
+| --- | --- | --- | --- | --- | --- |
+| Qwen2.5-32B | 1/24 | 24/24 | 0.04 / 1.12 | 100% | +96% |
+| **Mistral-24B** | **0/24** | 24/24 | 0.00 / 1.08 | 96% | **+100%** |
+
+So the 32B's numbers are not a Qwen judging Qwen flattering itself. *(Gemma-2-27B
+could not run at all: its chat template raises `System role not supported` and
+all three judge prompts open with a system message. `eval.apply_judge_template`
+now folds `system` into the first user turn on the **judge** paths only —
+`build_prompt` is left alone, because reshaping what the model under test sees
+invalidates the adapter, which is Section 8.7.)*
+
+**Kappa, finally measurable.** Two judges that both pass the control, rescoring
+byte-identical stored answers — the last open trip-wire in STRUCTURAL_AUDIT.md:
+
+| | |
+| --- | --- |
+| Cohen's kappa on the blunder call | **+0.47** (raw 72%, chance 48%) |
+| target | ≥ 0.60 |
+| previous measurement | +0.24, with a judge since shown to invent blunders 40% of the time |
+| correctness correlation | r = +0.71 |
+
+**Roughly doubled, and still short.** Replacing a broken judge moved it from
++0.24 to +0.47; it did not reach the bar.
+
+#### Passing the control does not make two judges agree
+
+This is the result, and it is uncomfortable:
+
+| Arm | 32B blunder | Mistral blunder |
+| --- | --- | --- |
+| `base_closed` | **46%** ← best | 38% |
+| `base_open` | 58% | 38% |
+| `base_cards_open` | **71%** ← *worst* | **33%** ← *best* |
+
+**`base_cards_open` is the worst arm under one calibrated judge and the best
+under the other, on identical answers.** Gate 3 returns FAIL under both, but the
+best-arm *identity* flips and the rates sit 16 points apart against a 25%
+threshold — so the agreement is about how far the model is from passing, not
+about the metric. The report's own 21.19 stability check fires on exactly this.
+
+The paired control validates a judge's error detection **in isolation, against
+constructed extremes**. It does not make two such judges agree about real
+answers, and 21.44's +96 / +100 should not have been read as implying it would.
+
+#### Where the disagreement lives, and why
+
+The 20 disputed calls are not spread evenly. **Ten of the fifteen listed are
+`blocking` positions**, the rest combat math and mulligan.
+
+That has a mechanism, and the first human verdicts found it before this run did.
+`pos-blocking-0002`, arm `base_open`, answer **`PASS`**:
+
+| | |
+| --- | --- |
+| 32B | fired errors **1, 2, 3** — every listed error |
+| human | fired **none** |
+| probably true | **1 only** |
+
+Errors 2 and 3 name specific mis-blocks ("Llanowar Elves should block Grizzly
+Bears"). `PASS` blocks nothing, so it commits neither — the judge is wrong twice,
+the 21.26 signature caught in the open. But error 1 is "Take 2 from Elite
+Vanguard rather than trading Llanowar Elves", and passing does exactly that, so
+the human is wrong once.
+
+**Both errors have the same cause.** Section 21.35 rewrote `common_errors` as
+*claims* so a judge could ask "did the answer assert this?" — which works for
+rules questions, whose answers are prose. **Position answers are action lists.**
+`PASS` asserts nothing, so a claim-matching judge has nothing to match and falls
+back to flagging everything, while a careful reader correctly reports that no
+claim was asserted. The mismatch bites hardest on `blocking`, where the errors
+name specific creature pairings, which is where the disputes are.
+
+#### This implicates the control itself
+
+The sensitivity half plants the claim as **literal prose** — *"Llanowar Elves
+should block Grizzly Bears. That is the play here."* — which resembles no arm
+answer on this set. So **+96 and +100 were measured on prose candidates while
+the gate scores action lists.** The control is sound for what it tests and does
+not transfer to the gate as directly as 21.44 implied. Same shape as 21.41's
+open caveat: a control measured in one regime, quoted in another.
+
+#### What changed as a result
+
+The adjudication form asks the right question now. It said *"which of these does
+it commit?"*, which invites reading the claim as text; it now says **"which of
+these mistakes does the answer make?"** with *"judge the play, not the wording —
+an action list like `PASS` still takes 2 from the Vanguard even though it never
+says so."*
+
+And it gained a third verdict beyond hit / not-hit: **"bad, but not for any
+reason above"**, stored as `not_covered`. `PASS` and `PLAY Plains ×6` are
+useless answers that commit no listed claim; recording them as simply "no error"
+would score a judge as correct for missing them. That flag measures **rubric
+coverage**, which no judge number can, and the first eight human verdicts are
+the reason it exists.
+
 ### 21.45 Arm count and rubric type both inflate false errors, unequally
 
 Section 21.42 left one number unexplained and flagged it as corrosive: Llama
