@@ -355,6 +355,35 @@ def parse_mana(cost: str) -> tuple[dict[str, int], int] | None:
     return need, generic
 
 
+def protocol_findings(pos: dict, parsed, card_index=None) -> dict[int, bool]:
+    """Which `common.PROTOCOL_ERRORS` this answer actually commits, by 1-based index.
+
+    The checker side of the six appended rubric entries. Every one is decidable
+    from the board and the parse, so when the judge charges error N a machine can
+    say whether N is true — per-error precision with no human and no second
+    judge (Section 21.70).
+
+    `None` for an entry means "not decidable here": index 5 needs the card index
+    for costs and index 4 needs the position to state a phase. A check that
+    cannot run must not be reported as "the judge was wrong", which is the
+    one-sided-control mistake of 21.43 in a new place.
+    """
+    from actions import legality
+
+    out: dict[int, bool | None] = {}
+    out[1] = parsed.only_pass
+    out[2] = parsed.degenerate
+    out[3] = not legality(parsed, pos.get("legal_actions") or []).get("all_legal")
+    out[4] = bool(phase_problems(pos, parsed.actions)) if pos.get("phase") else None
+    kind = (payment_kind(pos, parsed.actions, card_index)
+            if card_index is not None
+            and any(a.verb == "TAP" for a in parsed.actions) else "undecidable")
+    out[5] = None if kind == "undecidable" else (kind == "short")
+    out[6] = None if kind == "undecidable" else (kind == "excess")
+    out[7] = bool(battlefield_cast_problems(pos, parsed.actions))
+    return out
+
+
 def phase_problems(pos: dict, actions) -> list[str]:
     """A `PHASE` declaration that disagrees with the board it was given.
 
@@ -536,6 +565,25 @@ def payment_problems(pos: dict, actions, card_index=None) -> list[str]:
         out.append(f"declared {have_total} mana for {cost_total} mana of spells "
                    f"({have_total - cost_total} floated for nothing)")
     return out
+
+
+def payment_kind(pos: dict, actions, card_index=None) -> str | None:
+    """"short", "excess", or None — which way the declared taps miss.
+
+    A reviewer drew the line and it is a real one: under-tapping means the spell
+    cannot be cast at all, and over-tapping is a legal play a real player makes.
+    One rubric entry covering both asked the judge to charge two different
+    mistakes with one number (Section 21.70).
+
+    "short" wins when both are somehow reported, because an unpayable cost is
+    the more serious finding and the two are not independent.
+    """
+    probs = payment_problems(pos, actions, card_index)
+    if not probs:
+        return None
+    if any("short" in p or "but cast" in p for p in probs):
+        return "short"
+    return "excess" if any("floated" in p for p in probs) else None
 
 
 def battlefield_cast_problems(pos: dict, actions) -> list[str]:

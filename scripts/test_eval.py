@@ -1260,6 +1260,73 @@ def test_payment_and_battlefield_casts() -> int:
     return failed
 
 
+def test_protocol_findings() -> int:
+    """The seven protocol classes, decided by a parser (21.70).
+
+    These are the rubric entries a machine can confirm, which is what makes
+    per-error precision computable without a human or a second judge. The two
+    payment classes are asserted separately because a reviewer split them: not
+    tapping enough makes the spell uncastable, while tapping too much is a legal
+    play that should still be discouraged.
+    """
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from actions import parse_output
+    from common import PROTOCOL_ERRORS, PROTOCOL_INVALIDATING
+    from positions import protocol_findings
+
+    failed = 0
+    failed += not check("seven classes are defined", len(PROTOCOL_ERRORS), 7)
+    failed += not check("over-tapping is the only non-invalidating one",
+                        sorted(set(range(1, 8)) - set(PROTOCOL_INVALIDATING)), [6])
+
+    board = {"phase": "precombat main",
+             "legal_actions": ["CAST Shock TARGET Bear", "PASS"],
+             "battlefield": [{"controller": "you", "card": "Mountain", "tapped": False},
+                             {"controller": "you", "card": "Mountain", "tapped": False},
+                             {"controller": "you", "card": "Serra Angel", "tapped": False}],
+             "players": {"you": {"hand": ["Shock"]}}}
+
+    # {1}{R}, so one Mountain under-pays and three over-pay. A one-mana spell
+    # cannot express under-tapping here: two identical CAST lines collapse to
+    # one action (REPEAT_IS_MEANINGFUL covers PLAY and TAP, not CAST), so the
+    # single tap paid for it exactly and the first version of this test asserted
+    # a shortfall that did not exist.
+    class _Idx:
+        def resolve(self, name): return {"mana_cost": "{1}{R}", "name": name}, "exact"
+
+    def f(ans, idx=None):
+        return protocol_findings(board, parse_output(ans), idx)
+
+    failed += not check("only PASS is class 1", f("PASS")[1], True)
+    failed += not check("a loop is class 2", f("CAST Shock TARGET Bear\n" * 6)[2], True)
+    failed += not check("an unavailable play is class 3",
+                        f("CAST Doom Blade TARGET Bear\nPASS")[3], True)
+    failed += not check("the right phase is not class 4",
+                        f("PHASE precombat main\nCAST Shock TARGET Bear\nPASS")[4], False)
+    failed += not check("a wrong phase is class 4",
+                        f("PHASE declare blockers\nCAST Shock TARGET Bear\nPASS")[4], True)
+    # The split the reviewer asked for.
+    under = f("TAP Mountain FOR {R}\nCAST Shock TARGET Bear\nPASS", _Idx())
+    over = f("TAP Mountain FOR {R}\nTAP Mountain FOR {R}\n"
+             "TAP Mountain FOR {R}\nCAST Shock TARGET Bear\nPASS", _Idx())
+    exact = f("TAP Mountain FOR {R}\nTAP Mountain FOR {R}\n"
+              "CAST Shock TARGET Bear\nPASS", _Idx())
+    failed += not check("under-tapping is class 5, not 6", (under[5], under[6]), (True, False))
+    failed += not check("over-tapping is class 6, not 5", (over[5], over[6]), (False, True))
+    failed += not check("exact payment is neither", (exact[5], exact[6]), (False, False))
+    failed += not check("casting what is in play is class 7",
+                        f("CAST Serra Angel\nPASS")[7], True)
+    # Undecidable must stay None: counting a check that could not run as "the
+    # judge was wrong" is the one-sided-control mistake (21.43).
+    failed += not check("no card index leaves payment undecided",
+                        (f("TAP Mountain FOR {R}\nCAST Shock TARGET Bear")[5],
+                         f("TAP Mountain FOR {R}\nCAST Shock TARGET Bear")[6]), (None, None))
+    failed += not check("a position with no phase leaves class 4 undecided",
+                        protocol_findings({"legal_actions": ["PASS"]},
+                                          parse_output("PHASE upkeep\nPASS"))[4], None)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1338,6 +1405,7 @@ def main() -> None:
                      ("tap_problems", test_tap_problems),
                      ("phase_declaration", test_phase_declaration),
                      ("payment_and_battlefield", test_payment_and_battlefield_casts),
+                     ("protocol_findings", test_protocol_findings),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

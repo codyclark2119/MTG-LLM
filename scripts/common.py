@@ -114,6 +114,47 @@ WIKI_PIN = {
     "license": "CC BY-NC-SA 2.5",
 }
 
+# Errors any position can contain, regardless of what it is testing.
+#
+# `common_errors` on a position enumerate *strategy* blunders — playing the
+# wrong card, blocking the wrong creature. Section 21.49 measured that 81% of
+# adjudicated answers were bad for a reason none of them describes: the model
+# does nothing, loops, plays something unavailable, or misstates the step. The
+# judge cannot charge an error that is not listed, so it charged a neighbouring
+# one — precision 3%, recall 100%, zero misses (21.65).
+#
+# These six close that gap. They are position-INDEPENDENT, so they are appended
+# to every rubric rather than authored per board, and each one is **decidable by
+# a parser**: when the judge charges one, a checker can confirm or refute it
+# without a human and without a second judge. That is what makes them different
+# in kind from every other rubric entry here, and it is the first per-error
+# precision measurement this project can make on its own (Section 21.70).
+#
+# ORDER IS PART OF THE DATA. The judge returns error NUMBERS, so reordering or
+# inserting renumbers every stored verdict. Append only.
+PROTOCOL_ERRORS = (
+    "The answer takes no action at all — it only passes.",
+    "The answer repeats the same action over and over instead of playing a line.",
+    "The answer names a play that is not available in this position.",
+    "The answer states a phase or step other than the one the position is in.",
+    "The answer does not tap enough mana to pay for the spells it casts.",
+    "The answer taps more mana than the spells it casts require.",
+    "The answer casts a permanent that is already on the battlefield.",
+)
+
+# Which of the above make a turn INVALID versus merely bad. A reviewer drew the
+# line: under-tapping means the spell cannot be cast at all, while over-tapping
+# is a legal play a real player makes and should still be discouraged. Folding
+# both into one entry asked the judge to charge two different mistakes with one
+# number, and asked the parser to confirm a charge that could be true for either
+# reason.
+#
+# The distinction is the gate's, not the judge's: the target at this stage is a
+# turn that is completely VALID, not a turn that is optimal. Gate 1 is about
+# validity and these are its vocabulary; strategy errors are about optimality
+# and stay where they are (Section 21.70).
+PROTOCOL_INVALIDATING = (1, 2, 3, 4, 5, 7)   # 6 (over-tapping) is legal but wasteful
+
 # --- Rule-id patterns -------------------------------------------------------
 
 # Find rule ids inside prose: "...as a state-based action (704.5g) and..."

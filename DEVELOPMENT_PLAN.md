@@ -6535,3 +6535,96 @@ Counted per page after a first attempt reported **265 resolved references where
 there are 85** — every chunk of a page repeats that page's citations, so summing
 over chunks multiplied a 13-chunk page by thirteen. The same denominator error
 as 21.63 and 21.56, and the inflated number was again perfectly plausible.
+
+### 21.70 Protocol errors: the gameplay layer supervises the judge
+
+21.65 measured judge-vs-human kappa at **+0.06** — chance — with precision 3%,
+recall 100% and zero misses. The judge fires at nearly everything and misses
+nothing, which is not a judge that works. 21.49 already named why: **81% of
+adjudicated answers were bad for a reason no listed error describes**, and a
+judge cannot charge an error that is not enumerated, so it charges a neighbour.
+
+#### The gameplay layer already holds the truth the judge layer lacks
+
+Crossing the judge-free checks against the judge on the verbose run:
+
+| | judge fired | judge silent |
+| --- | --- | --- |
+| a mechanical check fired | 42 | **20** |
+| nothing mechanical fired | 5 | 5 |
+
+**86% of answers (62/72) can be convicted with no judge at all.** The judge is
+silent on 20 that are provably wrong and fires on 5 of the 10 that are provably
+clean.
+
+The silence is arguably *obedient*, not broken: a do-nothing answer commits no
+listed **strategy** error. The gap between "mechanically convictable" and "the
+rubric can describe it" **is** the 81%.
+
+This inverts the layering the project assumed. A judge cannot validate itself
+and judge-vs-judge is worth +0.47 against a truth of +0.06 — but a board state
+is machine-checkable in a way a rules question never is. **The gameplay layer
+supervises the judge layer, not the reverse.** The corollary is worth knowing
+before it bites: deckbuilding has no parser and no legal-action list, so it
+inherits the judge's weaknesses with none of these correctives.
+
+#### Seven protocol errors, appended to every rubric
+
+Position-independent, so they need no authoring per board. Order is
+**append-only**: the judge returns error NUMBERS, so strategy errors keep
+`1..n` and every verdict already collected still means what it meant.
+
+| # | class | invalidates the turn? |
+| --- | --- | --- |
+| 1 | takes no action at all | yes |
+| 2 | repeats an action instead of playing a line | yes |
+| 3 | names a play that is not available | yes |
+| 4 | states the wrong phase | yes |
+| 5 | **does not tap enough** to pay | yes |
+| 6 | **taps more than required** | no — legal, and still discouraged |
+| 7 | casts a permanent already on the battlefield | yes |
+
+5 and 6 began as one entry. A reviewer split them, and the distinction is real:
+under-tapping means the spell cannot be cast at all, while over-tapping is a
+legal play a real player makes. One entry asked the judge to charge two
+different mistakes with one number, and asked the parser to confirm a charge
+that could be true for either reason.
+
+#### What makes these different from every other rubric entry
+
+Each is **decidable by a parser**. When the judge charges "the answer takes no
+action", a machine confirms or refutes it — **per-error precision with no human
+and no second judge**, which this project has never been able to compute.
+`protocol_findings()` returns the machine verdict per class and the report turns
+it into a precision line.
+
+Two restraints, both deliberate. `None` means *not decidable here* — class 5/6
+need the card index, class 4 needs the position to state a phase — and those are
+**excluded** rather than counted as the judge being wrong, which would be
+21.43's one-sided control in a new place. And **blunder rate is unchanged**: it
+stays defined on `errors_made` exactly as 21.28 set it, with the
+strategy/protocol split stored beside it, so no published number moves.
+
+#### The target is a valid turn, not an optimal one
+
+The reviewer's framing, and it is sharper than either gate: *"aiming not for a
+whole game correct at this point but simply a full turn completely valid."*
+`valid_turn` is exactly that — no invalidating class fired — and it is
+judge-free:
+
+| arm | terse grammar | verbose grammar |
+| --- | --- | --- |
+| `base_closed` | **54%** | 46% |
+| `base_open` | 29% | 25% |
+| `base_cards_open` | 17% | 17% |
+
+The best arm plays a completely valid turn about half the time. And the reasons
+differ by grammar — terse fails on *unavailable play* (25) and *does nothing*
+(23); verbose on *unavailable play* (37), *wrong phase* (20) and *repeats* (18),
+having traded doing nothing for saying the wrong thing, exactly as 21.63
+measured.
+
+**Gate 3 stays on strategy errors.** Counting protocol errors toward it would
+make a do-nothing answer a "blunder" and stop the metric meaning "picked the
+wrong play". Validity is Gate 1's business, and `valid_turn` is the number it
+should be read against.

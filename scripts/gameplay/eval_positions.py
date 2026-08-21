@@ -35,6 +35,8 @@ from common import (  # noqa: E402
     CALIBRATED_JUDGE_ID,
     POSITIONS_PATH,
     REPO_ROOT,
+    PROTOCOL_ERRORS,
+    PROTOCOL_INVALIDATING,
     build_position_messages,
     cohens_kappa,
     gameplay_fingerprint,
@@ -42,6 +44,7 @@ from common import (  # noqa: E402
     render_position,
 )
 from positions import (battlefield_cast_problems, load_positions,
+                       protocol_findings,
                        payment_problems, phase_problems, position_card_names,
                        tap_problems)  # noqa: E402
 
@@ -431,7 +434,12 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
         candidates = {arm: visible_answer(answers[arm][i]) for arm in arm_names}
         judged = rules_eval.judge_batch_rubric(
             lm_generate, judge_model, judge_tokenizer, render_position(pos),
-            pos["key_points"], pos.get("common_errors") or [], candidates,
+            pos["key_points"],
+            # Strategy errors first, then the six position-independent protocol
+            # errors. Order is load-bearing: the judge returns NUMBERS, so
+            # 1..n_strategy stay exactly what every stored verdict meant and the
+            # new classes are appended after (Section 21.70).
+            (pos.get("common_errors") or []) + list(PROTOCOL_ERRORS), candidates,
             args.judge_max_tokens, rng,
         )
         per_arm = {}
@@ -500,6 +508,32 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 # against the board. The one thing the enumerated-legal_actions
                 # check structurally cannot see: a legal action taken under a
                 # wrong belief looks identical to a correct one (21.61).
+                # The rubric now carries two KINDS of error, so the split is
+                # stored rather than inferred later from an index nobody kept.
+                # Blunder rate stays defined on `errors_made` exactly as before
+                # (21.28) — this sits beside it and changes no published number.
+                "n_strategy_errors": len(pos.get("common_errors") or []),
+                "strategy_errors_made": [
+                    e for e in (j.get("errors_made") or [])
+                    if isinstance(e, int) and e <= len(pos.get("common_errors") or [])],
+                "protocol_errors_made": [
+                    e - len(pos.get("common_errors") or [])
+                    for e in (j.get("errors_made") or [])
+                    if isinstance(e, int) and e > len(pos.get("common_errors") or [])],
+                # And whether each protocol charge is TRUE, decided by a parser.
+                # No other rubric entry can be checked this way: this is the
+                # per-error precision measurement the project has never had.
+                # "A completely VALID turn" — the reviewer's stated target for
+                # this stage, and a sharper one than either gate measures.
+                # Optimality is not asked: an answer can be valid and bad. Every
+                # invalidating class is parser-decided, so this is a judge-free
+                # number (Section 21.70).
+                "valid_turn": not any(
+                    protocol_findings(pos, parsed, _card_index_for_taps()).get(i)
+                    for i in PROTOCOL_INVALIDATING),
+                "protocol_truth": {
+                    str(k): v for k, v in
+                    protocol_findings(pos, parsed, _card_index_for_taps()).items()},
                 "phase_problems": phase_problems(pos, parsed.actions),
                 # Do the declared taps ADD UP to what was cast, and is the
                 # thing being cast even in hand? tap_problems checks each tap
@@ -736,8 +770,9 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "failure is in what the judge PRODUCES, not what it reads — a reasoning judge "
             "spends its budget thinking before it emits JSON.\n")
     lines.append("\n| Arm | Blunder rate | Errors/answer | Correctness | Parsed ok "
-                 "| Plays/answer | All legal | Legal plays | Did nothing | Degenerate |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+                 "| Plays/answer | Valid turn | All legal | Legal plays | Did nothing "
+                 "| Degenerate |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     def n_pl_for_arm(arm):
         return sum(((r["arms"][arm] or {}).get("n_plays")
                     if (r["arms"][arm] or {}).get("n_plays") is not None
@@ -759,6 +794,8 @@ def _write_report(results, positions, arm_names, closed_arms, args,
         errs = sum(err_counts) / len(err_counts) if err_counts else float("nan")
         summary[arm] = {"blunder": blunder, "errs": errs, "corr": corr, "parsed_ok": parsed_ok,
                         "all_legal": all_legal, "n_judged": n_b, "degenerate": degen}
+        valid, _ = rate(arm, "valid_turn")
+        summary[arm]["valid_turn"] = valid
         nothing, _ = rate(arm, "only_pass")
         summary[arm]["only_pass"] = nothing
         # `all_legal` is an AND over an answer's plays, so an answer with more
@@ -773,7 +810,7 @@ def _write_report(results, positions, arm_names, closed_arms, args,
         n_pl = n_pl_for_arm(arm)
         play_legal = n_ok / n_pl if n_pl else float("nan")
         lines.append(f"| {arm} | {blunder:.0%} (n={n_b}) | {errs:.2f} | {corr:.2f} "
-                     f"| {parsed_ok:.0%} | {acts:.1f} | {all_legal:.0%} "
+                     f"| {parsed_ok:.0%} | {acts:.1f} | {valid:.0%} | {all_legal:.0%} "
                      f"| {play_legal:.0%} ({n_ok}/{n_pl}) | {nothing:.0%} "
                      f"| {degen:.0%} |")
 
@@ -843,6 +880,39 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "list for a reason the list cannot state. The payment check is silent on answers "
             "that declare no taps, so it reports nothing on runs made before the verbose "
             "grammar rather than crediting them (Section 21.66).\n")
+
+    # Per-error precision on the protocol classes, decided by a parser. The
+    # first judge-quality number this project can compute with no human and no
+    # second judge — and the answer to "is the judge charging real errors" for
+    # the six classes that account for most of what real answers get wrong.
+    tp = fp = und = miss = 0
+    for r in results:
+        for a in arm_names:
+            d = r["arms"].get(a) or {}
+            truth = d.get("protocol_truth")
+            if truth is None:
+                continue
+            fired = set(d.get("protocol_errors_made") or [])
+            for k, v in truth.items():
+                k = int(k)
+                if v is None:
+                    und += 1
+                elif k in fired and v:
+                    tp += 1
+                elif k in fired and not v:
+                    fp += 1
+                elif k not in fired and v:
+                    miss += 1
+    if tp or fp or miss:
+        prec = tp / (tp + fp) if tp + fp else float("nan")
+        rec = tp / (tp + miss) if tp + miss else float("nan")
+        lines.append(
+            f"\n- **Protocol errors, checked by parser: precision {prec:.0%} "
+            f"({tp}/{tp + fp}), recall {rec:.0%} ({tp}/{tp + miss}).** These six rubric "
+            "entries are decidable from the board, so every charge the judge makes against "
+            "them is confirmed or refuted mechanically — no human, no second judge. "
+            f"{und} checks could not be decided here and are excluded rather than counted "
+            "as the judge being wrong (Section 21.70).\n")
 
     n_unearned = n_credited = n_checkable = 0
     for r in results:
