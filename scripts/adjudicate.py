@@ -301,10 +301,19 @@ def main() -> None:
 
     if args.status:
         q = json.loads(QUEUE_PATH.read_text()) if QUEUE_PATH.exists() else []
-        done = {v["key"] for v in read_jsonl(ADJUDICATIONS_PATH)}
-        print(f"queue     : {len(q)}")
-        print(f"adjudicated: {len(done & {i['key'] for i in q})}/{len(q)}")
-        print(f"total verdicts on file: {len(done)}")
+        rows = read_jsonl(ADJUDICATIONS_PATH)
+        done = {v["key"] for v in rows}
+        # Rows and keys are different numbers once anything is re-adjudicated,
+        # and reporting the key count as "verdicts on file" made three appended
+        # rows look like nothing had happened. Same phantom-progress shape the
+        # rubric server's task list already guards against.
+        from collections import Counter
+        vers = Counter(v.get("form_version", 1) for v in rows)
+        print(f"queue      : {len(q)}")
+        print(f"covered    : {len(done & {i['key'] for i in q})}/{len(q)} of the queue")
+        print(f"verdicts   : {len(rows)} rows over {len(done)} distinct answers"
+              + (f" ({len(rows) - len(done)} re-adjudicated)" if len(rows) > len(done) else ""))
+        print(f"by wording : {', '.join(f'v{k}: {n}' for k, n in sorted(vers.items()))}")
         return
 
     if args.score:
@@ -324,9 +333,26 @@ def main() -> None:
             print(f"scored against {len(verdicts)} verdicts at form_version "
                   f"{args.form_version}\n")
         else:
+            # A re-adjudication supersedes the earlier one. The same key can be
+            # answered twice — once under v1, once under v2 — and because the
+            # author changed in between, dedupe on (key, author) keeps both.
+            # Scoring both would count two contradictory verdicts for one
+            # answer, so the newest wording wins: pos-combat-math-0004 went
+            # [1,4,5] under v1 to [1] plus not_covered under v2, and only the
+            # second is a verdict about the errors rather than about the answer
+            # being bad.
+            newest = {}
+            for v in verdicts:
+                k = v["key"]
+                if k not in newest or v.get("form_version", 1) >= newest[k].get("form_version", 1):
+                    newest[k] = v
+            superseded = len(verdicts) - len(newest)
+            verdicts = list(newest.values())
             print(f"scored against {len(verdicts)} human verdicts "
-                  f"({', '.join(f'v{k}: {len(x)}' for k, x in sorted(vers.items()))})")
-            if len(vers) > 1:
+                  f"({', '.join(f'v{k}: {len(x)}' for k, x in sorted(vers.items()))}"
+                  + (f"; {superseded} superseded by a re-adjudication)" if superseded else ")"))
+            live = {v.get("form_version", 1) for v in verdicts}
+            if len(live) > 1:
                 print("  > MIXED WORDING. v1 under-fires on action-list answers, so a\n"
                       "  > judge's precision is understated where v1 dominates. Split\n"
                       "  > with --form-version N before quoting a number (21.47).")
