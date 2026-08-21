@@ -4815,3 +4815,51 @@ points the wrong way to be the explanation, since *more* room per arm produced
 `calibrate_judge.py`'s four-arm mode reads gold-shaped records only, so
 completing the square symmetrically would need work the three cells already make
 unnecessary.
+
+### 21.46 Run 4 trained; validation plateaus at 0.9 epochs and the final weights are not the best
+
+The retrain that has been ready since 21.13 and never launched.
+`data/datasets/verified` — 1,001 train / 111 valid — under
+`configs/phase1_lora_v4_verified.yaml`, `iters: 1001` × `batch_size: 2` =
+**2.00 epochs**. Contamination audited **before** the run, as the rule requires:
+no exact matches across 1,112 training lines × 568 eval questions, nothing above
+75% token overlap, exit 0.
+
+| iter | val loss | |
+| --- | --- | --- |
+| 1 | 4.003 | |
+| 150 | 1.776 | |
+| 300 | 1.632 | |
+| **450** | **1.534** | plateau begins (**0.9 epochs**) |
+| 600 | 1.546 | |
+| 750 | 1.553 | |
+| **900** | **1.527** | best |
+| 1001 | 1.542 | final weights |
+
+1h05m wall, peak memory **7.4 GB of 36** — the guardrail was never close to
+binding, as in every run here.
+
+**Two things worth carrying into the review.**
+
+The curve is **flat after iter 450**: from there to the end val loss moves
+**+0.008**, wandering inside a ±0.015 band. The whole second epoch bought
+nothing measurable. That is the same arithmetic error `phase1_lora_v2.yaml`
+carried in comment form — a config asserting an epoch count nobody had checked
+against the loss — arriving from the other direction: the epochs ran, and were
+not needed.
+
+And **`adapters.safetensors` is not the best checkpoint.** The final weights sit
++0.015 above iter 900. `mlx_lm.lora` writes the last iteration, not the best, so
+the file the eval default would pick is the worse one. Checkpoints every 100
+iterations are on disk; `0000900_adapters.safetensors` is the candidate.
+
+**None of this is a capability result.** Validation loss is not the deliverable
+and has already been shown not to predict the thing that is: run 3 removed the
+under-training confound, moved `finetuned_rag` by +0.04 under one judge and
++0.02 under another, and was **not promoted** because control arms moved up to
+0.23 on judge variance alone (18.3). Run 4 gets the same treatment — spot-checks
+and a scored eval decide it, not the curve above.
+
+Stamped immediately (`prompt_fingerprint 30badae98696`, verified against the
+training file rather than asserted), so `eval.py` will refuse it if a prompt
+changes underneath it — Section 8.7's failure, made an error message.
