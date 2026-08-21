@@ -5375,3 +5375,63 @@ uniform per-arm coverage — 0 or 1 answers apart — because `judge_batch_rubri
 grades all arms in one call, so a question is either graded for every arm or for
 none. The means were over the same questions in every case. What was missing was
 the sentence saying *how many* questions that was.
+
+### 21.54 The judge-agreement report identified its judges by filename
+
+Continuing the audit of report writers rather than waiting on the run. Three
+provenance guards should hold everywhere — name the judge (21.40), state
+coverage (21.14), state the arm count (21.5). Checked across all six writers:
+
+| writer | names the judge | arm count | coverage |
+| --- | --- | --- | --- |
+| `eval.main` / `eval.rescore` | yes | yes | yes |
+| `eval_positions._write_report` | yes | yes | yes |
+| `calibrate_judge.run_judge_report` | yes | yes | yes |
+| **`eval.compare_judges`** | **no** | yes | no |
+| **`eval_positions.compare_judges`** | **no** | yes | no |
+
+Both judge-agreement writers — and the judge is the *entire subject* of those
+two reports. They headed their output ``` `pos_n24_32b.jsonl` vs
+`pos_n24_mistral24b.jsonl` ```, which is precisely the record 21.40 found
+insufficient when `cards_n100_judge2.md` carried its most important variable in
+its filename. Every row has carried `judge_model` since; the report that most
+needed it was reading the name off the path.
+
+**And nothing stopped comparing a file with itself.** The shared-id check
+passes, the arm-overlap check passes, and the output is:
+
+```
+- **Cohen's kappa on the blunder call: +1.00** (raw agreement 100%, chance 51%)
+- correctness correlation: r = +1.00
+```
+
+under a heading that says *Position Judge Agreement*. The judge is deterministic
+(that is a documented property relied on elsewhere), so this measures
+determinism and reports it as agreement. A perfect kappa is the most quotable
+number this report can emit and it was the one case where it means nothing.
+
+`judges_of` and `assert_two_judges` now sit in `eval.py` — one definition,
+called by both comparators, because this exact hardening has now landed on one
+of two writers four times. An unrecorded judge is *stated* rather than omitted:
+archived runs predate the field, and "unrecorded" is a fact about the evidence
+where a blank looks like nothing was wrong.
+
+#### A third failure the gate comparison could not see
+
+The verdict column compares PASS/FAIL. On the real 32B-vs-Mistral comparison:
+
+```
+| 3 — blunder ≤25% | 42% (base_closed) FAIL | 26% (base_cards_open) FAIL | agree |
+```
+
+It says **agree** — both FAIL — while the two judges name *different best arms*.
+21.19's guard catches "agrees but far apart" and fires here too (16 points
+against a 25-point bar). Neither catches "agrees about the verdict, disagrees
+about which arm is winning", which is 21.52's reversal in the place it would
+actually be read. If this gate ever passes, the two judges would be passing
+different arms. Both warnings now print.
+
+**Nothing published moves.** Every archived comparison did vary the judge; the
+self-comparison is a case that was reachable, not one that was taken. What
+changes is that the report now says which two models it compared, in the report
+whose only job is to compare two models.

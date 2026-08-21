@@ -862,6 +862,46 @@ def test_coverage_lines() -> int:
     return failed
 
 
+def test_judge_identity() -> int:
+    """An inter-judge report must name its judges and check they differ (21.54).
+
+    `compare_judges` identified its two inputs by FILENAME — the record Section
+    21.40 found insufficient — in the one report whose entire subject is which
+    judge said what. And nothing stopped comparing a file with itself: the id
+    and arm overlap checks both pass, kappa comes out +1.00, and the header
+    still says "Inter-judge agreement".
+    """
+    from eval import assert_two_judges, judges_of
+
+    failed = 0
+    A = [{"judge_model": "vendor/A"}] * 3
+    B = [{"judge_model": "vendor/B"}] * 3
+
+    failed += not check("names the judge", judges_of(A, "runA"), "runA: `vendor/A`")
+    # An unrecorded judge is a fact about the evidence, not a blank.
+    failed += not check("absence is stated, not omitted",
+                        "unrecorded" in judges_of([{}], "runA"), True)
+    # A file whose rows disagree is a harness bug, and averaging across it would
+    # report a rate for a judge that never graded all of it.
+    failed += not check("mixed judges in one file are flagged",
+                        "MIXED" in judges_of([{"judge_model": "A"}, {"judge_model": "B"}], "r"),
+                        True)
+
+    failed += not check("two different judges pass silently",
+                        assert_two_judges(A, B), None)
+    same = assert_two_judges(A, list(A))
+    failed += not check("the same judge twice is flagged", same is not None, True)
+    # It must say WHY, since kappa +1.00 otherwise reads as a result.
+    failed += not check("says what it actually measured",
+                        "determinism" in (same or ""), True)
+    failed += not check("an unrecorded side cannot claim the judge varied",
+                        assert_two_judges([{}], B) is not None, True)
+    # Symmetric: the missing side may be either one.
+    failed += not check("unrecorded on the other side too",
+                        assert_two_judges(A, [{}]) is not None, True)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -933,6 +973,7 @@ def main() -> None:
                      ("unseen_arms", test_unseen_arms),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),
+                     ("judge_identity", test_judge_identity),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

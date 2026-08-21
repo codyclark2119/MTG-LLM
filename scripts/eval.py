@@ -942,8 +942,17 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
 
     authors = sorted(g for g in groups if g not in ("ALL", "machine-drafted"))
     order = ["ALL"] + authors + (["machine-drafted"] if "machine-drafted" in groups else [])
+    # Name the judges, and verify they differ. Identifying them by filename is
+    # the record Section 21.40 found insufficient, in the one report where the
+    # judge identity is the entire subject (Section 21.54).
+    rows_a, rows_b = list(a.values()), list(b.values())
     lines = [f"# Inter-judge agreement: `{path_a.name}` vs `{path_b.name}`", "",
-             f"{len(shared)} questions x {len(arms)} arms, identical stored answers.",
+             "- " + judges_of(rows_a, path_a.stem),
+             "- " + judges_of(rows_b, path_b.stem), ""]
+    warn = assert_two_judges(rows_a, rows_b)
+    if warn:
+        lines += [warn]
+    lines += [f"{len(shared)} questions x {len(arms)} arms, identical stored answers.",
              "Segmented by who wrote the rubric — the variable Section 14.6 found "
              "dominates agreement.", "",
              "| Rubric source | Questions | Pairs | Pearson r | Exact | Mean gap | Same points_hit |",
@@ -987,6 +996,55 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path,
         s = stats(groups[g])
         print(f"  {g:16s} n={s['n']:>4}  r={s['r']:+.2f}  exact={s['exact']:.0%}  gap={s['gap']:.2f}")
     print(f"\n-> {report_out}")
+
+
+def judges_of(rows: list[dict], label: str) -> str:
+    """The judge model named on a set of stored rows, or a stated absence.
+
+    Section 21.40's lesson was "a rate is a statement about a judge", and every
+    row has carried `judge_model` since. The one report where the judge IS the
+    subject — inter-judge agreement — still identified its two inputs by
+    *filename*, which is the exact record 21.40 found insufficient
+    (`cards_n100_judge2.md` carrying its most important variable in its name).
+
+    Returns a display string. A file with no `judge_model` says so rather than
+    going blank: archived runs predate the field, and "unrecorded" is a fact
+    about the evidence where a silent omission looks like nothing was wrong.
+    """
+    seen = {r.get("judge_model") for r in rows}
+    named = sorted(m for m in seen if m)
+    if not named:
+        return f"{label}: judge unrecorded (archived before Section 21.40)"
+    if len(named) > 1:
+        return f"{label}: MIXED judges in one file — " + ", ".join(named)
+    return f"{label}: `{named[0]}`"
+
+
+def assert_two_judges(rows_a: list[dict], rows_b: list[dict]) -> str | None:
+    """Warn when an 'inter-judge' comparison did not actually vary the judge.
+
+    Comparing a file with itself, or two files judged by the same model,
+    produces perfect agreement and a report headed "Inter-judge agreement".
+    Nothing caught that: the arm and id overlap checks both pass, and kappa
+    +1.00 reads as a *result*. The whole point of --rescore-from is that the
+    judge differs, so the case worth guarding is the one where it does not.
+
+    Returns a warning line, or None when the two judges genuinely differ.
+    Never fatal — a run whose judges are unrecorded is still worth comparing,
+    it just cannot claim to have varied the judge.
+    """
+    ja = {r.get("judge_model") for r in rows_a if r.get("judge_model")}
+    jb = {r.get("judge_model") for r in rows_b if r.get("judge_model")}
+    if not ja or not jb:
+        return ("> **One or both files do not record their judge**, so this cannot verify "
+                "that the judge actually varied. Identify them by provenance before "
+                "reading the agreement number (Section 21.40).\n")
+    if ja == jb:
+        return (f"> **Both files were judged by the same model** (`{sorted(ja)[0]}`). This is "
+                "not an inter-judge comparison — agreement here measures determinism, not "
+                "agreement, and the judge is deterministic. Re-run one side with "
+                "`--rescore-from` and a different `--judge-model`.\n")
+    return None
 
 
 def coverage_lines(results: list[dict]) -> list[str]:

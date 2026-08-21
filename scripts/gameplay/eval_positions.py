@@ -155,8 +155,20 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
 
     r = pearson_r(corr_pairs)  # one definition, in common.py
 
+    # "judge varied" was an assertion in a string. Now it is checked, using the
+    # same two helpers the rules comparison uses — one definition, because this
+    # exact hardening has landed on one of two writers three times (21.54).
+    import eval as rules_eval  # the judge identity lives there; do not reimplement it
+
+    rows_a, rows_b = list(a.values()), list(b.values())
+    _warn = rules_eval.assert_two_judges(rows_a, rows_b)
     lines = ["# Position Judge Agreement\n",
-             f"`{path_a.name}` vs `{path_b.name}` — identical stored answers, judge varied.\n",
+             f"`{path_a.name}` vs `{path_b.name}` — identical stored answers.\n",
+             "- " + rules_eval.judges_of(rows_a, path_a.stem),
+             "- " + rules_eval.judges_of(rows_b, path_b.stem), ""]
+    if _warn:
+        lines.append(_warn)
+    lines += [
              f"- {n} arm-position blunder calls over {len(shared_ids)} positions x {len(arms)} arms",
              f"- **Cohen's kappa on the blunder call: {kappa:+.2f}** "
              f"(raw agreement {po:.0%}, chance {pe:.0%})",
@@ -211,6 +223,21 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
     # is what says whether the verdict would survive a better model. Measured on
     # the 5-arm run: 65% vs 27% against a 25% threshold — one judge 40 points
     # from passing, the other 2.
+    # Agreeing on the VERDICT while naming a different best arm is a third
+    # failure, and neither check above sees it: the verdict column reads "agree"
+    # because both FAIL, while the two judges disagree about which arm is
+    # winning. Measured 21.52 — `base_cards_open` is the worst arm under the 32B
+    # (71%) and the best under Mistral (33%) on identical bytes. A gate whose
+    # PASS would be awarded to a different arm depending on the judge has not
+    # agreed about anything that matters.
+    if arm_a != arm_b:
+        lines.append(
+            f"\n> **The two judges name different best arms.** `{path_a.stem}` puts "
+            f"`{arm_a}` in front at {r3a:.0%}; `{path_b.stem}` puts `{arm_b}` in front at "
+            f"{r3b:.0%}. The verdict column above compares PASS/FAIL and therefore reads "
+            "\"agree\" — but if this gate ever passes, the two judges would be passing "
+            "different arms. Read the ranking, not only the verdict (Section 21.52).")
+
     swing = abs(r3a - r3b)
     if p3a == p3b and swing > GATE3_MAX_BLUNDER / 2:
         lines.append(

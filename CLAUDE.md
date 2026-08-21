@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (206)
+python scripts/test_eval.py                       # the scoring arithmetic (214)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
@@ -164,13 +164,14 @@ enumerated these by hand and neither listed `scoring` at all. Runs archived
 before this carry none of it and are identified by filename only; five have
 `scoring` because a different path wrote them.
 
-**`eval.py` has two report writers, and a hardening has now been applied to only
-one of them three times** — `carry_diagnostics` (neither listed `scoring`),
+**Six report writers exist, and a hardening has landed on a subset of them four
+times** — `carry_diagnostics` (neither listed `scoring`),
 `judge_model` on rescored rows (21.51), and the unjudged-coverage guard, which
 lived in `rescore()` while the *first-pass* writer — where every coverage failure
 this project has had actually happened — printed confident means with no warning
-(21.53). The direction flips each time, so the rule is **check the other
-writer**, not "check `rescore`". Shared behaviour belongs in one function
+(21.53), and the judge's *identity* in both `compare_judges` writers, whose only
+subject is which judge said what (21.54). The direction flips each time, so the
+rule is **check every other writer**, not "check `rescore`". Shared behaviour belongs in one function
 (`carry_diagnostics`, `coverage_lines`) with a test that asserts both callers
 exist, since no test over inputs and outputs can see a missing caller.
 
@@ -427,6 +428,17 @@ Each cost real time. They recur in new code, so they are worth knowing.
   contamination filter compared `id` to `id`, so 16 eval questions passed
   straight through a check that *asserted* it had excluded them. Anything
   joining two files on an id must first ask whether the id survived the trip.
+- **A background job's progress lines sitting in a buffer.** `nohup python x.py
+  > log 2>&1 &` block-buffers stdout at 8 KB when it is redirected, so `print()`
+  progress never reaches the log until the buffer fills or the process exits —
+  while tqdm, which writes to *stderr*, appears immediately. The log therefore
+  looks alive and looks stalled at the same time: a run 36 minutes in had
+  emitted its model-loading lines and not one of its `25/99` progress lines, and
+  the obvious reading was that generation had hung. Launch with `python -u`, or
+  monitor something the job cannot buffer — the artifact it writes, or its RSS
+  (a 4 GB process is generating on the 7B; a 20 GB one has loaded the 32B judge
+  and is scoring). Same family as the `pgrep` trap below: a monitoring signal
+  that reads as one thing and means another.
 - **`pgrep -f` matching the shell that mentions the job.** A background shell
   whose command line contains `... --judge-model mlx-community/Qwen2.5-32B ...`
   is matched by `pgrep -f Qwen2.5-32B`, so "is the 32B run going?" answered yes
