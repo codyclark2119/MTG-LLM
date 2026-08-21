@@ -272,6 +272,7 @@ def validate_position(pos: dict, card_index=None,
                 problems.append(f"rule id does not resolve against the pinned CR: {cite}")
 
     problems.extend(timing_problems(pos, card_index))
+    problems.extend(mana_problems(pos, card_index))
     return [f"[{rid}] {p}" for p in problems]
 
 
@@ -318,6 +319,74 @@ def timing_problems(pos: dict, card_index=None) -> list[str]:
             continue
         out.append(f"legal_action {line!r} is sorcery-speed ({type_line}) but the "
                    f"position is in {pos.get('phase')!r} — it could not be cast then")
+    return out
+
+
+_MANA_SYMBOL_RE = re.compile(r"\{([^}]+)\}")
+_COLOURS = ("W", "U", "B", "R", "G", "C")
+
+
+def parse_mana(cost: str) -> tuple[dict[str, int], int] | None:
+    """(coloured requirements, generic) for a mana string, or None if unsupported.
+
+    Returns None rather than guessing on hybrid, Phyrexian, X, or snow symbols.
+    A cost this cannot represent must not be silently treated as free — that
+    would turn "we do not model this" into "this is affordable", which is the
+    direction that reads as a pass (Section 21.59).
+    """
+    if not cost:
+        return None
+    need: dict[str, int] = {}
+    generic = 0
+    for sym in _MANA_SYMBOL_RE.findall(cost):
+        s = sym.upper()
+        if s.isdigit():
+            generic += int(s)
+        elif s in _COLOURS:
+            need[s] = need.get(s, 0) + 1
+        else:
+            return None          # hybrid, Phyrexian, X, snow — not modelled
+    return need, generic
+
+
+def mana_problems(pos: dict, card_index=None) -> list[str]:
+    """A `legal_action` the position could not actually pay for.
+
+    `timing_problems` asks whether a play is legal *when*; this asks whether it
+    is payable *at all*. Nothing checked it: a board could offer
+    `CAST Doom Blade` with `{G}{G}` available and every existing check passes —
+    the card resolves, the action parses, the step allows an instant.
+
+    Only fires when the position states `mana_available` (8 of 24 do) and the
+    cost is one `parse_mana` can represent. Both silences are deliberate and
+    both are reported by the caller rather than swallowed: a position with no
+    stated pool is not a position with no mana, and a cost this cannot parse is
+    not a cost of zero.
+    """
+    if card_index is None:
+        return []
+    have = parse_mana(pos.get("mana_available") or "")
+    if have is None:
+        return []
+    pool, pool_generic = have
+    total = sum(pool.values()) + pool_generic
+    out = []
+    for line in pos.get("legal_actions") or []:
+        parsed = parse_line(line)
+        if not isinstance(parsed, Action) or parsed.verb != "CAST" or not parsed.args:
+            continue
+        card, how = card_index.resolve(parsed.args[0])
+        if card is None or how != "exact":
+            continue
+        cost = parse_mana(card.get("mana_cost") or "")
+        if cost is None:
+            continue
+        need, generic = cost
+        short = [c for c, n in need.items() if pool.get(c, 0) < n]
+        if short or sum(need.values()) + generic > total:
+            out.append(
+                f"legal_action {line!r} costs {card.get('mana_cost')} but the position "
+                f"states only {pos.get('mana_available')} available")
     return out
 
 
@@ -485,6 +554,18 @@ def main() -> None:
 
     n_closed = sum(1 for p in positions if p.get("legal_actions"))
     print(f"  {n_closed}/{len(positions)} carry legal_actions (usable in the closed arm)")
+
+    # What the timing and mana checks could NOT look at. Both return [] when
+    # their input is absent, and "no problems found" over a set they never
+    # examined is the shape of a passing check that checked nothing — the same
+    # failure as a coverage-free gate verdict (21.14) and a one-sided control
+    # (21.43). Stated as coverage, next to the verdict it qualifies.
+    n_mana = sum(1 for p in positions if p.get("mana_available"))
+    print(f"  {n_mana}/{len(positions)} state mana_available "
+          f"(the affordability check sees only these)")
+    if card_index is None:
+        print("  ! no card index loaded — the timing and affordability checks are "
+              "SKIPPED, not passed")
 
     if all_problems:
         print(f"\n{len(all_problems)} problem(s):")

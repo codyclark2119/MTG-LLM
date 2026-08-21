@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (230)
+python scripts/test_eval.py                       # the scoring arithmetic (242)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
 python scripts/test_deploy.py                     # what may leave the machine (83)
@@ -329,7 +329,19 @@ gate evidence. Hand-authored rubrics beat machine drafts by a wide margin
 (r +0.30 → +0.62, Section 14.6).
 
 The board is **rendered from structured state, never authored as text**, so a
-renderer change applies retroactively.
+renderer change applies retroactively. That is true of the *board*, not of the
+answers: `render_position` is what the model reads, so changing it invalidates
+every stored position answer for comparison. 16 of 24 positions state no
+`mana_available` and the model infers the pool from the land list — making that
+explicit is a deliberate decision with that cost, not a cleanup (Section 21.59).
+
+`positions.py` validates a position three ways beyond parsing: `timing_problems`
+(a sorcery-speed `legal_action` in a step that forbids it), `mana_problems` (one
+the stated pool cannot pay for), and the name/rule-id checks. **Both of the first
+two return `[]` when the card index is absent**, so the validator prints its
+coverage — how many positions state a pool, and whether the index loaded — because
+"no problems found" over a set nothing examined is the same defect as a gate
+verdict with no coverage.
 
 ## The web console
 

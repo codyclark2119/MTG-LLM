@@ -5743,3 +5743,85 @@ Adding the field also broke `test_eval_positions.py` immediately — `rate()`
 indexed `r["arms"][arm][key]` directly and raised `KeyError` on every archived
 run. It now uses `.get()`, so a diagnostic that did not exist when a run was
 written reads as *not measured*, the same treatment an ungraded answer gets.
+
+### 21.59 Phase and mana: three of the four checks already existed, and the fourth did not
+
+A reviewer asked for phase-timing and mana-pool understanding to be built into
+position judging at a mechanical level, so correctness does not wait on the LLM
+judge. Measuring what each would add, before building any of it.
+
+#### The model does violate phases — and it is already caught
+
+Card-independent phase rules (a land drop only in a main phase, `BLOCK` only in
+declare blockers, `MULLIGAN`/`KEEP` only from an opening hand) applied to 251
+distinct stored answers:
+
+| violation | n |
+| --- | --- |
+| `CAST` / `PLAY` during **opening hand** | 22 |
+| `BLOCK` during **declare attackers** | 5 |
+| `PLAY` during **upkeep** (305.1) | 4 |
+| other | 3 |
+| **total** | **24 (9.6%)** |
+
+A higher rate than any error class found so far. And the overlap with the
+existing check is total:
+
+```
+caught by BOTH                 : 24
+caught ONLY by the phase check : 0     <- what it would add
+caught ONLY by legal_actions   : 88
+```
+
+**Zero.** The reason is structural: `legal_actions` is hand-enumerated, so an
+author simply never writes down a phase-illegal action, and anything the model
+invents fails to match. A phase check on model answers would have been a new
+column, new tests, and a second name for a signal already reported — visible as
+an improvement while measuring nothing.
+
+#### Positions are already validated for timing, and rendered with the phase
+
+`positions.timing_problems` catches a `legal_action` that is sorcery-speed in a
+step that does not allow it — written after a board offered `CAST Pacifism`
+during declare attackers. Its `_COMBAT_STEPS` is misnamed: it lists every
+*non-main* step, upkeep and end step included, so the coverage is not just
+combat.
+
+And `render_position` already puts the phase in the header the model reads
+(`=== Turn 7 — opponent's declare attackers ===`), with per-permanent
+tapped/untapped state. The model is told when it is.
+
+#### What did not exist: affordability
+
+Nothing asked whether an enumerated play could be **paid for**. A board offering
+`CAST Doom Blade` with `{G}{G}` available passes every check there is — the card
+resolves against Oracle, the action parses, the step allows an instant.
+
+`mana_problems()` closes it, parsing `mana_available` against the card's
+`mana_cost`. It finds **0 problems in the 24 gold positions**, and fires
+correctly on a deliberately broken control — three flagged actions when
+`{W}{W}{W}{R}{R}` is replaced with `{G}`. Both directions are tested, because a
+check that only ever passes hides every real result.
+
+`parse_mana` returns **None** on hybrid, Phyrexian, X and snow symbols rather
+than guessing. "Not modelled" rendered as a cost of zero would read as
+*affordable*, which is the direction that looks like a pass.
+
+#### Two silences, now reported as coverage
+
+Both `timing_problems` and `mana_problems` return `[]` when their input is
+missing — no card index, or no stated pool. "No problems found" over a set that
+was never examined is the same shape as a gate verdict with no coverage (21.14)
+and a one-sided control (21.43). The validator now prints:
+
+```
+  8/24 state mana_available (the affordability check sees only these)
+  ! no card index loaded — the timing and affordability checks are SKIPPED, not passed
+```
+
+**16 of 24 positions state no mana pool.** The model sees `Swamp — untapped x5`
+and must infer `{B}{B}{B}{B}{B}` itself. Making that explicit everywhere is a
+`render_position` change, and `render_position` is what the model reads — so it
+would invalidate all 251 stored position answers for comparison. That is a
+decision with a real cost attached, not a cleanup, and it is left for the
+gameplay track to take deliberately rather than made here as a side effect.

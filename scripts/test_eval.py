@@ -994,6 +994,51 @@ def test_cohens_kappa() -> int:
     return failed
 
 
+def test_mana_problems() -> int:
+    """A legal_action the position cannot pay for (21.59).
+
+    `timing_problems` asks whether a play is legal *when*; nothing asked whether
+    it was payable *at all*. A board offering `CAST Doom Blade` with `{G}{G}`
+    available passed every existing check — the card resolves, the action
+    parses, the step allows an instant.
+
+    Both directions are asserted. A check that only ever passes hides every real
+    result, and this one currently finds zero problems in the gold set.
+    """
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from positions import mana_problems, parse_mana
+
+    failed = 0
+    # parse_mana refuses to guess rather than reporting a cost of zero, because
+    # "not modelled" rendered as "free" fails in the direction that reads as a pass.
+    failed += not check("generic plus coloured", parse_mana("{1}{B}"), ({"B": 1}, 1))
+    failed += not check("pure generic", parse_mana("{2}"), ({}, 2))
+    for unsupported in ("{X}{R}", "{W/U}{W}", "{B/P}", ""):
+        failed += not check(f"refuses to model {unsupported!r}",
+                            parse_mana(unsupported), None)
+
+    class _Idx:
+        def __init__(self, cost): self.cost = cost
+        def resolve(self, name): return {"mana_cost": self.cost, "name": name}, "exact"
+
+    pos = {"mana_available": "{G}{G}", "legal_actions": ["CAST Doom Blade TARGET Bear"]}
+    failed += not check("an unaffordable colour is caught",
+                        len(mana_problems(pos, _Idx("{1}{B}"))), 1)
+    failed += not check("an affordable spell is not flagged",
+                        mana_problems(pos, _Idx("{1}{G}")), [])
+    # Right colour, too little total mana.
+    failed += not check("too little total mana is caught",
+                        len(mana_problems(pos, _Idx("{4}{G}"))), 1)
+    # Silences that must stay silent rather than becoming false positives.
+    failed += not check("no card index means skipped, not failed",
+                        mana_problems(pos, None), [])
+    failed += not check("a position with no stated pool is not checked",
+                        mana_problems({"legal_actions": pos["legal_actions"]}, _Idx("{9}")), [])
+    failed += not check("an unmodellable cost is skipped, not called free",
+                        mana_problems(pos, _Idx("{X}{B}{B}{B}")), [])
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1068,6 +1113,7 @@ def main() -> None:
                      ("judge_identity", test_judge_identity),
                      ("adjudication_scoring", test_adjudication_scoring),
                      ("cohens_kappa", test_cohens_kappa),
+                     ("mana_problems", test_mana_problems),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()
