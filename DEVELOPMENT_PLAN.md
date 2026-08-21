@@ -5245,3 +5245,90 @@ path, so from `/tmp` the stamp did not resolve and `unseen_arms` returned `[]` �
 *"nothing to warn about"*. A check whose failure mode is silence must be
 anchored to `REPO_ROOT`, which is what `REPO_ROOT` is for, and running the suite
 from somewhere else is how that gets caught. Both tests now use it.
+
+### 21.52 What B3 has to decide against: the judge moves Gate 3 further than the bar is wide
+
+B3 is "with the instrument's error rate now known, is 25% still the right blunder
+bar?" This is the evidence, and it is stored data — no model was run.
+
+Every position run on disk turns out to be the **same generated text**: six
+judgings of one set of 72 answers (24 positions × 3 arms), byte-identical across
+all six. So there is one experiment here, not six, and the judge is the only
+thing that varies. That makes it the cleanest available measurement of what the
+judge alone does to the gate metric.
+
+#### Blunder rate on identical answers, by judge
+
+Restricted to judges that pass the paired control (21.44), graded answers only:
+
+| Arm | Qwen2.5-32B | Mistral-24B | **spread** |
+| --- | --- | --- | --- |
+| `base_closed` | 46% | 38% | 8 |
+| `base_open` | 58% | 38% | 21 |
+| `base_cards_open` | **71%** | **33%** | **38** |
+
+**Gate 3's bar is 25 points wide. On `base_cards_open`, swapping one calibrated
+judge for another moves the metric 38.** Not the model, not the prompt, not the
+arm count — the same bytes, read by two judges that both separate blundered from
+clean at ≥ +96%. This is 9.9 and 16.12 again, now measured against the threshold
+it has to be compared with rather than against another arm.
+
+Qwen3-14B is **excluded, not quoted**: it graded 45/72 (62%), below the coverage
+guard, exactly as 21.44 predicted for a reasoning judge at three arms.
+
+#### Gate 3 partly re-measures Gate 1
+
+Legality comes from the parser and is judge-independent, so it can be crossed
+with the blunder call:
+
+| judging | blunder \| legal | blunder \| illegal | difference |
+| --- | --- | --- | --- |
+| Qwen2.5-32B | 25/47 (53%) | 17/25 (68%) | **+15** |
+| Mistral-24B | 12/47 (26%) | 14/25 (56%) | **+30** |
+
+An illegal answer is substantially more likely to be charged with a blunder.
+That is 21.49's reviewer notes as a rate: the judge is charging *unplayable*
+answers with strategy errors. Since Gate 1 already gates on legality, Gate 3
+applied to all answers counts part of Gate 1 a second time — which is the
+mechanical form of "Gate 1 has to pass before Gate 3 means anything."
+
+#### The analysis walked into this repo's own trap first
+
+The first version of both tables scored `bool(errors_made)` — and `errors_made`
+is `None` when the judge did not grade an answer, which `bool()` renders as
+**False, i.e. clean**. With 27 of Qwen3-14B's 72 ungraded, its blunder rates came
+out 33/42/38% instead of the true **53/67/60%**: a 20-point deflation that made
+the harshest judge on what it actually graded look like the most lenient of the
+three, and would have been quoted as a judge-leniency finding.
+
+`eval_positions.py` does **not** have this bug — `blundered` is explicitly `None`
+when ungraded and every denominator filters on it, with a comment saying why. The
+production path was hardened; a fresh analysis over the same files was not,
+because reading a field directly bypasses the place the care lives. That is the
+"valid JSON in an unexpected shape, read as absence" trap arriving for a third
+time, and the first two were also *plausible* numbers rather than obvious
+failures.
+
+#### What this leaves B3
+
+Setting a number is not the useful move here. Three findings constrain it:
+
+1. **A bar narrower than 38 points cannot be defended on one judge.** Either
+   Gate 3 reports two judges and passes only if both agree — which 21.19's
+   report already flags for — or the bar has to sit outside the judge spread,
+   which at 38 points is most of the scale.
+2. **The metric should condition on legality**, or it re-measures Gate 1.
+3. **The two calibrated judges reverse the ranking outright**, which is what the
+   38-point spread actually is:
+
+   | judge | best → worst |
+   | --- | --- |
+   | Qwen2.5-32B | `closed` 46% < `open` 58% < **`cards_open` 71%** |
+   | Mistral-24B | **`cards_open` 33%** < `closed` 38% < `open` 38% |
+
+   `base_cards_open` is the **worst** arm under one and the **best** under the
+   other, on identical bytes. So this is not a bar that can be tightened or
+   loosened into usefulness — at the moment Gate 3 does not agree with itself
+   about which arm is winning. That is 9.9 and 16.12 a third time, and 21.47's
+   "two calibrated judges reverse an arm" showing up in the gate metric rather
+   than in kappa.
