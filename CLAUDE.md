@@ -184,11 +184,18 @@ Not a size result: a 7.8 GB judge matches a 17.6 GB one. Every judge that passes
 is a Qwen and every `base` arm is a Qwen, so **self-preference is still
 untested** — that needs a different vendor, not a different generation.
 
-Two cautions on quoting these. They come from a **single-arm** pass on
-**positions**, so they are not the `calibrate_judge.py` four-arm rules trip-wire
-(the 32B's verdict there is a separate 0%, 21.31). And Llama scored **4% there
-against 58% here** — arm count and rubric type both moved, it is unresolved, and
-if arm count is the cause then every number in that table is suspect.
+**These are single-arm rates and roughly 17 points pessimistic** (Section
+21.45). Holding the record set fixed, Llama fires at 0/41 clean answers on the
+rules set at **four** arms and 7/42 at **one** — so fewer candidates in the
+prompt means more false positives. Rubric type adds a further +41: positions are
+genuinely harder to judge than rules questions, and that is most of Llama's 58%.
+
+Two consequences. The matrix above is **internally valid** — every judge
+measured identically — so the ranking holds; only absolute rates are
+single-arm-specific, and never quote one against the four-arm trip-wire. And the
+bias favours the published gates: the controls run at one arm, `pos_n24_32b`
+runs at **three**, so the 32B's real false-positive rate where the gates were
+measured is *below* the 4% the control reported.
 
 Four plan sections investigated the 40% as a property of the field while the
 calibration table already recorded the 32B at 0%. A rate measured on one judge

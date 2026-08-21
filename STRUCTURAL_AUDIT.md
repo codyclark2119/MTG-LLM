@@ -49,12 +49,17 @@ This is a plan to find out when that stops being true.
 > first size that would not fit), and the 32B is already at 0% false errors and
 > 100% ordering accuracy on the four-arm trip-wire.
 >
-> **Two open items, neither hardware-shaped.** Every gate verdict published so
-> far is **single-judge**, and Gates 2 and 3 have both reversed between judges on
-> byte-identical answers — now runnable, since Qwen3-14B passes the control.
-> Separately, Llama scored 4% on rules/4-arm against 58% on positions/1-arm; if
-> **arm count** is the cause, every number in the table above is suspect
-> including the 32B's.
+> **One open item, and it is not hardware-shaped.** Every gate verdict published
+> so far is **single-judge**, and Gates 2 and 3 have both reversed between judges
+> on byte-identical answers — now runnable, since Qwen3-14B passes the control.
+>
+> The Llama 4%-vs-58% discrepancy is **resolved** (Section 21.45) and did not
+> invalidate the table. Holding records fixed, arm count accounts for +17 points
+> (0/41 at four arms, 7/42 at one) and rubric type for +41 more. The table is
+> internally valid because every judge in it was measured identically; only the
+> absolute rates are single-arm-specific, and the bias runs *toward* pessimism —
+> the gates were measured at three arms, so the 32B's real false-positive rate
+> there is below the 4% quoted.
 >
 > And the size story is now clearly not a size story: **7.8 GB matches 17.6 GB**
 > on this control. What no smaller judge has matched is the 11.2× correctness

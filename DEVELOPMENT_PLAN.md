@@ -4763,3 +4763,55 @@ whatever it scores on what it does grade.
 different vendor. Every judge that passes this control is a Qwen, and every
 `base` arm is a Qwen. Self-preference is still untested and still needs
 Mistral-24B or Gemma-27B.
+
+### 21.45 Arm count and rubric type both inflate false errors, unequally
+
+Section 21.42 left one number unexplained and flagged it as corrosive: Llama
+scored **4%** false errors on the rules set at four arms and **58%** on
+positions at one arm. Arm count and rubric type moved together, and if arm count
+were the cause then every number in 21.44's matrix — all single-arm — would be
+measuring the harness.
+
+Holding the **record set fixed** separates them. The stored four-arm calibration
+already contains the answer for one cell: restricted to the same 42 claim-form
+records the single-arm report covers, Llama fires on **0/41**, mean 0.00. Then
+running the single-arm report on those same records:
+
+| Llama-3.1-8B, fires at a clean answer | rules (same 42 records) | positions (24) |
+| --- | --- | --- |
+| **4 arms** | **0/41 (0%)**, mean 0.00 | *not measured* |
+| **1 arm** | **7/42 (17%)**, mean 0.17 | **14/24 (58%)**, mean 0.58 |
+
+**Both effects are real and they are not the same size.**
+
+- **Arm count: +17 points.** Same records, same judge, same rubric; only the
+  number of candidates in the prompt changed. Dropping from four arms to one
+  takes a perfectly clean judge to 17%.
+- **Rubric type: +41 points on top.** Same judge, same single arm; rules
+  questions to board positions. This is the larger effect by more than double.
+
+So **positions are genuinely harder to judge than rules questions**, and that —
+not the harness — is most of the 58%.
+
+#### What this does and does not invalidate
+
+**The judge matrix stands.** Every judge in 21.44 was measured the same way —
+one arm, positions, v3, 1,800 tokens — so the comparison holds and the ranking
+is unaffected. What is *not* transportable is any absolute rate: a single-arm
+false-positive number is roughly 17 points pessimistic against a four-arm one.
+
+**And that direction favours the published gate numbers.** The controls run at
+one arm; `pos_n24_32b.jsonl` runs at **three**. Fewer arms means more false
+positives, so the 32B's true rate in the setting the gates were actually
+measured in is *lower* than the 4% the control reported, not higher. Section
+21.41 licensed the 46% Gate 3 failure on a 4% control; that license is stronger
+than it looked, not weaker.
+
+**Two limits, stated.** The four-arm calibration predates the provenance fix so
+its token budget is not recorded; the default is 900 (≈225 per arm) against the
+single-arm run's 1,800. Budget therefore differs alongside arm count — but it
+points the wrong way to be the explanation, since *more* room per arm produced
+*worse* specificity. And the fourth cell, positions at four arms, is unmeasured:
+`calibrate_judge.py`'s four-arm mode reads gold-shaped records only, so
+completing the square symmetrically would need work the three cells already make
+unnecessary.
