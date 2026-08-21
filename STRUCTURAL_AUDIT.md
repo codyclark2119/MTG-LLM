@@ -15,14 +15,21 @@ This is a plan to find out when that stops being true.
 > halves. **Only one judge of four passes both**, and it is not a memory problem.
 >
 > Error detection, positions n=24, single arm — read the *separation*, never
-> either column alone:
+> either column alone. Rightmost column is the matched subset every judge graded:
 >
-> | | fires at a **clean** answer | fires at a **1-error** answer | separation |
-> | --- | --- | --- | --- |
-> | Qwen2.5-**7B** | 18/24 (75%) | 24/24, mean 2.75 | 25 pts |
-> | Llama-3.1-**8B** | 14/24 (58%) | 24/24, mean **1.00** | 42 pts |
-> | Qwen3-**14B** | *not measured* | 24/24, mean 1.00 | **unknown** |
-> | **Qwen2.5-32B** | **1/24 (4%)** | 24/24, mean 1.12 | **96 pts** |
+> | | GB | fires at a **clean** answer | fires at a **1-error** answer | sep | matched |
+> | --- | --- | --- | --- | --- | --- |
+> | Qwen2.5-**7B** | 4.0 | 18/24 (75%), mean **1.96** | 24/24, mean 2.75 | +25% | +27% |
+> | Llama-3.1-**8B** | 4.2 | 14/24 (58%) | 24/24, mean **1.00** | +42% | +45% |
+> | Qwen3-**14B** | 7.8 | 0/**22** | 23/**23** | +100% | **+100%** |
+> | **Qwen2.5-32B** | 17.6 | 1/24 (4%) | 24/24, mean 1.12 | +96% | **+100%** |
+>
+> **Two judges now pass, and they tie.** On the 22 positions every judge graded,
+> Qwen3-14B and the 32B are identical. The 32B's entire false-positive rate is
+> one position the 14B did not grade — `pos-combat-math-0002`, the polarity case.
+> The 32B stays the default on **coverage** (24/24 vs 22/24, and the 14B runs at
+> ~60× the wall time), but a second working judge finally exists, which unblocks
+> the kappa trip-wire below.
 >
 > Correctness discrimination, four-arm rules calibration (21.31), a separate
 > measurement: Llama credits the oracle 81% and real answers 63% — **1.3×**. The
@@ -44,10 +51,14 @@ This is a plan to find out when that stops being true.
 >
 > **Two open items, neither hardware-shaped.** Every gate verdict published so
 > far is **single-judge**, and Gates 2 and 3 have both reversed between judges on
-> byte-identical answers — and a second judge that passes the paired control does
-> not currently exist. Separately, Llama scored 4% on rules/4-arm against 58% on
-> positions/1-arm; if **arm count** is the cause, every number in the table above
-> is suspect including the 32B's.
+> byte-identical answers — now runnable, since Qwen3-14B passes the control.
+> Separately, Llama scored 4% on rules/4-arm against 58% on positions/1-arm; if
+> **arm count** is the cause, every number in the table above is suspect
+> including the 32B's.
+>
+> And the size story is now clearly not a size story: **7.8 GB matches 17.6 GB**
+> on this control. What no smaller judge has matched is the 11.2× correctness
+> discrimination, which is a separate measurement and still the 32B's alone.
 
 ---
 

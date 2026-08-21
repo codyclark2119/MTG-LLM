@@ -158,20 +158,30 @@ errors against an answer carrying exactly one where the 7B fires **2.75** — th
 "every error at once" signature (21.26) measured directly. Blunder rate is a
 working metric on the 32B and is not one on the 7B.
 
-**Of four judges tested, only the 32B works** (Section 21.42). Positions, n=24,
-single arm — and read the *separation*, never either column alone:
+**Two judges of four pass; run `--judge-report` on any new one.** Positions,
+n=24, single arm (Sections 21.42, 21.44). Read the *separation*, never either
+column alone:
 
-| Judge | fires at a **clean** answer | fires at a **1-error** answer | separation |
-| --- | --- | --- | --- |
-| Qwen2.5-7B | 18/24 (75%) | 24/24, mean 2.75 | 25 pts |
-| Llama-3.1-8B | 14/24 (58%) | 24/24, mean **1.00** | 42 pts |
-| Qwen3-14B | *not measured* | 24/24, mean 1.00 | **unknown** |
-| **Qwen2.5-32B** | **1/24 (4%)** | 24/24, mean 1.12 | **96 pts** |
+| Judge | GB | fires at **clean** | fires at **1-error** | separation | matched (n=22) |
+| --- | --- | --- | --- | --- | --- |
+| Qwen2.5-7B | 4.0 | 18/24, mean **1.96** | 24/24, mean 2.75 | +25% | +27% |
+| Llama-3.1-8B | 4.2 | 14/24 (58%) | 24/24, mean **1.00** | +42% | +45% |
+| Qwen3-14B | 7.8 | 0/**22** | 23/**23** | +100% | **+100%** |
+| **Qwen2.5-32B** | 17.6 | 1/24 (4%) | 24/24 | +96% | **+100%** |
 
-Llama has the *best* sensitivity of the four and fires at 58% of clean answers.
-**This is not established as a size result** — three points, two sizes, one
-incomplete. The true weaker claim: no judge under 32B has been shown to work,
-and the one that works fits in 18 GB.
+Llama has the *best* sensitivity of the four and fires at 58% of clean answers —
+which is why the middle two columns rank nothing on their own.
+
+**Qwen3-14B ties the 32B, it does not beat it.** On the 22 positions every judge
+graded they are identical (0/22, 22/22). The 32B's whole false-positive rate is
+`pos-combat-math-0002`, the polarity case — which the 14B *failed to grade*.
+**The 32B stays the default on coverage** (24/24 against 22/24, and the 14B is a
+reasoning model at ~60× the wall time whose `<think>` block competes with the
+JSON for the budget). The 14B is the second judge for agreement work.
+
+Not a size result: a 7.8 GB judge matches a 17.6 GB one. Every judge that passes
+is a Qwen and every `base` arm is a Qwen, so **self-preference is still
+untested** — that needs a different vendor, not a different generation.
 
 Two cautions on quoting these. They come from a **single-arm** pass on
 **positions**, so they are not the `calibrate_judge.py` four-arm rules trip-wire

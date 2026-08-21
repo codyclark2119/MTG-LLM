@@ -4700,3 +4700,66 @@ prints is the separation, which cannot be computed from one half at all.
 This is the same lesson as the trap in CLAUDE.md about a rate measured on one
 judge being a statement about that judge — applied one level up. **A rate
 measured on one half of a control is a statement about that half.**
+
+### 21.44 The matrix, completed by the paired tool — and a 14B ties the 32B
+
+`calibrate_judge.py --judge-report` (21.43) run over every cached judge:
+positions, n=24, one arm, v3, 1,800 tokens, both halves in one pass.
+
+| Judge | GB | fires at **clean** | mean | fires at **1-error** | mean | **separation** |
+| --- | --- | --- | --- | --- | --- | --- |
+| Qwen2.5-7B | 4.0 | 18/24 (75%) | **1.96** | 24/24 | 2.75 | +25% |
+| Llama-3.1-8B | 4.2 | 14/24 (58%) | 0.58 | 24/24 | 1.00 | +42% |
+| Qwen3-14B | 7.8 | **0/22 (0%)** | 0.00 | 23/23 | 1.00 | **+100%** |
+| Qwen2.5-32B | 17.6 | 1/24 (4%) | 0.04 | 24/24 | 1.12 | +96% |
+
+The 7B and 32B reproduced their earlier numbers exactly, which is the check that
+the promoted tool is the same instrument. And the recovered column is worth its
+own sentence: **the 7B fires 1.96 errors at an answer that contains none.** That
+was stored as a boolean before and could not be recovered without re-running.
+
+#### Qwen3-14B does not beat the 32B — it ties, and it ties by not grading
+
+Read at full coverage the 14B wins, +100% against +96%. But it graded 22 of 24
+clean answers and the 32B graded all 24, so those are rates over different sets —
+the exact error 21.38 was written about. Intersecting:
+
+| Matched on the 22 every judge graded on **both** halves | clean | planted | separation |
+| --- | --- | --- | --- |
+| Qwen2.5-7B | 16/22 | 22/22 | +27% |
+| Llama-3.1-8B | 12/22 | 22/22 | +45% |
+| **Qwen3-14B** | **0/22** | 22/22 | **+100%** |
+| **Qwen2.5-32B** | **0/22** | 22/22 | **+100%** |
+
+**Identical.** Not close — the same numbers. The 32B's entire false-positive rate
+is the two positions excluded from this set, and one of them is
+`pos-combat-math-0002`: the polarity case from 21.40, where the answer says
+"cast first, then attack" and the error reads "Attack first and cast Lightning
+Strike afterwards". **The single hardest position in the set is one the 14B
+failed to grade.**
+
+So the +100% is not evidence the 14B is more precise. It is 0/22 with the one
+case that defeats the 32B removed, and nothing says it would have survived it.
+
+#### What this actually buys: a second judge that works
+
+The practical result is large anyway. **A 7.8 GB judge matches a 17.6 GB judge on
+error detection** across every position both can grade, which is the first time
+any judge but the 32B has cleared this control. Until now the honest position was
+"one working judge, so no agreement number is available" — Section 21.42's open
+item and the last untested trip-wire in STRUCTURAL_AUDIT.md.
+
+That unblocks kappa. Two judges that both pass the paired control now exist, so
+the +0.24 measured with a judge since shown to invent blunders 40% of the time
+can finally be re-measured between calibrated instruments.
+
+**The 32B stays the default**, on coverage. It grades 24 of 24; the 14B grades
+22, it is a reasoning model whose `<think>` block competes with the JSON for the
+token budget, and §21.25 measured it at roughly **60× the wall time**. A judge
+that skips 8% of a set — and skips the hard end of it — cannot be the primary,
+whatever it scores on what it does grade.
+
+**Caveat on the family question.** Qwen3-14B is a different *generation*, not a
+different vendor. Every judge that passes this control is a Qwen, and every
+`base` arm is a Qwen. Self-preference is still untested and still needs
+Mistral-24B or Gemma-27B.
