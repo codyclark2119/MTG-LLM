@@ -130,15 +130,66 @@ def append_submission(path: Path, row: dict) -> None:
             os.fsync(f.fileno())
 
 
-def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
-              kind: str = "rubric"):
+# Shown at `/` only when BOTH forms are deployed. Deliberately plain: it exists
+# to route, and every pixel of design here is a pixel not spent on the two forms
+# that do the work. No fetch, no state — a wrong turn costs one click.
+CHOOSE_HTML = """<meta name=viewport content="width=device-width,initial-scale=1">
+<title>magic-llm</title>
+<style>
+ body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:2rem 1.25rem;
+      max-width:34rem;background:#fbfbfa;color:#1a1a1a}
+ h1{font-size:1.25rem;margin:0 0 .25rem}
+ p.sub{margin:0 0 1.75rem;color:#666;font-size:.9rem}
+ a.card{display:block;padding:1rem 1.1rem;margin:0 0 .75rem;border:1px solid #ddd;
+        border-radius:10px;background:#fff;text-decoration:none;color:inherit}
+ a.card:hover{border-color:#999}
+ a.card b{display:block;font-size:1.02rem;margin-bottom:.2rem}
+ a.card span{color:#666;font-size:.87rem}
+ @media(prefers-color-scheme:dark){
+   body{background:#151515;color:#eee}
+   a.card{background:#1e1e1e;border-color:#333}
+   a.card:hover{border-color:#666}
+   p.sub,a.card span{color:#9a9a9a}}
+</style>
+<h1>magic-llm</h1>
+<p class=sub>Two forms are deployed. Pick one.</p>
+<a class=card href="/adjudicate"><b>Judge adjudication</b>
+<span>Read an answer and say which of the listed errors it commits.</span></a>
+<a class=card href="/rubric"><b>Rubric authoring</b>
+<span>Write the key points and common errors for a question.</span></a>
+"""
+
+
+def build_app(task_sets, submissions_path: Path, token: str | None,
+              kind: str | None = None):
+    """One app, one or both forms.
+
+    `task_sets` maps kind -> tasks. Both forms already used disjoint endpoints
+    apart from `/` and `/api/tasks`, so serving both needs a chooser at the root
+    and one extra route rather than two applications: a second app would mean a
+    second port, a second token and a second volume mount for one shared
+    submissions log.
+
+    A list is still accepted for the single-form case, so existing callers and
+    tests keep working — `kind` then says which form it is.
+    """
     from fastapi import FastAPI, Request
     from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-    app = FastAPI(title=f"magic-llm {kind}")
-    id_key = "key" if kind == "adjudication" else "id"
-    by_id = {t[id_key]: t for t in tasks}
-    categories = sorted({t.get("category") or "" for t in tasks})
+    if isinstance(task_sets, list):
+        task_sets = {kind or "rubric": task_sets}
+    kinds = sorted(task_sets)
+
+    app = FastAPI(title="magic-llm " + "+".join(kinds))
+    rubric_tasks = task_sets.get("rubric") or []
+    adj_tasks = task_sets.get("adjudication") or []
+    # Two id spaces. Kept apart because a rubric task is keyed by `id` and an
+    # adjudication task by `key`, and one dict would let a collision silently
+    # serve the wrong form's task.
+    by_id = {t["id"]: t for t in rubric_tasks}
+    by_key = {t["key"]: t for t in adj_tasks}
+    tasks = rubric_tasks or adj_tasks
+    categories = sorted({t.get("category") or "" for t in rubric_tasks})
 
     @app.middleware("http")
     async def auth(request: Request, call_next):
@@ -161,19 +212,38 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
 
     @app.get("/", response_class=HTMLResponse)
     def index():
-        return ADJUDICATE_HTML if kind == "adjudication" else INDEX_HTML
+        if len(kinds) == 1:
+            return ADJUDICATE_HTML if kinds[0] == "adjudication" else INDEX_HTML
+        return CHOOSE_HTML
+
+    @app.get("/rubric", response_class=HTMLResponse)
+    def rubric_form():
+        if not rubric_tasks:
+            return HTMLResponse("no rubric tasks were deployed", 404)
+        return INDEX_HTML
+
+    @app.get("/adjudicate", response_class=HTMLResponse)
+    def adjudicate_form():
+        if not adj_tasks:
+            return HTMLResponse("no adjudication tasks were deployed", 404)
+        return ADJUDICATE_HTML
 
     @app.get("/api/tasks")
-    def api_tasks(author: str = ""):
+    def api_tasks(author: str = "", kind: str = ""):
         """Task list plus this author's own progress.
 
         Progress is per author so two people working the same category each
         see their own remaining count. `done_by_anyone` is separate and only
         dims a row — it is a hint, not a lock, because a second opinion on a
         rubric is useful rather than wasted.
+
+        `kind` selects the form when both are deployed. It defaults to the only
+        one present, so a single-form deployment and every existing client keep
+        working without passing it.
         """
+        which = kind or (kinds[0] if len(kinds) == 1 else "rubric")
         subs = read_submissions(submissions_path)
-        if kind == "adjudication":
+        if which == "adjudication":
             # The whole task inlines, because the reviewer needs every field at
             # once and there are only ~60 of them. Same per-author progress
             # rule as below: a verdict is "done" for the person who gave it.
@@ -191,29 +261,29 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
             # and corrupting. It is also self-clearing — every submission
             # collected from here on carries a digest, so this branch stops
             # firing once the current log is superseded.
-            live = {t["key"]: _answer_sha(t.get("answer") or "") for t in tasks}
+            live = {t["key"]: _answer_sha(t.get("answer") or "") for t in adj_tasks}
             mine = {s["key"] for s in subs
                     if s.get("author") == author and "errors_present" in s
                     and s["key"] in live
                     and s.get("answer_sha") == live[s["key"]]}
-            return {"tasks": [dict(t, done=t["key"] in mine) for t in tasks],
-                    "done_by_me": len(mine), "total": len(tasks)}
+            return {"tasks": [dict(t, done=t["key"] in mine) for t in adj_tasks],
+                    "done_by_me": len(mine), "total": len(adj_tasks)}
         # Intersect with the CURRENT task list. The submissions log is
         # append-only and outlives any one export, so after an ingest the
         # questions it covers are promoted out of tasks.json while their rows
         # remain. Counting the raw log reported "10 / 28 done" against a task
         # list those ten had already left — phantom progress, and worst in
         # exactly the ingest -> re-export -> restart loop this is used in.
-        live = {t["id"] for t in tasks}
+        live = {t["id"] for t in rubric_tasks}
         mine = {s["id"] for s in subs
                 if s.get("author") == author and s.get("key_points")} & live
         anyone = {s["id"] for s in subs if s.get("key_points")} & live
         rows = [{"id": t["id"], "category": t["category"], "difficulty": t["difficulty"],
                  "question": t["question"][:110],
                  "done_by_me": t["id"] in mine,
-                 "done_by_anyone": t["id"] in anyone} for t in tasks]
+                 "done_by_anyone": t["id"] in anyone} for t in rubric_tasks]
         return {"tasks": rows, "categories": categories,
-                "done_by_me": len(mine), "total": len(tasks)}
+                "done_by_me": len(mine), "total": len(rubric_tasks)}
 
     @app.get("/api/task/{tid}")
     def api_task(tid: str, author: str = ""):
@@ -304,12 +374,12 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
         """
         body = await request.json()
         tid = body.get("key")
-        if tid not in by_id:
+        if tid not in by_key:
             return JSONResponse({"error": "unknown key"}, 404)
         present = body.get("errors_present")
         if not isinstance(present, list):
             return JSONResponse({"error": "errors_present must be a list"}, 400)
-        n_errors = len(by_id[tid].get("common_errors") or [])
+        n_errors = len(by_key[tid].get("common_errors") or [])
         try:
             nums = sorted({int(n) for n in present})
         except (TypeError, ValueError):
@@ -318,8 +388,8 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
             return JSONResponse({"error": f"error numbers must be 1..{n_errors}"}, 400)
         append_submission(submissions_path, {
             "key": tid,
-            "record_id": by_id[tid].get("record_id"),
-            "arm": by_id[tid].get("arm"),
+            "record_id": by_key[tid].get("record_id"),
+            "arm": by_key[tid].get("arm"),
             # A digest of the exact answer this verdict was given about, taken
             # from the served task rather than from the client — a value the
             # client supplied would be its claim about what it was shown.
@@ -330,7 +400,7 @@ def build_app(tasks: list[dict], submissions_path: Path, token: str | None,
             # grammar sees it marked done and skips the one task that most needs
             # regrading, and `--score` matches the old verdict to the new text
             # (Section 21.62).
-            "answer_sha": _answer_sha(by_id[tid].get("answer") or ""),
+            "answer_sha": _answer_sha(by_key[tid].get("answer") or ""),
             "errors_present": nums,
             "blundered": bool(nums),
             "unsure": bool(body.get("unsure")),
@@ -486,7 +556,7 @@ function saveName(){ localStorage.setItem('mlr_author', author()); }
 function loadName(){ $('#author').value = localStorage.getItem('mlr_author') || ''; }
 
 async function refresh(){
-  const r = await fetch('/api/tasks?author=' + encodeURIComponent(author()));
+  const r = await fetch('/api/tasks?kind=rubric&author=' + encodeURIComponent(author()));
   const d = await r.json();
   TASKS = d.tasks;
   const sel = $('#cat');
@@ -736,7 +806,7 @@ $('#who').value=localStorage.getItem('adjWho')||'';
 $('#who').oninput=()=>localStorage.setItem('adjWho',who());
 
 async function load(){
-  const r=await fetch('/api/tasks'+(who()?'?author='+encodeURIComponent(who()):''));
+  const r=await fetch('/api/tasks?kind=adjudication'+(who()?'&author='+encodeURIComponent(who()):''));
   const d=await r.json();T=d.tasks;
   const first=T.findIndex(t=>!t.done);i=first===-1?0:first;render();
 }
@@ -794,6 +864,11 @@ def main() -> None:
     parser.add_argument("--tasks", type=Path,
                         default=Path(os.environ.get("TASKS_FILE", "data/gold/worksheets/tasks.json")),
                         help="task file from `author_rubrics.py --export-tasks`")
+    parser.add_argument("--also-tasks", type=Path, nargs="*",
+                        default=([Path(os.environ["ALSO_TASKS_FILE"])]
+                                 if os.environ.get("ALSO_TASKS_FILE") else None),
+                        help="a second task file, so one deployment serves both forms. "
+                             "Its kind comes from the file, so order does not matter.")
     parser.add_argument("--submissions", type=Path,
                         default=Path(os.environ.get("SUBMISSIONS_FILE", "data/submissions.jsonl")),
                         help="append-only log of what contributors submit")
@@ -806,7 +881,15 @@ def main() -> None:
                         help="serve without auth. Only sane on loopback.")
     args = parser.parse_args()
 
-    tasks, kind = load_tasks(args.tasks)
+    # One file per form. Both may be given; the kind of each comes from the
+    # file, never from the order or a flag (see load_tasks).
+    paths = [args.tasks] + list(args.also_tasks or [])
+    task_sets: dict[str, list[dict]] = {}
+    for path in paths:
+        loaded, k = load_tasks(path)
+        if k in task_sets:
+            raise SystemExit(f"{path}: a {k!r} task file was already given — one per kind")
+        task_sets[k] = loaded
 
     # A public bind with no token would put the form — and every contributor's
     # work — behind nothing at all. Refuse rather than warn.
@@ -816,7 +899,8 @@ def main() -> None:
         raise SystemExit("--no-token with a public --host would expose the form to anyone. "
                          "Drop --no-token, or bind to 127.0.0.1.")
 
-    print(f"{len(tasks)} tasks from {args.tasks}")
+    for k, t in sorted(task_sets.items()):
+        print(f"{len(t)} {k} tasks")
     print(f"submissions -> {args.submissions.resolve()}")
     base = f"http://{'localhost' if not public else args.host}:{args.port}/"
     print(f"\n  {base}{'?t=' + token if token else ''}\n")
@@ -824,7 +908,7 @@ def main() -> None:
         print(f"generated token: {token}  (set RUBRIC_TOKEN to keep it stable across restarts)\n")
 
     import uvicorn
-    uvicorn.run(build_app(tasks, args.submissions, token, kind), host=args.host, port=args.port,
+    uvicorn.run(build_app(task_sets, args.submissions, token), host=args.host, port=args.port,
                 log_level="warning")
 
 

@@ -357,7 +357,17 @@ def main() -> None:
     if args.ingest_submissions:
         # Promotion is local and reviewed, the same invariant rubric_server
         # keeps for rubrics: the deployed form never writes this file itself.
-        incoming = read_jsonl(args.ingest_submissions)
+        # One deployment can now serve both forms (21.64), so the submissions
+        # log holds rubric rows and adjudication rows together. Filter to ours
+        # by the field only a verdict has — `author_rubrics.py` filters to its
+        # own by `key_points`, symmetrically. Without this, a rubric submission
+        # is appended to judge_adjudications.jsonl as a verdict with no
+        # errors_present, which reads as "the human found no error".
+        raw = read_jsonl(args.ingest_submissions)
+        incoming = [v for v in raw if isinstance(v.get("errors_present"), list)]
+        if len(incoming) != len(raw):
+            print(f"  ignoring {len(raw) - len(incoming)} row(s) that are not "
+                  "adjudication verdicts (the log is shared with the rubric form)")
         have = {(v["key"], v.get("author")) for v in read_jsonl(ADJUDICATIONS_PATH)}
         new = [v for v in incoming if (v.get("key"), v.get("author")) not in have]
         print(f"{len(incoming)} submitted, {len(new)} new, "

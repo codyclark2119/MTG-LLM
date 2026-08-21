@@ -1,4 +1,4 @@
-# Build context for deploy/Dockerfile. DENY EVERYTHING, then allow four files.
+# Build context for deploy/Dockerfile. DENY EVERYTHING, then allow five files.
 #
 # WHY THIS IS AN ALLOWLIST
 #
@@ -54,6 +54,7 @@ data/gold/*
 !data/gold/worksheets
 data/gold/worksheets/*
 !data/gold/worksheets/tasks.json
+!data/gold/worksheets/rubric_tasks.json
 
 # --- deploy/: the three-line requirements ----------------------------------
 !deploy

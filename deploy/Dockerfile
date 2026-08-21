@@ -1,7 +1,7 @@
 # Rubric authoring / judge adjudication form. See deploy/README.md.
 #
-# Copies exactly three things: the server, common.py (which it imports for the
-# `lead with the mistake` lint), and ONE exported task file. Not the gold set,
+# Copies exactly four things: the server, common.py (which it imports for the
+# `lead with the mistake` lint), and TWO exported task files, one per form. Not the gold set,
 # not the candidates, not the corpora, not the models. If a future edit makes
 # this COPY line longer, that is the moment to ask whether the thing being
 # added should be reachable from a public URL.
@@ -27,13 +27,24 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY scripts/rubric_server.py scripts/
 COPY scripts/common.py scripts/
-# One slot, either kind. Point TASKS_FILE at whichever was exported:
-#   python scripts/author_rubrics.py --export-tasks      (rubric authoring)
-#   python scripts/adjudicate.py --export-tasks OUT      (judge adjudication)
-COPY data/gold/worksheets/tasks.json data/gold/worksheets/
+# TWO slots, one per form, so one deployment serves both. The kind of each file
+# comes from the file itself, never from the filename or the order:
+#   python scripts/adjudicate.py --export-tasks OUT              (adjudication)
+#   python scripts/author_rubrics.py --export-tasks --include-new N  (rubric)
+#
+# The list grew from one to two on 2026-08-21, which is the moment this comment
+# says to stop and ask whether the new thing belongs on a public URL. It does,
+# and for the reason already given below: a rubric task is a question, a
+# reference answer and a machine draft — the same class of content as an
+# adjudication task, carrying no judge output and reaching nothing else. What is
+# NOT here is unchanged: no gold set, no positions, no queue, no runs, no
+# corpora, no adapters, no webui.py.
+COPY data/gold/worksheets/tasks.json        data/gold/worksheets/
+COPY data/gold/worksheets/rubric_tasks.json data/gold/worksheets/
 
 # Submissions land on a mounted volume so a redeploy does not discard work.
 ENV TASKS_FILE=/app/data/gold/worksheets/tasks.json \
+    ALSO_TASKS_FILE=/app/data/gold/worksheets/rubric_tasks.json \
     SUBMISSIONS_FILE=/data/submissions.jsonl \
     HOST=0.0.0.0 \
     PORT=8080

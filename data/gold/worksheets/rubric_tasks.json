@@ -1,0 +1,820 @@
+{
+ "generated": "2026-08-21T20:24:07+00:00",
+ "count": 40,
+ "tasks": [
+  {
+   "id": "rg-221",
+   "category": "zone transition",
+   "difficulty": "advanced",
+   "question": "Player A controls a Metallic Mimic naming \"Dragon\" and casts a Voracious Dragon. If Player A chooses to devour the Metallic Mimic, how many +1/+1 counters does the Voracious Dragon enter the battlefield with?",
+   "answer": "Voracious Dragon will enter the battlefield with 2 counters, regardless of any choices made by Player A. As Voracious Dragon enters the battlefield, Player A can choose which of the two replacement effects to apply first, devour or Metallic Mimic's effect. (616.1) Even if Player A applies the devour effect first, that action is not performed yet- the game simply knows that that effect should be considered for the purpose of determining how Voracious Dragon will be affected by other replacement effects. The Metallic Mimic is still on the battlefield, so its effect will apply and give Voracious Dragon an additional +1/+1 counter. (614.12, 616.1f)",
+   "draft": [
+    "Voracious Dragon will enter the battlefield with 2 counters, regardless of any choices made by Player A",
+    "As Voracious Dragon enters the battlefield, Player A can choose which of the two replacement effects to apply first, devour or Metallic Mimic's effect",
+    "Even if Player A applies the devour effect first, that action is not performed yet- the game simply knows that that effect should be considered for the purpose of determining how Voracious Dragon will be affected by other replacement effects",
+    "The Metallic Mimic is still on the battlefield, so its effect will apply and give Voracious Dragon an additional +1/+1 counter"
+   ],
+   "url": "https://rulesguru.org/?221",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Metallic Mimic",
+    "card2": "Voracious Dragon"
+   }
+  },
+  {
+   "id": "rg-155",
+   "category": "interaction puzzle",
+   "difficulty": "advanced",
+   "question": "Player A controls Galvanic Juggernaut and Upwelling, and has 2 green mana in their mana pool. Player B controls Windborn Muse. What happens during the declare attackers step of Player A's turn?",
+   "answer": "Player A is never required to pay a cost for a creature to attack. (508.1d) Player A can choose to not pay the mana and not attack with Galvanic Juggernaut.",
+   "draft": [
+    "Player A is never required to pay a cost for a creature to attack",
+    "Player A can choose to not pay the mana and not attack with Galvanic Juggernaut"
+   ],
+   "url": "https://rulesguru.org/?155",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Galvanic Juggernaut",
+    "card2": "Upwelling",
+    "card3": "Windborn Muse"
+   }
+  },
+  {
+   "id": "rg-1252",
+   "category": "layer-system question",
+   "difficulty": "advanced",
+   "question": "Player A controls two Opalescences. Player B casts Anger of the Gods. After that resolves, Player B casts Clear targeting one of the Opalescences. After that resolves they casts another Clear targeting the remaining Opalescence. Where will each Opalescence go when Clear resolves?",
+   "answer": "The first Opalescence will go to exile, the second one will go to Player B's graveyard. When Anger of the Gods resolves it sets up a replacement effect that watches for creatures going from the battlefield to the graveyard that were also dealt damage by Anger of the Gods. (614.1a) The first Opalescence is a creature before it's destroyed. The second Opalescence isn't a creature when it's destroyed and therefore doesn't fulfill the requirements of the replacement effect and will go to the graveyard.",
+   "draft": [
+    "The first Opalescence will go to exile, the second one will go to Player B's graveyard",
+    "When Anger of the Gods resolves it sets up a replacement effect that watches for creatures going from the battlefield to the graveyard that were also dealt damage by Anger of the Gods",
+    "The first Opalescence is a creature before it's destroyed",
+    "The second Opalescence isn't a creature when it's destroyed and therefore doesn't fulfill the requirements of the replacement effect and will go to the graveyard"
+   ],
+   "url": "https://rulesguru.org/?1252",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Opalescence",
+    "card2": "Anger of the Gods",
+    "card3": "Clear"
+   }
+  },
+  {
+   "id": "rg-1750",
+   "category": "priority reasoning",
+   "difficulty": "advanced",
+   "question": "Player A controls Guardian Project and a face down Dermoplasm. They then cast another Dermoplasm face down. Will Guardian Project trigger? If so, will Player A draw a card?",
+   "answer": "Yes. Face down creatures have no name (702.37a), and two objects with no name don't have the same name as each other. (201.2a/201.2c)",
+   "draft": [
+    "Yes",
+    "Face down creatures have no name, and two objects with no name don't have the same name as each other"
+   ],
+   "url": "https://rulesguru.org/?1750",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Guardian Project",
+    "card2": "Dermoplasm"
+   }
+  },
+  {
+   "id": "rg-1306",
+   "category": "state-based actions",
+   "difficulty": "intermediate",
+   "question": "Player A controls Kinsbaile Borderguard with 3 +1/+1 counters it. During their main phase, Player B casts Black Sun's Zenith to put 4 -1/-1 counters on Kinsbaile Borderguard. How many tokens will Player A create when Kinsbaile Borderguard's trigger resolves?",
+   "answer": "Seven.\n\nAfter Black Sun's Zenith resolves, Kinsbaile Borderguard has 3 +1/+1 counters and 4 -1/-1 counters when state-based actions are checked. (704.3) When state-based actions are checked, 3 of each counter are removed from Kinsbaile Borderguard and Kinsbaile Borderguard will die. (704.5f/704.5q)Then, the trigger from Kinsbaile Borderguard will be put on the stack. When that trigger resolves, it must use the last known information of Kinsbaile Borderguard to determine the number of counters on it (704.8), and when Kinsbaile Borderguard was last on the battlefield immediately before it died it had 7 counters on it.",
+   "draft": [
+    "Seven",
+    "After Black Sun's Zenith resolves, Kinsbaile Borderguard has 3 +1/+1 counters and 4 -1/-1 counters when state-based actions are checked",
+    "When state-based actions are checked, 3 of each counter are removed from Kinsbaile Borderguard and Kinsbaile Borderguard will die.Then, the trigger from Kinsbaile Borderguard will be put on the stack",
+    "When that trigger resolves, it must use the last known information of Kinsbaile Borderguard to determine the number of counters on it, and when Kinsbaile Borderguard was last on the battlefield immediately before it died it had 7 counters on it"
+   ],
+   "url": "https://rulesguru.org/?1306",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Kinsbaile Borderguard",
+    "card2": "Black Sun's Zenith"
+   }
+  },
+  {
+   "id": "rg-229",
+   "category": "templating/keyword meaning",
+   "difficulty": "advanced",
+   "question": "Player A controls Beloved Chaplain. Player B casts Lashweed Lurker. Can they target Beloved Chaplain with Lashweed Lurker's abliity?",
+   "answer": "No. Protection from creatures applies to creature cards in any zone (702.16a), and prevents abilities from a creature source from targeting the Beloved Chaplain. (702.16b)",
+   "draft": [
+    "No",
+    "Protection from creatures applies to creature cards in any zone, and prevents abilities from a creature source from targeting the Beloved Chaplain"
+   ],
+   "url": "https://rulesguru.org/?229",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Beloved Chaplain",
+    "card2": "Lashweed Lurker"
+   }
+  },
+  {
+   "id": "rg-4112",
+   "category": "turn-structure walkthrough",
+   "difficulty": "advanced",
+   "question": "After both players finish taking mulligans, Player A is going second and has both Gemstone Caverns and Chancellor of the Spires in their hand. Can they reveal Chancellor of the Spires for its ability and also exile it to begin the game with Gemstone Caverns on the battlefield?",
+   "answer": "Yes. Player A can choose to use these two card's effects in either order. (103.6) Therefore they could use Chancellor of the Spires's effect first and then use Gemstone Caverns's.",
+   "draft": [
+    "Yes",
+    "Player A can choose to use these two card's effects in either order",
+    "Therefore they could use Chancellor of the Spires's effect first and then use Gemstone Caverns's"
+   ],
+   "url": "https://rulesguru.org/?4112",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Gemstone Caverns",
+    "card2": "Chancellor of the Spires"
+   }
+  },
+  {
+   "id": "rg-263",
+   "category": "zone transition",
+   "difficulty": "advanced",
+   "question": "Player A controls a Containment Priest and has a Tar Fiend in their graveyard. They cast Footsteps of the Goryo, targeting the Tar Fiend. Can Player A devour the Containment Priest and have Tar Fiend enter the battlefield?",
+   "answer": "No. Player A can choose to devour the Containment Priest before applying its effect. (616.1) However, that action is not performed yet- the game simply knows that that effect should be considered for the purpose of determining how Tar Fiend will be affected by other replacement effects. The Containment Priest is still on the battlefield, so its effect will apply and exile the Tar Fiend. (614.12, 616.1f)",
+   "draft": [
+    "No",
+    "Player A can choose to devour the Containment Priest before applying its effect",
+    "However, that action is not performed yet- the game simply knows that that effect should be considered for the purpose of determining how Tar Fiend will be affected by other replacement effects",
+    "The Containment Priest is still on the battlefield, so its effect will apply and exile the Tar Fiend"
+   ],
+   "url": "https://rulesguru.org/?263",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Containment Priest",
+    "card2": "Tar Fiend",
+    "card3": "Footsteps of the Goryo"
+   }
+  },
+  {
+   "id": "rg-1705",
+   "category": "interaction puzzle",
+   "difficulty": "advanced",
+   "question": "Player A controls Doubling Season and Pir, Imaginative Rascal and activates the +1 ability of Kiora, the Crashing Wave. How many loyalty counters does it gain?",
+   "answer": "Four.\n\nActivating a planeswalker ability includes paying the loyalty cost, which in this case means adding one loyalty counter. (606.4) Doubling Season only replaces effects, which are the result of a spell or ability. (609.1) However Pir, Imaginative Rascal replaces the original one loyalty counter with two, which Doubling Season can then replace with doubling the additional loyalty counters, resulting in a total of four. (614.16)",
+   "draft": [
+    "Four",
+    "Activating a planeswalker ability includes paying the loyalty cost, which in this case means adding one loyalty counter",
+    "Doubling Season only replaces effects, which are the result of a spell or ability",
+    "However Pir, Imaginative Rascal replaces the original one loyalty counter with two, which Doubling Season can then replace with doubling the additional loyalty counters, resulting in a total of four"
+   ],
+   "url": "https://rulesguru.org/?1705",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Doubling Season",
+    "card2": "Pir, Imaginative Rascal",
+    "card3": "Kiora, the Crashing Wave"
+   }
+  },
+  {
+   "id": "rg-126",
+   "category": "layer-system question",
+   "difficulty": "advanced",
+   "question": "Player A controls Life and Limb, Blood Moon, and Savannah, that entered the battlefield in that order. Is Savannah a creature?",
+   "answer": "No. Applying Blood Moon's effect would prevent Life and Limb's effect from applying to Savannah and applying Life and Limb's effect first would not affect how Blood Moon's effect is applied or what it does, so Life and Limb's effect is dependent on Blood Moon's effect (613.8a) and waits to apply until afterwards. (613.8b) Since Blood Moon's effect makes Savannah no longer a Forest (205.1a), Life and Limb doesn't apply to it at all.",
+   "draft": [
+    "No",
+    "Applying Blood Moon's effect would prevent Life and Limb's effect from applying to Savannah and applying Life and Limb's effect first would not affect how Blood Moon's effect is applied or what it does, so Life and Limb's effect is dependent on Blood Moon's effect and waits to apply until afterwards",
+    "Since Blood Moon's effect makes Savannah no longer a Forest, Life and Limb doesn't apply to it at all"
+   ],
+   "url": "https://rulesguru.org/?126",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Life and Limb",
+    "card2": "Blood Moon",
+    "card3": "Savannah"
+   }
+  },
+  {
+   "id": "rg-2002",
+   "category": "priority reasoning",
+   "difficulty": "advanced",
+   "question": "Player A casts Thirst for Meaning and would like to discard two copies of Witness of Tomorrows. Can they?",
+   "answer": "Yes. Upon resolution Player A will decide whether they would like to discard an enchantment, if not they discard two cards, regardless of what they are. (118.12a)",
+   "draft": [
+    "Yes",
+    "Upon resolution Player A will decide whether they would like to discard an enchantment, if not they discard two cards, regardless of what they are"
+   ],
+   "url": "https://rulesguru.org/?2002",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Thirst for Meaning",
+    "card2": "Witness of Tomorrows"
+   }
+  },
+  {
+   "id": "rg-1413",
+   "category": "state-based actions",
+   "difficulty": "intermediate",
+   "question": "Player A controls Hangarback Walker with three +1/+1 counters on it. Player B controls Soul-Scar Mage and casts Heartflame Slash targeting Player A's Hangarback Walker. When Hangarback Walker dies, how many Thopter tokens will Player A create?",
+   "answer": "Three. Two state-based actions need to happen: Hangarback Walker goes to the graveyard because it now has 0 toughness, and the +1/+1 and -1/-1 counters remove one another. (704.5f, 704.5q) These state-based actions happen simultaneously. (704.3) \n\nWhen the trigger resolves, it looks to see how many +1/+1 counters are on Hangarback Walker currently. Since Hangarback Walker isn't on the battlefield anymore, the trigger looks at how it last existed on the battlefield. (608.2h, 608.2h) At that time it had 3 +1/+1 counters (along with 3 -1/-1 counters), so 3 Thopter tokens are created.",
+   "draft": [
+    "Three",
+    "Two state-based actions need to happen: Hangarback Walker goes to the graveyard because it now has 0 toughness, and the +1/+1 and -1/-1 counters remove one another",
+    "These state-based actions happen simultaneously",
+    "When the trigger resolves, it looks to see how many +1/+1 counters are on Hangarback Walker currently",
+    "Since Hangarback Walker isn't on the battlefield anymore, the trigger looks at how it last existed on the battlefield",
+    "At that time it had 3 +1/+1 counters (along with 3 -1/-1 counters), so 3 Thopter tokens are created"
+   ],
+   "url": "https://rulesguru.org/?1413",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Hangarback Walker",
+    "card2": "Soul-Scar Mage",
+    "card3": "Heartflame Duelist // Heartflame Slash"
+   }
+  },
+  {
+   "id": "rg-4744",
+   "category": "templating/keyword meaning",
+   "difficulty": "advanced",
+   "question": "Player A controls Lier, Disciple of the Drowned and has Bilbo Baggins, Burglar in the graveyard. Can they cast Take a Glance?",
+   "answer": "Yes. When determining whether Player A can cast Take a Glance the game will take into account the characteristics of its Adventure part, meaning that it will count as an instant or a sorcery, meaning Player A can cast it. (601.3e)",
+   "draft": [
+    "Yes",
+    "When determining whether Player A can cast Take a Glance the game will take into account the characteristics of its Adventure part, meaning that it will count as an instant or a sorcery, meaning Player A can cast it"
+   ],
+   "url": "https://rulesguru.org/?4744",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Lier, Disciple of the Drowned",
+    "card2": "Bilbo Baggins, Burglar // Take a Glance",
+    "card3": "Bilbo Baggins, Burglar // Take a Glance"
+   }
+  },
+  {
+   "id": "rg-466",
+   "category": "turn-structure walkthrough",
+   "difficulty": "advanced",
+   "question": "Player A, Brenna, and Campbell begin a multiplayer game. In Player A's upkeep, they use Leyline of Anticipation, several Simian Spirit Guides and Desperate Rituals, and Goblin Charbelcher to kill Brenna. Does Player A draw a card for the turn?",
+   "answer": "Yes. The game began with more than 2 players, so it is a multiplayer game, regardless of the current number of players remaining. (100.1a, 100.1b). Player A will draw a card during their draw step. (103.8c)",
+   "draft": [
+    "Yes",
+    "The game began with more than 2 players, so it is a multiplayer game, regardless of the current number of players remaining",
+    "Player A will draw a card during their draw step"
+   ],
+   "url": "https://rulesguru.org/?466",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Leyline of Anticipation",
+    "card2": "Simian Spirit Guide",
+    "card3": "Desperate Ritual",
+    "card4": "Goblin Charbelcher"
+   }
+  },
+  {
+   "id": "rg-264",
+   "category": "zone transition",
+   "difficulty": "advanced",
+   "question": "Player A controls Master Biomancer and casts Caldera Hellion. If Player A chooses to devour Master Biomancer, how many +1/+1 counters does Caldera Hellion enter the battlefield with? Does Player A have any choice in the matter?",
+   "answer": "Caldera Hellion will enter the battlefield with 3 +1/+1 counters, regardless of any choices made by Player A.\n\nAs Caldera Hellion enters the battlefield, Player A can choose which of the two replacement effects to apply to the event first, devour or Master Biomancer's effect. (616.1) Even if Player A applies the devour effect first, that action is not performed yet- the game simply knows that that effect should be considered for the purpose of determining how Caldera Hellion will be affected by other replacement effects. (The game can only perform an event once it knows what event that is. As such, the process for applying replacement effects in [616.1] is carried out in full before anything actually occurs in the game. \"Apply\" in this context means to apply the modification to the event, not to actually carry out any actions.) The Master Biomancer is still on the battlefield after applying Caldera Hellion's effect, the game simply knows now that it will be sacrificed as Caldera Hellion enters the battlefield, which hasn't happened yet. (400.6) Master Biomancer's effect is still around immediately before Caldera Hellion enters the battlefield, so it will apply and give Caldera Hellion the additional +1/+1 counters. (616.1f)",
+   "draft": [
+    "Caldera Hellion will enter the battlefield with 3 +1/+1 counters, regardless of any choices made by Player A",
+    "As Caldera Hellion enters the battlefield, Player A can choose which of the two replacement effects to apply to the event first, devour or Master Biomancer's effect",
+    "Even if Player A applies the devour effect first, that action is not performed yet- the game simply knows that that effect should be considered for the purpose of determining how Caldera Hellion will be affected by other replacement effects",
+    "(The game can only perform an event once it knows what event that is",
+    "As such, the process for applying replacement effects in 616.1 is carried out in full before anything actually occurs in the game",
+    "\"Apply\" in this context means to apply the modification to the event, not to actually carry out any actions.) The Master Biomancer is still on the battlefield after applying Caldera Hellion's effect, the game simply knows now that it will be sacrificed as Caldera Hellion enters the battlefield, which hasn't happened yet",
+    "Master Biomancer's effect is still around immediately before Caldera Hellion enters the battlefield, so it will apply and give Caldera Hellion the additional +1/+1 counters"
+   ],
+   "url": "https://rulesguru.org/?264",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Master Biomancer",
+    "card2": "Caldera Hellion"
+   }
+  },
+  {
+   "id": "rg-173",
+   "category": "interaction puzzle",
+   "difficulty": "advanced",
+   "question": "Player A controls Alhammarret's Archive, Thought Reflection, Blood Scrivener, Lich, and Words of Worship. Player B controls Chains of Mephistopheles, Alms Collector and Rain of Gore. Neither player has any cards in hand. Player A activates Words of Worship once, then moves to their draw step. What is the greatest number of cards that Player A can end up with in their hand, assuming they make the best possible choices? What else happens in that scenario?",
+   "answer": "At most Player A can end up with 29 cards in their hand.\n\nRain of Gore only applies to life gained due to a spell or ability, not a turn-based action, so it won't apply to any life gain caused by Words of Worship. Whenever multiple replacement effects apply to an event (such as Player A drawing a card), the affected player will chose which one to apply first. (616.1) Once a replacement effect has been applied to an event, it will not apply again to that event or any events contained inside that event. (614.5)\n\n<p>\n* The event begins as \"draw a card\".\n* Player A chooses to apply Blood Scrivener's effect. The event is \"Draw 2 cards, lose 1 life\".\n* Player A must apply Alms Collector's effect. (616.1g) The event is \"Draw a card, Player B draws a card, lose 1 life\". (121.2c)\n* Player A chooses to apply Words of Worship's effect to their draw. The event is \"Gain 5 life, Player B draws a card, lose 1 life\".\n* Player A must apply Alhammarret's Archive's first effect to the life gain. The event is \"Gain 10 life, Player B draws a card, lose 1 life\".\n* Player A must apply Lich's effect to the life gain. The event is \"Draw 10 cards, Player B draws a card, lose 1 life\".\n* Player A must apply Thought Reflection's effect to the first card draw. The event is \"Draw 2 cards, draw 9 cards, Player B draws a card, lose 1 life\".\n* Player A draws a card. The event is \"Draw a card, draw 9 cards, Player B draws a card, lose 1 life\".\n* Player A chooses to apply Chains of Mephistopheles's effect to the first card draw. The event is \"Discard a card, draw a card, draw 9 cards, Player B draws a card, lose 1 life\".\n* Player A discards a card. The event is \"Draw a card, draw 9 cards, Player B draws a card, lose 1 life\".\n* Player A must apply Alhammarret's Archive's effect to the first card draw. The event is \"Draw 2 cards, draw 9 cards, Player B draws a card, lose 1 life\".\n* Player A draws 2 cards. The event is \"Draw 9 cards, Player B draws a card, lose 1 life\".\n* For the next 9 cards draws, Player A chooses to apply and perform Chains of Mephistopheles's effect followed by Alhammarret's Archive and Thought Reflection's effects, making them all \"discard a card, draw 4 cards\". The event is \"Player B draws a card, lose 1 life\".\n* Player B must apply Chains of Mephistopheles's effect to the card draw, putting a card from their library into their graveyard.\n* Player A loses 1 life.\n</p>\n\nPlayer A has 29 cards in their hand and 10 cards in their graveyard. Player B has 1 card in their graveyard. Player A has lost 1 life.",
+   "draft": [
+    "At most Player A can end up with 29 cards in their hand",
+    "Rain of Gore only applies to life gained due to a spell or ability, not a turn-based action, so it won't apply to any life gain caused by Words of Worship",
+    "Whenever multiple replacement effects apply to an event (such as Player A drawing a card), the affected player will chose which one to apply first",
+    "Once a replacement effect has been applied to an event, it will not apply again to that event or any events contained inside that event",
+    "<p>\n* The event begins as \"draw a card\"",
+    "* Player A chooses to apply Blood Scrivener's effect",
+    "The event is \"Draw 2 cards, lose 1 life\"",
+    "* Player A must apply Alms Collector's effect",
+    "The event is \"Draw a card, Player B draws a card, lose 1 life\"",
+    "* Player A chooses to apply Words of Worship's effect to their draw",
+    "The event is \"Gain 5 life, Player B draws a card, lose 1 life\"",
+    "* Player A must apply Alhammarret's Archive's first effect to the life gain",
+    "The event is \"Gain 10 life, Player B draws a card, lose 1 life\"",
+    "* Player A must apply Lich's effect to the life gain",
+    "The event is \"Draw 10 cards, Player B draws a card, lose 1 life\"",
+    "* Player A must apply Thought Reflection's effect to the first card draw",
+    "The event is \"Draw 2 cards, draw 9 cards, Player B draws a card, lose 1 life\"",
+    "* Player A draws a card",
+    "The event is \"Draw a card, draw 9 cards, Player B draws a card, lose 1 life\"",
+    "* Player A chooses to apply Chains of Mephistopheles's effect to the first card draw",
+    "The event is \"Discard a card, draw a card, draw 9 cards, Player B draws a card, lose 1 life\"",
+    "* Player A discards a card",
+    "The event is \"Draw a card, draw 9 cards, Player B draws a card, lose 1 life\"",
+    "* Player A must apply Alhammarret's Archive's effect to the first card draw",
+    "The event is \"Draw 2 cards, draw 9 cards, Player B draws a card, lose 1 life\"",
+    "* Player A draws 2 cards",
+    "The event is \"Draw 9 cards, Player B draws a card, lose 1 life\"",
+    "* For the next 9 cards draws, Player A chooses to apply and perform Chains of Mephistopheles's effect followed by Alhammarret's Archive and Thought Reflection's effects, making them all \"discard a card, draw 4 cards\"",
+    "The event is \"Player B draws a card, lose 1 life\"",
+    "* Player B must apply Chains of Mephistopheles's effect to the card draw, putting a card from their library into their graveyard",
+    "* Player A loses 1 life",
+    "</p> Player A has 29 cards in their hand and 10 cards in their graveyard",
+    "Player B has 1 card in their graveyard",
+    "Player A has lost 1 life"
+   ],
+   "url": "https://rulesguru.org/?173",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Alhammarret's Archive",
+    "card2": "Thought Reflection",
+    "card3": "Blood Scrivener",
+    "card4": "Lich",
+    "card5": "Words of Worship",
+    "card6": "Chains of Mephistopheles",
+    "card7": "Alms Collector",
+    "card8": "Rain of Gore"
+   }
+  },
+  {
+   "id": "rg-127",
+   "category": "layer-system question",
+   "difficulty": "advanced",
+   "question": "Player A controls a Blood Moon, a Life and Limb, and a Canopy Vista, that entered the battlefield in that order. Is the Canopy Vista a creature?",
+   "answer": "No. Applying Blood Moon's effect first would prevent Life and Limb's effect from applying to Canopy Vista and applying Life and Limb's effect first would not affect how Blood Moon's effect is applied or what it does, so Life and Limb's effect is dependent on Blood Moon's effect (613.8a) and waits to apply until afterwards. (613.8b) Since Blood Moon's effect makes Canopy Vista no longer a Forest (205.1a), Life and Limb doesn't apply to it at all.",
+   "draft": [
+    "No",
+    "Applying Blood Moon's effect first would prevent Life and Limb's effect from applying to Canopy Vista and applying Life and Limb's effect first would not affect how Blood Moon's effect is applied or what it does, so Life and Limb's effect is dependent on Blood Moon's effect and waits to apply until afterwards",
+    "Since Blood Moon's effect makes Canopy Vista no longer a Forest, Life and Limb doesn't apply to it at all"
+   ],
+   "url": "https://rulesguru.org/?127",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Blood Moon",
+    "card2": "Life and Limb",
+    "card3": "Canopy Vista"
+   }
+  },
+  {
+   "id": "rg-231",
+   "category": "priority reasoning",
+   "difficulty": "advanced",
+   "question": "Player A controls Bloodline Keeper and 4 2/2 Vampire creature tokens. They activate Bloodline Keeper's ability to transform it into Lord of Lineage. In response, Player B casts Barbed Lightning targeting the Bloodline Keeper. In response, Player A activates the transform ability again. After everything has resolved, is the Bloodline Keeper/Lord of Lineage alive?",
+   "answer": "Yes. The top ability on the stack will resolve first, transforming Bloodline Keeper. (405.5) Then the Barbed Lightning will resolve. When the second transform ability resolves, it does nothing since Bloodline Keeper has already transformed since the ability was put onto the stack. (701.27f)",
+   "draft": [
+    "Yes",
+    "The top ability on the stack will resolve first, transforming Bloodline Keeper",
+    "Then the Barbed Lightning will resolve",
+    "When the second transform ability resolves, it does nothing since Bloodline Keeper has already transformed since the ability was put onto the stack"
+   ],
+   "url": "https://rulesguru.org/?231",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Bloodline Keeper // Lord of Lineage",
+    "card2": "Bloodline Keeper // Lord of Lineage",
+    "card3": "Barbed Lightning"
+   }
+  },
+  {
+   "id": "rg-1613",
+   "category": "state-based actions",
+   "difficulty": "intermediate",
+   "question": "Player A controls Sewer Nemesis with \"Player B\" as the chosen player. Player B exiles every card in their graveyard to pay Tombstalker's delve cost. Does the third ability of Sewer Nemesis trigger?",
+   "answer": "Yes. \n\nWhen Player B finishes casting Tombstalker, Sewer Nemesis' trigger condition is met, but the trigger is not put on the stack at this time. (603.2) Then, state-based actions are checked and Sewer Nemesis dies. Eventually, no state-based actions occur and the trigger is put onto the stack. (704.3)",
+   "draft": [
+    "Yes",
+    "When Player B finishes casting Tombstalker, Sewer Nemesis' trigger condition is met, but the trigger is not put on the stack at this time",
+    "Then, state-based actions are checked and Sewer Nemesis dies",
+    "Eventually, no state-based actions occur and the trigger is put onto the stack"
+   ],
+   "url": "https://rulesguru.org/?1613",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Sewer Nemesis",
+    "card2": "Tombstalker"
+   }
+  },
+  {
+   "id": "rg-4834",
+   "category": "templating/keyword meaning",
+   "difficulty": "advanced",
+   "question": "Player A controls Bruvac the Grandiloquent. Player B has 3 cards in their library. Can they dredge Life from the Loam during their draw step?",
+   "answer": "No. When Player B goes to dredge Life from the Loam, Bruvac the Grandiloquent's replacement effect modifies dredge to say \"if you would draw a card, you may instead mill 6 cards\" Player B can't choose to mill more cards than they have, so they can't dredge Life from the Loam. (702.52a)",
+   "draft": [
+    "No",
+    "When Player B goes to dredge Life from the Loam, Bruvac the Grandiloquent's replacement effect modifies dredge to say \"if you would draw a card, you may instead mill 6 cards\" Player B can't choose to mill more cards than they have, so they can't dredge Life from the Loam"
+   ],
+   "url": "https://rulesguru.org/?4834",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Bruvac the Grandiloquent",
+    "card2": "Life from the Loam"
+   }
+  },
+  {
+   "id": "rg-480",
+   "category": "turn-structure walkthrough",
+   "difficulty": "advanced",
+   "question": "Player B and Player A are starting a two-player game. Player B is going first and has Serum Powder in their starting hand, which they would like to use. Do they have to declare that they're using it before Player A chooses whether to mulligan?",
+   "answer": "Yes. Serum Powder's ability must be declared at the same time as Player B would declare if they are mulliganing. (103.5b) Player B must announce that decision before Player A does. (103.5)",
+   "draft": [
+    "Yes",
+    "Serum Powder's ability must be declared at the same time as Player B would declare if they are mulliganing",
+    "Player B must announce that decision before Player A does"
+   ],
+   "url": "https://rulesguru.org/?480",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Serum Powder"
+   }
+  },
+  {
+   "id": "rg-281",
+   "category": "zone transition",
+   "difficulty": "advanced",
+   "question": "Player A controls a Llanowar Elves with a +1/+1 counter. They cast Boneyard Parley, putting Dracoplasm and Thief of Blood onto the battlefield. Player A would like to sacrifice the Llanowar Elves to Dracoplasm's ability. What are the power and toughness of both creatures after they have entered the battlefield?",
+   "answer": "Both Dracoplasm and Thief of Blood are 2/2. Since they are both entering the battlefield at the same time, their replacement effects take place at the same time. Thief of Blood removes the +1/+1 counter from Llanowar Elves at the same time as Dracoplasm sacrifices it. Thief of Blood sees that 1 counter was removed and so enters the battlefield with a +1/+1 counter, while Dracoplasm looks at the Llanowar Elves's last known information and sees that it was a 2/2 immediately before it left the battlefield. (608.2h)",
+   "draft": [
+    "Both Dracoplasm and Thief of Blood are 2/2",
+    "Since they are both entering the battlefield at the same time, their replacement effects take place at the same time",
+    "Thief of Blood removes the +1/+1 counter from Llanowar Elves at the same time as Dracoplasm sacrifices it",
+    "Thief of Blood sees that 1 counter was removed and so enters the battlefield with a +1/+1 counter, while Dracoplasm looks at the Llanowar Elves's last known information and sees that it was a 2/2 immediately before it left the battlefield"
+   ],
+   "url": "https://rulesguru.org/?281",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Llanowar Elves",
+    "card2": "Boneyard Parley",
+    "card3": "Dracoplasm",
+    "card4": "Thief of Blood"
+   }
+  },
+  {
+   "id": "rg-1789",
+   "category": "interaction puzzle",
+   "difficulty": "advanced",
+   "question": "Player A activates Priest of Forgotten Gods's ability, but doesn't choose a target for the first part. Can Player B respond to the ability?",
+   "answer": "Yes. One of the qualifications for being a mana ability is that the ability doesn't require a target. (605.1a) Priest of Forgotten Gods's ability is still considered to require targets even if zero targets were chosen for it. (115.6)",
+   "draft": [
+    "Yes",
+    "One of the qualifications for being a mana ability is that the ability doesn't require a target",
+    "Priest of Forgotten Gods's ability is still considered to require targets even if zero targets were chosen for it"
+   ],
+   "url": "https://rulesguru.org/?1789",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Priest of Forgotten Gods"
+   }
+  },
+  {
+   "id": "rg-128",
+   "category": "layer-system question",
+   "difficulty": "advanced",
+   "question": "Player A controls a Blood Moon, a Life and Limb, and a 1/1 Green Saproling Creature token, that entered the battlefield in that order. What is the Saproling?",
+   "answer": "It's a 1/1 green Land Creature - Mountain Saproling with \"{T}: Add {R}.\". Applying Life and Limb's effect would allow Blood Moon's effect to apply to the Saproling, but applying Blood Moon's effect first would not affect how Life and Limb's effect is applied or what it does. Blood Moon's effect is therefore dependent on Life and Limb's effect (613.8a) and waits to apply until afterwards. (613.8b) Since Life and Limb's effect makes the Saproling a nonbasic land, Blood Moon then applies and turns it into a Mountain with \"{T}: Add {R}.\" and no other abilities. (305.7)",
+   "draft": [
+    "It's a 1/1 green Land Creature - Mountain Saproling with \"{T}: Add {R}.\"",
+    "Applying Life and Limb's effect would allow Blood Moon's effect to apply to the Saproling, but applying Blood Moon's effect first would not affect how Life and Limb's effect is applied or what it does",
+    "Blood Moon's effect is therefore dependent on Life and Limb's effect and waits to apply until afterwards",
+    "Since Life and Limb's effect makes the Saproling a nonbasic land, Blood Moon then applies and turns it into a Mountain with \"{T}: Add {R}.\" and no other abilities"
+   ],
+   "url": "https://rulesguru.org/?128",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Blood Moon",
+    "card2": "Life and Limb",
+    "card3": "Mountain"
+   }
+  },
+  {
+   "id": "rg-319",
+   "category": "priority reasoning",
+   "difficulty": "advanced",
+   "question": "Player A controls a token that was created as a copy of Panglacial Wurm and Archmage Ascension with 6 quest counters on it. Player B casts Oblation targeting Panglacial Wurm. As Player A is searching their library, can they cast the token copy of Panglacial Wurm from it?",
+   "answer": "No. The token does continue to exist in the library until state-based actions are checked after Oblation resolves. (111.7) However, a token in a zone other than the battlefield can't change zones, so Player A can't put it onto the stack in order to begin casting it. (111.8)",
+   "draft": [
+    "No",
+    "The token does continue to exist in the library until state-based actions are checked after Oblation resolves",
+    "However, a token in a zone other than the battlefield can't change zones, so Player A can't put it onto the stack in order to begin casting it"
+   ],
+   "url": "https://rulesguru.org/?319",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Panglacial Wurm",
+    "card2": "Archmage Ascension",
+    "card3": "Oblation"
+   }
+  },
+  {
+   "id": "rg-1651",
+   "category": "state-based actions",
+   "difficulty": "intermediate",
+   "question": "Player A controls Elspeth Conquers Death and puts the third lore counter it. With the triggered ability, they target Greenwarden of Murasa in their graveyard. When Greenwarden of Murasa returns to the battlefield, can it target Elspeth Conquers Death with its trigger?",
+   "answer": "Yes.\n\nWhen the final chapter ability resolves, Greenwarden of Murasa is returned to the battlefield. However, its triggered ability is not put onto the stack until after state based actions are checked. (603.3) When state based actions are checked, Elspeth Conquers Death is sacrificed because is has a number of lore counters greater than or equal to its final chapter number. (704.5s/714.4) After this, triggers are placed onto the stack, and Elspeth Conquers Death is in the graveyard able to be the target of Greenwarden of Murasa's triggered ability.",
+   "draft": [
+    "Yes",
+    "When the final chapter ability resolves, Greenwarden of Murasa is returned to the battlefield",
+    "However, its triggered ability is not put onto the stack until after state based actions are checked",
+    "When state based actions are checked, Elspeth Conquers Death is sacrificed because is has a number of lore counters greater than or equal to its final chapter number",
+    "After this, triggers are placed onto the stack, and Elspeth Conquers Death is in the graveyard able to be the target of Greenwarden of Murasa's triggered ability"
+   ],
+   "url": "https://rulesguru.org/?1651",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Elspeth Conquers Death",
+    "card2": "Greenwarden of Murasa"
+   }
+  },
+  {
+   "id": "rg-5521",
+   "category": "templating/keyword meaning",
+   "difficulty": "advanced",
+   "question": "Player A has to choose a card name for Infinite Obliteration. Can they choose Rune-Tail's Essence?",
+   "answer": "No. The flipped characteristics of a flip card are used to determine the characteristics of its flipped name. (201.4c) Only Rune-Tail's Essence's unflipped face is a creature card, Rune-Tail's Essence itself is not.",
+   "draft": [
+    "No",
+    "The flipped characteristics of a flip card are used to determine the characteristics of its flipped name",
+    "Only Rune-Tail's Essence's unflipped face is a creature card, Rune-Tail's Essence itself is not"
+   ],
+   "url": "https://rulesguru.org/?5521",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Infinite Obliteration",
+    "card2": "Rune-Tail, Kitsune Ascendant // Rune-Tail's Essence"
+   }
+  },
+  {
+   "id": "rg-483",
+   "category": "turn-structure walkthrough",
+   "difficulty": "advanced",
+   "question": "Player B and Player A are starting a game. Player A puts a Leyline of Lightning onto the battlefield. Can Player B now choose to put a Leyline of Sanctity onto the battlefield?",
+   "answer": "No. Each player, in turn order, gets one chance to take any opening hand actions they would like to take. (103.6) After the second player in turn order has made their choice, the first player does not get another opportunity.",
+   "draft": [
+    "No",
+    "Each player, in turn order, gets one chance to take any opening hand actions they would like to take",
+    "After the second player in turn order has made their choice, the first player does not get another opportunity"
+   ],
+   "url": "https://rulesguru.org/?483",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Leyline of Lightning",
+    "card2": "Leyline of Sanctity"
+   }
+  },
+  {
+   "id": "rg-299",
+   "category": "zone transition",
+   "difficulty": "advanced",
+   "question": "Player A controls 3 Nylea's Disciples. Player B controls Authority of the Consuls. Player A casts Boneyard Parley, putting Nylea, God of the Hunt and Preyseizer Dragon onto the battlefield. They choose to devour all 3 of the Nylea's Disciples. Does Nylea, God of the Hunt enter the battlefield tapped? Does Authority of the Consuls trigger for it?",
+   "answer": "It enters tapped, but Authority of the Consuls does not trigger for it. The Nylea, God of the Hunt and Preyseizer Dragon enter the battlefield at the same time as the Nylea's Disciples leave the battlefield. Nylea, God of the Hunt was entering the battlefield as a creature immediately beforehand, so it enters tapped. (614.12) There are no choices involved for Player A (other than which creatures to devour), since the two replacement effects are applying to different objects. (616.1)\n\nOnce Nylea, God of the Hunt is on the battlefield it is not a creature, so Authority of the Consuls does not trigger. (611.3c)",
+   "draft": [
+    "It enters tapped, but Authority of the Consuls does not trigger for it",
+    "The Nylea, God of the Hunt and Preyseizer Dragon enter the battlefield at the same time as the Nylea's Disciples leave the battlefield",
+    "Nylea, God of the Hunt was entering the battlefield as a creature immediately beforehand, so it enters tapped",
+    "There are no choices involved for Player A (other than which creatures to devour), since the two replacement effects are applying to different objects",
+    "Once Nylea, God of the Hunt is on the battlefield it is not a creature, so Authority of the Consuls does not trigger"
+   ],
+   "url": "https://rulesguru.org/?299",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Nylea's Disciple",
+    "card2": "Authority of the Consuls",
+    "card3": "Boneyard Parley",
+    "card4": "Nylea, God of the Hunt",
+    "card5": "Preyseizer Dragon"
+   }
+  },
+  {
+   "id": "rg-1933",
+   "category": "interaction puzzle",
+   "difficulty": "advanced",
+   "question": "Player A controls Soul Seizer (back face Ghastly Haunting)which has been mutated with Pouncing Shoreshark. Pouncing Shoreshark is the top component. Player B controls Murasa Brute. Player A then attacks Player B with the merged permanent. Player B declared no blockers and the merged permanent deals damage to Player B. What happens when the transformation trigger resolves if Player A elects to transform the merged permanent and targets Murasa Brute?",
+   "answer": "The component that consists of Soul Seizer is transformed. The merged permanent is still a creature. It is not attached to anything. The merged permanent has the abilities in the text box of the back half of Soul Seizer instead of the front half.\n\nWhen Player A chooses to transform the merged permanent, all double-faced components are transformed. (729.2i) The merged permanent now has the abilities of the back half of Soul Seizer instead of the front half. ([702.140e]) The merged permanent is still a creature as Pouncing Shoreshark is still the topmost card. (729.2a) When the transformation trigger tries to attach the merged permanent to Murasa Brute, it can't attach because the merged permanent is still a creature. (701.3b) It remains on the battlefield because the state-based action that puts auras not attached to anything into the graveyard is looking for the \"Aura\" subtype, not the \"Enchant\" keyword. (704.5m)",
+   "draft": [
+    "The component that consists of Soul Seizer is transformed",
+    "The merged permanent is still a creature",
+    "It is not attached to anything",
+    "The merged permanent has the abilities in the text box of the back half of Soul Seizer instead of the front half",
+    "When Player A chooses to transform the merged permanent, all double-faced components are transformed",
+    "The merged permanent now has the abilities of the back half of Soul Seizer instead of the front half",
+    "The merged permanent is still a creature as Pouncing Shoreshark is still the topmost card",
+    "When the transformation trigger tries to attach the merged permanent to Murasa Brute, it can't attach because the merged permanent is still a creature",
+    "It remains on the battlefield because the state-based action that puts auras not attached to anything into the graveyard is looking for the \"Aura\" subtype, not the \"Enchant\" keyword"
+   ],
+   "url": "https://rulesguru.org/?1933",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Soul Seizer // Ghastly Haunting",
+    "card2": "Soul Seizer // Ghastly Haunting",
+    "card3": "Pouncing Shoreshark",
+    "card4": "Murasa Brute"
+   }
+  },
+  {
+   "id": "rg-1286",
+   "category": "layer-system question",
+   "difficulty": "advanced",
+   "question": "Player A attacks with Pristine Angel, and Player B targets it with Cephalid Snitch before blockers. After combat, Player A casts a spell, untapping Pristine Angel. Once untapped, can Player B target it with Nocturnal Hunger?",
+   "answer": "Yes. \"Protection from all colors\" means the same thing as an individual protection ability for each color (702.16h), so Pristine Angel will lose protection from black while still having protection from all other colors and from artifacts.",
+   "draft": [
+    "Yes",
+    "\"Protection from all colors\" means the same thing as an individual protection ability for each color, so Pristine Angel will lose protection from black while still having protection from all other colors and from artifacts"
+   ],
+   "url": "https://rulesguru.org/?1286",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Pristine Angel",
+    "card2": "Cephalid Snitch",
+    "card3": "Nocturnal Hunger"
+   }
+  },
+  {
+   "id": "rg-332",
+   "category": "priority reasoning",
+   "difficulty": "advanced",
+   "question": "Player A casts Chaos Warp targeting Player B's commander. Player B chooses to put it into the command zone instead of the library. Is Player B's library shuffled? Do them reveal the card of their library and put it onto the battlefield if it's a permanent card?",
+   "answer": "Player B does shuffle their library. (701.24c)\n\nPlayer B does reveal the top card. Chaos Warp doesn't care where the target moves to as it resolves, it simply instructs Player B to do so.",
+   "draft": [
+    "Player B does shuffle their library",
+    "Player B does reveal the top card",
+    "Chaos Warp doesn't care where the target moves to as it resolves, it simply instructs Player B to do so"
+   ],
+   "url": "https://rulesguru.org/?332",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Chaos Warp"
+   }
+  },
+  {
+   "id": "rg-1742",
+   "category": "state-based actions",
+   "difficulty": "intermediate",
+   "question": "Ari animates Restless Anchorage and equips Grafted Exoskeleton to it. What happens at the end of the turn?",
+   "answer": "Restless Anchorage will be sacrificed. During the cleanup step the continuous effect that animates Restless Anchorage will end and it will stop being a creature. (514.2) At which point the game will check state-based actions and Grafted Exoskeleton will become unattached. (704.5n) Afterwards Grafted Exoskeleton's trigger will be put on the stack, and Ari will sacrifice Restless Anchorage.",
+   "draft": [
+    "Restless Anchorage will be sacrificed",
+    "During the cleanup step the continuous effect that animates Restless Anchorage will end and it will stop being a creature",
+    "At which point the game will check state-based actions and Grafted Exoskeleton will become unattached",
+    "Afterwards Grafted Exoskeleton's trigger will be put on the stack, and Ari will sacrifice Restless Anchorage"
+   ],
+   "url": "https://rulesguru.org/?1742",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Restless Anchorage",
+    "card2": "Grafted Exoskeleton"
+   }
+  },
+  {
+   "id": "rg-620",
+   "category": "templating/keyword meaning",
+   "difficulty": "advanced",
+   "question": "Player A controls Mirror Gallery and two Sakashima the Impostors. One is a copy of their Master of the Hunt; the other is copying a wolf token created by Master of the Hunt. They attack with all four creatures. What are the possible bands that Player A may declare?",
+   "answer": "No bands can be declared. The only creature on the battlefield named \"Wolves of the Hunt\" is the token, so it cannot declare itself as in a band with anything else. The Sakashima the Impostor with \"bands with other creatures named Wolves of the Hunt\" is not itself named \"Wolves of the Hunt\", so it cannot declare itself as in a band with the token. (702.22c)",
+   "draft": [
+    "No bands can be declared",
+    "The only creature on the battlefield named \"Wolves of the Hunt\" is the token, so it cannot declare itself as in a band with anything else",
+    "The Sakashima the Impostor with \"bands with other creatures named Wolves of the Hunt\" is not itself named \"Wolves of the Hunt\", so it cannot declare itself as in a band with the token"
+   ],
+   "url": "https://rulesguru.org/?620",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Mirror Gallery",
+    "card2": "Sakashima the Impostor",
+    "card3": "Master of the Hunt"
+   }
+  },
+  {
+   "id": "rg-485",
+   "category": "turn-structure walkthrough",
+   "difficulty": "advanced",
+   "question": "Player A has restarted the game with a Karn Liberated that exiled an Ajani's Chosen. Player A chooses to begin the restarted game with a Leyline of Vitality on the battlefield. Does Ajani's Chosen trigger?",
+   "answer": "No. Leyline of Vitality is put onto the battlefield before the Ajani's Chosen is. (103.6, 726.4)",
+   "draft": [
+    "No",
+    "Leyline of Vitality is put onto the battlefield before the Ajani's Chosen is"
+   ],
+   "url": "https://rulesguru.org/?485",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Karn Liberated",
+    "card2": "Ajani's Chosen",
+    "card3": "Leyline of Vitality"
+   }
+  },
+  {
+   "id": "rg-300",
+   "category": "zone transition",
+   "difficulty": "advanced",
+   "question": "Player A casts Show and Tell. As it resolves, Player B wants to put Hall of Triumph onto the battlefield. Do they know what Player A is putting onto the battlefield while making the choice for Hall of Triumph's replacement effect?",
+   "answer": "Yes. Show and Tell puts both permanents onto the battlefield at the same time. Before they change zones, both players look at each card. (400.6)",
+   "draft": [
+    "Yes",
+    "Show and Tell puts both permanents onto the battlefield at the same time",
+    "Before they change zones, both players look at each card"
+   ],
+   "url": "https://rulesguru.org/?300",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Show and Tell",
+    "card2": "Hall of Triumph"
+   }
+  },
+  {
+   "id": "rg-1953",
+   "category": "interaction puzzle",
+   "difficulty": "advanced",
+   "question": "Player A controls Zirda, the Dawnwaker, Kasimir the Lone Wolf, and Mobilized District. How much does Player A have to pay to activate the second ability of Mobilized District?",
+   "answer": "Player A can either pay {1} or {0}.\n\nThere are two effects that are reducing the cost of the second ability of Mobilized District. Because of this, Player A can choose the order in which they will apply. (601.2f) If Player A applies the reduction of effect from Mobilized District first then from Zirda, the Dawnwaker, Player A will pay {1} because Zirda, the Dawnwaker can't reduce a cost to less than one mana. Alternatively, Player A can apply the reduction from Zirda, the Dawnwaker first then from Mobilized District. This would require Player A to spend {0} because the effect from Zirda, the Dawnwaker reduces the cost to {2} then the reduction for Mobilized District reduces it to {0}.",
+   "draft": [
+    "Player A can either pay {1} or {0}",
+    "There are two effects that are reducing the cost of the second ability of Mobilized District",
+    "Because of this, Player A can choose the order in which they will apply",
+    "If Player A applies the reduction of effect from Mobilized District first then from Zirda, the Dawnwaker, Player A will pay {1} because Zirda, the Dawnwaker can't reduce a cost to less than one mana",
+    "Alternatively, Player A can apply the reduction from Zirda, the Dawnwaker first then from Mobilized District",
+    "This would require Player A to spend {0} because the effect from Zirda, the Dawnwaker reduces the cost to {2} then the reduction for Mobilized District reduces it to {0}"
+   ],
+   "url": "https://rulesguru.org/?1953",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Zirda, the Dawnwaker",
+    "card2": "Kasimir the Lone Wolf",
+    "card3": "Mobilized District"
+   }
+  },
+  {
+   "id": "rg-129",
+   "category": "layer-system question",
+   "difficulty": "advanced",
+   "question": "Player A controls a Life and Limb, a Blood Moon, and a 1/1 Green Saproling Creature token, that entered the battlefield in that order. What is the Saproling?",
+   "answer": "It's a 1/1 green Land Creature - Mountain Saproling with \"{T}: Add {R}.\". Applying Life and Limb's effect would allow Blood Moon's effect to apply to the Saproling and applying Blood Moon's effect first would not affect how Life and Limb's effect is applied or what it does, so Blood Moon's effect is dependent on Life and Limb's effect (613.8a) and waits to apply until afterwards. (613.8b) Since Life and Limb's effect makes the Saproling a nonbasic land, Blood Moon then applies and turns it into a Mountain with \"{T}: Add {R}.\" and no other abilities. (305.7)",
+   "draft": [
+    "It's a 1/1 green Land Creature - Mountain Saproling with \"{T}: Add {R}.\"",
+    "Applying Life and Limb's effect would allow Blood Moon's effect to apply to the Saproling and applying Blood Moon's effect first would not affect how Life and Limb's effect is applied or what it does, so Blood Moon's effect is dependent on Life and Limb's effect and waits to apply until afterwards",
+    "Since Life and Limb's effect makes the Saproling a nonbasic land, Blood Moon then applies and turns it into a Mountain with \"{T}: Add {R}.\" and no other abilities"
+   ],
+   "url": "https://rulesguru.org/?129",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Life and Limb",
+    "card2": "Blood Moon"
+   }
+  },
+  {
+   "id": "rg-345",
+   "category": "priority reasoning",
+   "difficulty": "advanced",
+   "question": "Player A controls Walk-In Closet // Forgotten Cellar. Can they cast Zoetic Cavern from their graveyard face down?",
+   "answer": "No, they can't. Morph does function in the graveyard, since Zoetic Cavern could be played from there. (702.37a) However, as the first step to determine if Zoetic Cavern can be cast for its morph cost, it is turned face down. (702.37c) A face-down Zoetic Cavern is a creature card, not a land card, so Walk-In Closet // Forgotten Cellar no longer gives Player A permission to play it. (702.37a, 708.2a)",
+   "draft": [
+    "No, they can't",
+    "Morph does function in the graveyard, since Zoetic Cavern could be played from there",
+    "However, as the first step to determine if Zoetic Cavern can be cast for its morph cost, it is turned face down",
+    "A face-down Zoetic Cavern is a creature card, not a land card, so Walk-In Closet // Forgotten Cellar no longer gives Player A permission to play it"
+   ],
+   "url": "https://rulesguru.org/?345",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Walk-In Closet // Forgotten Cellar",
+    "card2": "Zoetic Cavern"
+   }
+  },
+  {
+   "id": "rg-1756",
+   "category": "state-based actions",
+   "difficulty": "intermediate",
+   "question": "Player A controls Whiptail Wurm which is enchanted by Witness Protection. Whiptail Wurm then becomes enchanted by One with the Stars. What happens?",
+   "answer": "Whiptail Wurm becomes an enchantment with no abilities and with the color dictated by Witness Protection. When state-based actions are checked, Witness Protection is attached to an illegal target and is put into the graveyard. Whiptail Wurm then regains all characteristics except its type is only enchantment. State-based actions are checked again. Nothing happens, and Player A gets priority.\n\nThis is an interaction of continuous effects, so the layers will need to be considered. (613.1) In this case, no changes occur until layer four. (613.1d) There are two effects occurring in this layer, so timestamps will need to be considered. (613.7) Since Witness Protection was attached first, Whiptail Wurm maintains its status as a creature. Then, One with the Stars turns Whiptail Wurm into an enchantment and removes all other types. Whiptail Wurm is changed to the color dictated by Witness Protection in layer five. (613.1e) Whiptail Wurm loses all abilities in layer six due to Witness Protection. (613.1f) Lastly, Whiptail Wurm has its power and toughness set to the values stated in Witness Protection in layer seven. (613.1g) When state-based actions are checked, Witness Protection is attached to an enchantment and is put into the graveyard. (704.5m) State-based actions are checked again, and nothing happens. (704.3)",
+   "draft": [
+    "Whiptail Wurm becomes an enchantment with no abilities and with the color dictated by Witness Protection",
+    "When state-based actions are checked, Witness Protection is attached to an illegal target and is put into the graveyard",
+    "Whiptail Wurm then regains all characteristics except its type is only enchantment",
+    "State-based actions are checked again",
+    "Nothing happens, and Player A gets priority",
+    "This is an interaction of continuous effects, so the layers will need to be considered",
+    "In this case, no changes occur until layer four",
+    "There are two effects occurring in this layer, so timestamps will need to be considered",
+    "Since Witness Protection was attached first, Whiptail Wurm maintains its status as a creature",
+    "Then, One with the Stars turns Whiptail Wurm into an enchantment and removes all other types",
+    "Whiptail Wurm is changed to the color dictated by Witness Protection in layer five",
+    "Whiptail Wurm loses all abilities in layer six due to Witness Protection",
+    "Lastly, Whiptail Wurm has its power and toughness set to the values stated in Witness Protection in layer seven",
+    "When state-based actions are checked, Witness Protection is attached to an enchantment and is put into the graveyard",
+    "State-based actions are checked again, and nothing happens"
+   ],
+   "url": "https://rulesguru.org/?1756",
+   "in_gold": false,
+   "card_slots": {
+    "card1": "Whiptail Wurm",
+    "card2": "Witness Protection",
+    "card3": "One with the Stars"
+   }
+  }
+ ]
+}
