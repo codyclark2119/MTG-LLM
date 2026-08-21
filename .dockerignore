@@ -1,0 +1,72 @@
+# Build context for deploy/Dockerfile. DENY EVERYTHING, then allow four files.
+#
+# WHY THIS IS AN ALLOWLIST
+#
+# `fly launch` auto-detected this repo as a generic Python app and generated a
+# root Dockerfile containing `COPY . .` with a five-line .dockerignore. That
+# would have shipped 5.0 GB to a public host: the gold set, the adjudication
+# queue, every eval run, the corpora, 3.8 GB of trained adapters, and
+# `scripts/webui.py` — whose script runner executes training and evaluation on
+# the host and is remote code execution on a public URL. Nothing was deployed,
+# but a generated GitHub workflow would have pushed it on the next commit to
+# main.
+#
+# The image built from deploy/Dockerfile only ever contained four files, because
+# its COPY list is explicit. **The build context is a separate exposure**: fly
+# uploads the whole context to its remote builder before the COPY runs, so
+# without this file the gold set and the adapters are transmitted regardless of
+# what ends up in the image.
+#
+# So this denies by default and names what may leave the machine, which is the
+# same discipline `webui.py`'s ACTIONS allowlist uses and for the same reason: a
+# blocklist ships anything added later, and the thing added later is exactly the
+# thing nobody thought about.
+#
+# HOW THE PATTERNS WORK
+#
+# Docker resolves each path by LAST MATCHING PATTERN. A bare `*` followed by
+# `!some/nested/file` relies on the builder choosing to descend into a directory
+# it has already excluded — real behaviour, but version-dependent and easy to
+# get subtly wrong. So every parent directory is re-included explicitly, then
+# its contents re-excluded, then the one wanted file re-included. Verbose, and
+# it depends on nothing but last-match-wins.
+#
+# ADDING A LINE HERE MEANS SOMETHING NEW IS LEAVING THE MACHINE. That is the
+# moment to check it against the boundary in deploy/Dockerfile.
+
+# --- deny everything -------------------------------------------------------
+*
+
+# --- scripts/: the server and its single project import --------------------
+!scripts
+scripts/*
+!scripts/rubric_server.py
+!scripts/common.py
+
+# --- data/: ONLY the exported task file -----------------------------------
+# Not gold_questions.jsonl, not positions.jsonl, not the adjudication queue,
+# not judge_adjudications.jsonl. The task file is self-contained by
+# construction (`--export-tasks`) precisely so none of those need to travel.
+!data
+data/*
+!data/gold
+data/gold/*
+!data/gold/worksheets
+data/gold/worksheets/*
+!data/gold/worksheets/tasks.json
+
+# --- deploy/: the three-line requirements ----------------------------------
+!deploy
+deploy/*
+!deploy/requirements.txt
+
+# --- never, under any pattern above ----------------------------------------
+# Listed last so they win even if a future `!` line above is written too
+# broadly. Belt and braces: the cost of a redundant line here is zero, and the
+# cost of a missing one is the gold set on a public builder.
+.git
+.env
+.envrc
+**/__pycache__
+mlx_env
+models

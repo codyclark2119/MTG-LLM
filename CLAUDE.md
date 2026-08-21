@@ -64,6 +64,7 @@ python scripts/test_imports.py                    # every script resolves every 
 python scripts/test_eval.py                       # the scoring arithmetic (113)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # the served page's JavaScript actually parses
+python scripts/test_deploy.py                     # what may leave the machine (79)
 python scripts/gameplay/test_actions.py           # the action grammar (84)
 python scripts/gameplay/test_eval_positions.py    # the gameplay gates (32)
 ```
@@ -319,6 +320,27 @@ Two invariants worth keeping:
 `deploy/` holds the Dockerfile, `fly.toml` and the three-line requirements. If
 the Dockerfile's COPY list ever grows, that is the moment to ask whether the
 new thing belongs on the public side.
+
+**Deploy only with the explicit config, never bare `fly launch`:**
+
+```bash
+fly launch --no-deploy --copy-config --config deploy/fly.toml --dockerfile deploy/Dockerfile
+```
+
+Bare `fly launch` auto-detects this as a generic Python app and writes its own
+root `Dockerfile` with `COPY . .`, a root `fly.toml`, and a GitHub workflow that
+deploys on push to `main`. That combination would put 5.0 GB on a public host —
+the gold set, the adjudication queue, every eval run, 3.8 GB of adapters, and
+`scripts/webui.py` with its script runner. It happened; nothing deployed only
+because no build ran.
+
+The root **`.dockerignore` is an allowlist**: it denies everything and re-admits
+exactly the four files `deploy/Dockerfile` copies. This is separate from the
+COPY list and both are needed — fly uploads the entire build context to its
+remote builder *before* any COPY executes, so an over-broad context transmits
+the gold set even when the image never contains it. `test_deploy.py` asserts the
+context and the COPY list are the same four files, and fails if a root
+`fly.toml` or `Dockerfile` reappears.
 
 ## Traps this repo has already fallen into
 
