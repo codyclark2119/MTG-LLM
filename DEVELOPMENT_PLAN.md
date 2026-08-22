@@ -6804,3 +6804,84 @@ against wording that misdescribed two of seven classes and a checker that was
 wrong about a third, so it is a **lower bound on a superseded instrument**, not a
 verdict on the judge. Re-running is the next measurement, and until then nothing
 here says the judge cannot do this job — only that it was not asked properly.
+
+### 21.73 The recall regression was mostly carpet-bombing, and wording moves classes not aggregates
+
+21.72 reworded all seven protocol entries after diagnosing one, and the re-run
+reported recall falling **57% → 43%**. Investigating before acting on it found
+the number was measuring something else.
+
+#### Class 7's "100% recall" was an accident
+
+Of its 8 true cases in the first run, **4 were answers charged with every one of
+the seven classes at once**. The judge was not detecting "casts a permanent
+already on the battlefield"; it was carpet-bombing, and class 7 happened to be
+in the barrage. That is 21.26's *every error at once* pathology, which
+`all_errors_fired` already exists to flag — and which nothing applied to the
+protocol block, so one act of blanket firing counted as seven verdicts.
+
+| | first run | reworded |
+| --- | --- | --- |
+| mean protocol charges per answer | 2.6 | **1.7** |
+| fired **all seven** at once | 14 (18%) | **2 (3%)** |
+| charged **exactly one** class | 10 | **24** |
+
+Blanket firing fell six-fold. The rewording did not make the judge cautious; it
+made it **discriminate**.
+
+#### With blanket fires excluded, the two runs are the same
+
+| | precision | recall |
+| --- | --- | --- |
+| first run, as first reported | 36% | 57% |
+| first run, blanket excluded | **38%** | **42%** |
+| reworded, blanket excluded | **36%** | **39%** |
+
+The 14-point regression was almost entirely artifact. **Rubric wording moved the
+aggregate by about two points.**
+
+#### But per class it moved a lot, and the direction is predictable
+
+| # | class | recall before → after | edit made |
+| --- | --- | --- | --- |
+| 1 | makes no play | 36% → **67%** | *"Declaring a phase and tapping lands are not plays."* |
+| 2 | repeats a PLAY | 18% → **40%** | *"Repeated TAP lines are not this error."* |
+| 3 | unavailable play | 32% → **41%** | *"Charge this if ANY line is unavailable."* |
+| 4 | wrong phase | 88% → 56% | narrowed to *"The answer's PHASE line…"* |
+| 5 | under-taps | 60% → 29% | added *"— it is short."* |
+| 7 | casts what is in play | 100% → 25% | added *"rather than one in hand."* |
+
+The three that improved were told **what not to count**. The three that
+regressed had a **condition to verify** appended — and a judge in doubt resolves
+by not charging. (Class 7's before-figure is also the one most inflated by
+blanket fires, so its true fall is smaller than 75 points.)
+
+That is a usable rule for writing these: *scope-narrowing clarifies, condition-
+adding suppresses.*
+
+#### The durable number
+
+On classes a **parser decides with certainty**, the 32B judge sits at roughly
+**37% precision and 40% recall** — right about a third of the time it speaks,
+finding two fifths of what is there — and rubric wording moves individual
+classes by 30 points while leaving the aggregate flat.
+
+That is the answer to *"can this judge do this job"* for the protocol classes:
+**not at this accuracy, and not via wording.** `valid_turn` (58% on the best
+arm) remains the number to trust, because no judge touches it.
+
+#### Two instrument gaps this exposed
+
+`judge_note` was **not stored on the position path** while the rules path keeps
+it, so diagnosing class 7 had to be done by inferring from firing patterns when
+the judge had presumably said why. Now stored.
+
+And blanket fires are now **excluded from the parser-checked figures and
+reported separately**, because counting one act of carpet-bombing as seven
+verdicts inflates recall with accidental hits — which is exactly how a 100%
+appeared and then vanished.
+
+**A method failure of mine, recorded.** 21.72 changed the wording *and* the
+`degenerate` checker in one commit, after a day spent documenting that mistake.
+It is only interpretable because five of six affected classes turned out to have
+unchanged truth sets — luck, not design.

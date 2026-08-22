@@ -559,6 +559,12 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 "valid_turn": not any(
                     protocol_findings(pos, parsed, _card_index_for_taps()).get(i)
                     for i in PROTOCOL_INVALIDATING),
+                # The judge's own words. Kept because the rules path keeps them
+                # and this one did not: diagnosing why class 7 collapsed from
+                # 100% to 25% recall had to be inferred from firing PATTERNS,
+                # when the judge had presumably said why and it was discarded
+                # (Section 21.73).
+                "judge_note": j.get("note"),
                 "protocol_truth": {
                     str(k): v for k, v in
                     protocol_findings(pos, parsed, _card_index_for_taps()).items()},
@@ -923,6 +929,7 @@ def _write_report(results, positions, arm_names, closed_arms, args,
     # second judge — and the answer to "is the judge charging real errors" for
     # the six classes that account for most of what real answers get wrong.
     tp = fp = und = miss = 0
+    blanket = blanket_charges = 0
     for r in results:
         for a in arm_names:
             d = r["arms"].get(a) or {}
@@ -930,6 +937,15 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             if truth is None:
                 continue
             fired = set(d.get("protocol_errors_made") or [])
+            # An answer charged with EVERY protocol class is one act of
+            # carpet-bombing, not seven independent verdicts, and counting it as
+            # seven inflates recall with accidental hits. Measured: the first
+            # run fired all seven on 18% of answers and scored 100% recall on
+            # class 7 — of which half were blanket fires (21.26, 21.73).
+            if len(fired) >= len(PROTOCOL_ERRORS):
+                blanket += 1
+                blanket_charges += len(fired)
+                continue
             for k, v in truth.items():
                 k = int(k)
                 if v is None:
@@ -943,6 +959,11 @@ def _write_report(results, positions, arm_names, closed_arms, args,
     if tp or fp or miss:
         prec = tp / (tp + fp) if tp + fp else float("nan")
         rec = tp / (tp + miss) if tp + miss else float("nan")
+        blanket_note = (
+            f" **{blanket} answers were charged with every class at once and are "
+            f"excluded** — that is one act of carpet-bombing, not {len(PROTOCOL_ERRORS)} "
+            "verdicts, and counting it as several inflates recall with accidental hits."
+            if blanket else "")
         lines.append(
             f"\n- **Protocol errors, checked by parser: precision {prec:.0%} "
             f"({tp}/{tp + fp}), recall {rec:.0%} ({tp}/{tp + miss}).** These six rubric "
