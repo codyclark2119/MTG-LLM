@@ -6885,3 +6885,109 @@ appeared and then vanished.
 `degenerate` checker in one commit, after a day spent documenting that mistake.
 It is only interpretable because five of six affected classes turned out to have
 unchanged truth sets — luck, not design.
+
+### 21.74 The rescore path never expanded scenarios — and 37% precision is the task, not the judge
+
+Two findings, and the first is why the second was nearly unobtainable.
+
+**A run containing scenario steps could be produced and never re-judged.**
+`--scenarios` expands a turn scenario into position-shaped steps and appends
+them. The steps live in `turn_scenarios.jsonl`; `positions.jsonl` never sees
+them. `--rescore-from` loads answers from a stored run and looks each `id` up in
+`positions.jsonl`, so it died on:
+
+```
+2 stored ids are not in positions.jsonl:
+  turn-payment-combat-0001::step1, turn-payment-combat-0001::step2
+```
+
+The failure is loud, which is the only good thing about it. What it cost is not:
+`--rescore-from` is the **only** way a second judge ever sees an answer, and
+9.9's rule is that a number from one judge is a statement about the judge. So
+21.71's stepwise harness shipped able to produce a number and structurally
+unable to validate it. The gates would have gone on reading as single-judge
+verdicts for exactly as long as nobody tried.
+
+**Fifth one-of-two-paths bug**, after `carry_diagnostics` (neither writer listed
+`scoring`), 21.51 (`judge_model` on rescored rows), 21.53 (the coverage guard in
+`rescore()` and not the first-pass writer), and 21.54 (the judge's identity in
+both `compare_judges` writers). The direction flips every time, which is why the
+rule in CLAUDE.md is *check every other writer*, never "check `rescore`".
+
+Fixed the way the previous four should have been: `turns.load_steps()` is the
+one definition, both call sites reach scenarios through it, and
+`test_eval_positions.test_scenario_paths` asserts **both callers exist** by
+reading the source. That is not a stylistic preference. No test over inputs and
+outputs can see a missing caller — the generation path was correct, its tests
+passed, and the bug lived entirely in a path those tests never entered.
+Confirmed by mutation: deleting the rescore caller fails two assertions.
+
+#### Protocol precision under a second judge
+
+With the path fixed, `pos_n24_protocol2` rescored under
+`Mistral-Small-24B-Instruct-2501-4bit` against the stored 32B run — **the same
+78 answers, byte for byte**, judge as the only variable.
+
+| | Qwen2.5-32B | Mistral-24B |
+| --- | --- | --- |
+| charges made | 126 | 171 |
+| **precision** | **37%** (47/126) | **34%** (58/171) |
+| **recall** | **43%** (47/110) | **53%** (58/110) |
+| undecidable, excluded | 62 | 62 |
+
+**37% was the task, not the 32B.** A judge from a different vendor, given
+identical answers and an identical rubric, lands within three points. Mistral
+fires 36% more charges and converts the extra volume into +10 recall at −3
+precision — the ordinary sensitivity/specificity trade, not a different
+instrument. The identical 62 undecidable checks are the positive control: the
+parser never sees the judge, so that column *must* match, and it does.
+
+Cohen's kappa on the blunder call is **+0.67** here against +0.47 in 21.57. Not
+an improvement in judges — a different rubric on a different set. What it does
+say is that the protocol entries are more agreeable *between judges* than the
+strategy entries were, which is what a rubric decidable from the board should
+do, and which says nothing about whether either judge is right. Both gate
+verdicts also agree (Gate 2 PASS 65% vs 85%; Gate 3 FAIL 57% vs 67%), and Gate 3
+is again the 21.19 pattern: agreement bought by distance from the bar, not by
+the judges being close.
+
+#### The judge is accurate exactly where it is least needed
+
+The aggregate hides the finding. Per class, under both judges:
+
+| # | protocol error | 32B prec | Mistral prec | 32B rec | Mistral rec |
+| --- | --- | --- | --- | --- | --- |
+| 3 | names an unavailable play | **85%** | **80%** | 44% | 41% |
+| 4 | PHASE names the wrong step | 43% | 35% | 60% | 75% |
+| 2 | repeats one PLAY | 38% | 33% | 50% | 50% |
+| 7 | casts a permanent already in play | 25% | 31% | 25% | 50% |
+| 1 | only passes | 22% | 22% | 67% | 83% |
+| 5 | TAP lines underpay | 21% | 29% | 38% | 75% |
+| 6 | TAP lines overpay | 18% | 21% | 12% | 24% |
+
+Class 3 is 80–85% under both judges. Every other class is 18–43% under both.
+That ordering is stable across two vendors, so it is a property of the classes.
+
+And class 3 is **the one class `legal_actions` already checks mechanically** —
+it is `all_legal` restated as a rubric entry. So the judge is reliable precisely
+where a parser makes it redundant, and unreliable on all six entries that exist
+*because* the parser could not see them (21.66, 21.70). The clean reading is not
+"the judge is 37% accurate"; it is that a judge asked to check arithmetic
+(classes 5 and 6, precision 18–29% and recall as low as 12%) is being asked for
+something it does not do, while the same judge asked "is this play on the list"
+does it well.
+
+This is the strongest available argument for 21.70's direction. The gameplay
+layer should supervise the judge layer rather than the reverse, and the split
+above says *which* entries to take from the parser: everything the board decides
+mechanically. The judge's remaining job is the strategy entries — which is where
+81% of adjudicated answers came back `not_covered`, and where no mechanical
+check exists at all.
+
+**Open, and not answered by this run.** Class 6 (over-tapping) has 12–24% recall
+under both judges — the judges are missing most real over-taps, and over-tapping
+is the entry the user deliberately separated from under-tapping because it is
+legal-but-wasteful rather than turn-invalidating. Being legal may be exactly why
+it is hard to notice. `PROTOCOL_INVALIDATING` excludes it from `valid_turn`, so
+the recall gap costs nothing on Gate 1 today; it would cost something the moment
+over-tapping became a scored blunder.

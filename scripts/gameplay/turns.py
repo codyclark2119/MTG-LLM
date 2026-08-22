@@ -143,6 +143,25 @@ def validate_scenario(scenario: dict) -> list[str]:
     return problems
 
 
+def load_steps(path: Path | None = None, *, validate: bool = True) -> list[dict]:
+    """Every expanded step in a scenario file, position-shaped.
+
+    Both of eval_positions' paths reach scenarios through here. They did not:
+    generation expanded scenarios and rescore did not, so a run containing
+    steps could be produced and never re-judged — which is the one thing a
+    second judge needs (Section 9.9). That is the fifth one-of-two-paths bug
+    in this repo, so the shared behaviour lives in one function and
+    test_eval_positions asserts BOTH callers exist. No test over inputs and
+    outputs can see a missing caller (Section 21.74).
+    """
+    scenarios = read_jsonl(path or SCENARIOS_PATH, missing_ok=True)
+    if validate:
+        bad = [problem for sc in scenarios for problem in validate_scenario(sc)]
+        if bad:
+            raise SystemExit("scenario problems:\n  " + "\n  ".join(bad))
+    return [step for sc in scenarios for step in expand_steps(sc)]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

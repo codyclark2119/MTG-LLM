@@ -174,16 +174,21 @@ enumerated these by hand and neither listed `scoring` at all. Runs archived
 before this carry none of it and are identified by filename only; five have
 `scoring` because a different path wrote them.
 
-**Six report writers exist, and a hardening has landed on a subset of them four
+**Six report writers exist, and a hardening has landed on a subset of them five
 times** — `carry_diagnostics` (neither listed `scoring`),
 `judge_model` on rescored rows (21.51), and the unjudged-coverage guard, which
 lived in `rescore()` while the *first-pass* writer — where every coverage failure
 this project has had actually happened — printed confident means with no warning
-(21.53), and the judge's *identity* in both `compare_judges` writers, whose only
-subject is which judge said what (21.54). The direction flips each time, so the
+(21.53), the judge's *identity* in both `compare_judges` writers, whose only
+subject is which judge said what (21.54), and scenario expansion, which reached
+`eval_positions`' generation path and not its rescore path — so a run containing
+turn steps could be produced and **never re-judged**, and `--rescore-from` is the
+only way a second judge ever sees an answer (21.74). The direction flips each time, so the
 rule is **check every other writer**, not "check `rescore`". Shared behaviour belongs in one function
-(`carry_diagnostics`, `coverage_lines`) with a test that asserts both callers
-exist, since no test over inputs and outputs can see a missing caller.
+(`carry_diagnostics`, `coverage_lines`, `turns.load_steps`) with a test that
+asserts both callers exist, since no test over inputs and outputs can see a
+missing caller — the generation path was correct and its tests passed, because
+the bug lived entirely where those tests never went.
 
 `--rescore-from` stamps the row too, which it did not until Section 21.51. It is
 the one path where the judge is *guaranteed* to differ from the file it read —
@@ -321,6 +326,16 @@ never is: **86% of position answers can be convicted with no judge at all**, and
 `common.PROTOCOL_ERRORS` turns those seven checks into rubric entries a *parser*
 confirms or refutes. That is the only per-error precision this project can
 compute without a human (21.70).
+
+**Measured, two judges, byte-identical answers: precision 37% (32B) and 34%
+(Mistral-24B) — so 37% is the task, not the judge** (21.74). Do not read the
+aggregate. Per class it is bimodal under *both* judges: entry 3 (*names a play
+not in `legal_actions`*) scores 80–85%, and all six others score 18–43%. Entry 3
+is the one entry `legal_actions` already checks mechanically, so **the judge is
+reliable exactly where a parser makes it redundant** and unreliable on every
+entry that exists because the parser could not see it. Take the mechanically
+decidable entries from the parser; leave the judge the strategy entries, where
+no check exists and 81% of adjudicated answers came back `not_covered`.
 
 `PROTOCOL_ERRORS` is **append-only**. The judge returns error NUMBERS, so
 strategy errors must keep `1..n` or every verdict already collected silently

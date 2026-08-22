@@ -364,15 +364,11 @@ def main() -> None:
     # every one of them.
     scenario_steps: list[dict] = []
     if args.scenarios:
-        from turns import expand_steps, validate_scenario
-        scenarios = read_jsonl(args.scenarios, missing_ok=True)
-        if not scenarios:
+        from turns import load_steps
+        scenario_steps = load_steps(args.scenarios)
+        if not scenario_steps:
             raise SystemExit(f"no scenarios in {args.scenarios}")
-        bad = [p for sc in scenarios for p in validate_scenario(sc)]
-        if bad:
-            raise SystemExit("scenario problems:\n  " + "\n  ".join(bad))
-        scenario_steps = [st for sc in scenarios for st in expand_steps(sc)]
-        print(f"{len(scenarios)} scenarios -> {len(scenario_steps)} steps")
+        print(f"scenarios -> {len(scenario_steps)} steps")
         positions = positions + scenario_steps
 
     if not positions:
@@ -384,6 +380,18 @@ def main() -> None:
         # a rescore cannot silently drop or add one.
         stored = [json.loads(line) for line in
                   args.rescore_from.open(encoding="utf-8") if line.strip()]
+        # Scenario steps live in turn_scenarios.jsonl, not positions.jsonl, so a
+        # run containing them could not be rescored at all — and rescoring is
+        # how a second judge happens (9.9). Scenarios were wired into the
+        # GENERATION path and not this one: the fifth time today a hardening
+        # reached one of two paths (see carry_diagnostics, 21.51, 21.53, 21.54).
+        #
+        # Expanded here unconditionally rather than behind --scenarios: the
+        # stored run already decided which steps exist, and requiring a flag to
+        # rescore a run that needs no flag to produce would be a trap of its own.
+        if any("::step" in r.get("id", "") for r in stored):
+            from turns import load_steps
+            positions = positions + load_steps(args.scenarios)
         by_id = {p["id"]: p for p in positions}
         missing = [r["id"] for r in stored if r["id"] not in by_id]
         if missing:

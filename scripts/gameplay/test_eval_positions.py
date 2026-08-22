@@ -298,13 +298,49 @@ def test_coverage_guard() -> int:
     return failed
 
 
+def test_scenario_paths() -> int:
+    """Both of eval_positions' position paths must expand scenarios.
+
+    Generation did and rescore did not, so a run containing steps could be
+    produced and never re-judged — and a second judge is only ever reached by
+    rescoring (Section 9.9). No test over inputs and outputs can see a missing
+    caller, so this one reads the source (Section 21.74).
+    """
+    failed = 0
+    src = (Path(__file__).resolve().parent / "eval_positions.py").read_text()
+    failed += not check("scenarios reach eval_positions through load_steps only",
+                        "expand_steps" in src, False)
+    failed += not check("both position paths call load_steps",
+                        src.count("load_steps("), 2)
+
+    # And the rescore caller is the one inside the --rescore-from branch, not
+    # two copies in the generation half.
+    rescore_half = src.split("if args.rescore_from:", 1)
+    failed += not check("rescore branch exists", len(rescore_half), 2)
+    failed += not check("rescore branch expands scenarios",
+                        "load_steps(" in rescore_half[1], True)
+    failed += not check("generation branch expands scenarios",
+                        "load_steps(" in rescore_half[0], True)
+
+    # load_steps validates by default: a malformed scenario must not reach a
+    # judge through either path.
+    import inspect
+
+    from turns import load_steps
+    sig = inspect.signature(load_steps)
+    failed += not check("load_steps validates by default",
+                        sig.parameters["validate"].default, True)
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("gate2_discrimination", test_gate2),
                      ("gate3_blunder", test_gate3),
                      ("coverage guard", test_coverage_guard),
                      ("gate2 vs stored runs", test_gate2_against_stored_runs),
-                     ("unearned_action_points", test_unearned_action_points)):
+                     ("unearned_action_points", test_unearned_action_points),
+                     ("scenario paths", test_scenario_paths)):
         print(f"{name} ...")
         failed += fn()
 
