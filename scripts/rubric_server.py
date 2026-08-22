@@ -157,6 +157,120 @@ CHOOSE_HTML = """<meta name=viewport content="width=device-width,initial-scale=1
 <span>Read an answer and say which of the listed errors it commits.</span></a>
 <a class=card href="/rubric"><b>Rubric authoring</b>
 <span>Write the key points and common errors for a question.</span></a>
+<a class=card href="/position"><b>Author a position</b>
+<span>Build a board and the decision it tests. Previews what the model sees.</span></a>
+"""
+
+
+# Position authoring, mobile-first. A BLANK form: it serves no tasks, reads no
+# gold set, and reaches nothing — which makes it the least exposed of the three
+# surfaces here, not the most. Submissions land in the same append-only log and
+# are promoted locally by `positions.py --ingest`, so "gold" keeps meaning a
+# person reviewed it.
+#
+# Card names are NOT validated here. That needs the 25MB card index, which is
+# deliberately not deployable — so the form previews the rendered board (the
+# feedback that actually helps while authoring) and name checking happens at
+# ingest, where it can fail loudly without costing anyone a lost draft.
+POSITION_HTML = """<meta name=viewport content="width=device-width,initial-scale=1">
+<title>author a position</title>
+<style>
+ :root{--bg:#fbfbfa;--fg:#1a1a1a;--rule:#ddd;--paper:#fff;--dim:#666}
+ @media(prefers-color-scheme:dark){:root{--bg:#151515;--fg:#eee;--rule:#333;--paper:#1e1e1e;--dim:#9a9a9a}}
+ *{box-sizing:border-box}
+ body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:1rem .9rem 4rem;background:var(--bg);color:var(--fg)}
+ h1{font-size:1.1rem;margin:0 0 .15rem}
+ p.sub{margin:0 0 1rem;color:var(--dim);font-size:.85rem}
+ label{display:block;margin:.7rem 0 .2rem;font-size:.82rem;color:var(--dim)}
+ input,textarea,select{width:100%;font:inherit;font-size:16px;padding:.5rem .55rem;
+   border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:inherit}
+ textarea{min-height:4.2rem;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px}
+ .row{display:flex;gap:.5rem}.row>div{flex:1}
+ fieldset{border:1px solid var(--rule);border-radius:10px;margin:1rem 0;padding:.3rem .8rem 1rem}
+ legend{font-size:.78rem;color:var(--dim);padding:0 .35rem}
+ button{font:inherit;padding:.6rem 1rem;border-radius:8px;border:1px solid var(--rule);
+   background:var(--paper);color:inherit}
+ button.primary{background:#2a6df4;color:#fff;border-color:#2a6df4}
+ pre{white-space:pre-wrap;background:var(--paper);border:1px solid var(--rule);
+   border-radius:8px;padding:.6rem;font-size:13px;overflow-x:auto}
+ .bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--rule);
+   padding:.6rem 0;display:flex;gap:.5rem;align-items:center}
+ .msg{font-size:.85rem}
+</style>
+<h1>Author a position</h1>
+<p class=sub>One board, one decision. Preview renders exactly what the model will see.</p>
+
+<label>Your name</label><input id=author placeholder="for attribution">
+
+<fieldset><legend>situation</legend>
+<div class=row>
+ <div><label>Turn</label><input id=turn inputmode=numeric value="4"></div>
+ <div><label>Phase</label><select id=phase>
+   <option>precombat main</option><option>postcombat main</option>
+   <option>declare attackers</option><option>declare blockers</option>
+   <option>upkeep</option><option>opening hand, on the play</option>
+   <option>beginning of combat</option><option>end step</option></select></div>
+</div>
+<div class=row>
+ <div><label>Your life</label><input id=you_life inputmode=numeric value="20"></div>
+ <div><label>Opp life</label><input id=opp_life inputmode=numeric value="20"></div>
+</div>
+<label>Mana available to you</label><input id=mana_available placeholder="{R}{G}{G}">
+</fieldset>
+
+<fieldset><legend>board — one permanent per line, e.g. <code>Forest untapped x2</code></legend>
+<label>Your battlefield</label><textarea id=you_battlefield></textarea>
+<label>Opponent's battlefield</label><textarea id=opp_battlefield></textarea>
+<label>Your hand (one card per line)</label><textarea id=you_hand></textarea>
+<div class=row>
+ <div><label>Your library</label><input id=you_library inputmode=numeric value="30"></div>
+ <div><label>Opp hand size</label><input id=opp_hand_count inputmode=numeric value="3"></div>
+</div>
+</fieldset>
+
+<fieldset><legend>the decision</legend>
+<label>Legal actions (one per line — every play available, not just the right one)</label>
+<textarea id=legal_actions></textarea>
+<label>Key points (the correct line, one per line)</label><textarea id=key_points></textarea>
+<label>Common errors (plausible wrong answers, one per line)</label><textarea id=common_errors></textarea>
+<label>Answer in prose</label><textarea id=answer></textarea>
+<div class=row>
+ <div><label>Category</label><input id=category placeholder="payment"></div>
+ <div><label>Difficulty</label><select id=difficulty>
+   <option>basic</option><option selected>intermediate</option><option>advanced</option></select></div>
+</div>
+</fieldset>
+
+<div class=bar>
+  <button onclick="preview()">Preview</button>
+  <button class=primary onclick="save()">Submit</button>
+  <span class=msg id=msg></span>
+</div>
+<pre id=out></pre>
+
+<script>
+const F=['turn','phase','you_life','opp_life','mana_available','you_battlefield',
+ 'opp_battlefield','you_hand','you_library','opp_hand_count','legal_actions',
+ 'key_points','common_errors','answer','category','difficulty'];
+const $=s=>document.querySelector(s);
+function body(){const b={};F.forEach(k=>b[k]=$('#'+k).value);b.author=$('#author').value;return b;}
+function tok(){const m=location.search.match(/[?&]t=([^&]+)/);return m?'?t='+m[1]:'';}
+async function post(path,b){
+  const r=await fetch(path+tok(),{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify(b)});return r.json();}
+async function preview(){
+  const d=await post('/api/position/preview',body());
+  $('#out').textContent=d.rendered||'';
+  $('#msg').textContent=(d.problems&&d.problems.length)?d.problems.join(' | '):'looks well-formed';}
+async function save(){
+  if(!$('#author').value){$('#msg').textContent='add your name first';return;}
+  const d=await post('/api/position',body());
+  $('#msg').textContent=d.ok?('submitted — '+d.total+' on file'):(d.problems||['failed']).join(' | ');
+  if(d.ok){['you_battlefield','opp_battlefield','you_hand','legal_actions','key_points',
+            'common_errors','answer'].forEach(k=>$('#'+k).value='');$('#out').textContent='';}}
+try{const w=localStorage.getItem('posWho');if(w)$('#author').value=w;}catch(e){}
+$('#author').addEventListener('change',()=>{try{localStorage.setItem('posWho',$('#author').value);}catch(e){}});
+</script>
 """
 
 
@@ -212,8 +326,9 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
 
     @app.get("/", response_class=HTMLResponse)
     def index():
-        if len(kinds) == 1:
-            return ADJUDICATE_HTML if kinds[0] == "adjudication" else INDEX_HTML
+        # The chooser whenever there is more than one thing to do — and
+        # position authoring is always available, so a single-task deployment
+        # still has two.
         return CHOOSE_HTML
 
     @app.get("/rubric", response_class=HTMLResponse)
@@ -221,6 +336,63 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         if not rubric_tasks:
             return HTMLResponse("no rubric tasks were deployed", 404)
         return INDEX_HTML
+
+    @app.get("/position", response_class=HTMLResponse)
+    def position_form():
+        # Always available: authoring needs no task file, which is why this is
+        # the least exposed surface here rather than another thing to deploy.
+        return POSITION_HTML
+
+    @app.post("/api/position/preview")
+    async def position_preview(request: Request):
+        from common import position_from_form, render_position
+        body = await request.json()
+        pos = position_from_form(body)
+        pos["id"] = pos.get("id") or "pos-preview"
+        # Structural checks only. Card names are validated at INGEST, where the
+        # 25MB index lives; doing it here would put the card corpus on a public
+        # host to catch a typo that local promotion catches anyway.
+        problems = []
+        if not pos.get("legal_actions"):
+            problems.append("no legal actions — the closed arm has nothing to choose from")
+        if len(pos.get("key_points") or []) < 2:
+            problems.append("a rubric needs at least 2 key points")
+        if not pos.get("battlefield") and "opening hand" not in (pos.get("phase") or ""):
+            problems.append("no permanents on either battlefield")
+        return {"rendered": render_position(pos), "problems": problems}
+
+    @app.post("/api/position")
+    async def position_submit(request: Request):
+        """Append a drafted position to the submissions log. Never the gold set.
+
+        The same invariant the other two forms keep: promotion is local and
+        reviewed (`positions.py --ingest`), so "gold" goes on meaning a person
+        looked at it. A server that writes positions.jsonl directly is the one
+        thing `webui.py` does that makes it undeployable.
+        """
+        from common import position_from_form, render_position
+        body = await request.json()
+        author = (body.get("author") or "").strip()
+        if not author:
+            return JSONResponse({"ok": False, "problems": ["name required for attribution"]}, 400)
+        pos = position_from_form(body)
+        if not pos.get("legal_actions") or len(pos.get("key_points") or []) < 2:
+            return JSONResponse({"ok": False, "problems":
+                                 ["needs legal actions and at least 2 key points"]}, 400)
+        pos["author"] = author
+        pos["kind"] = "position_draft"
+        # Set here so a draft is promotable without hand-editing. The ID is NOT
+        # set: `positions.py --ingest` assigns it from the category, which keeps
+        # numbering under local control and stops two people submitting the same
+        # id from a form that cannot see the gold set.
+        pos["source"] = f"hand-authored (web form, {author})"
+        pos["rubric_source"] = f"hand-authored ({author})"
+        pos["rendered_preview"] = render_position(pos)
+        pos["submitted"] = datetime.now(timezone.utc).isoformat()
+        append_submission(submissions_path, pos)
+        total = sum(1 for x in read_submissions(submissions_path)
+                    if x.get("kind") == "position_draft")
+        return {"ok": True, "total": total}
 
     @app.get("/adjudicate", response_class=HTMLResponse)
     def adjudicate_form():

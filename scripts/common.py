@@ -478,6 +478,119 @@ def _render_zone(items: list, indent: str = "  ") -> list[str]:
     return [f"{indent}{line}" + (f" x{n}" if n > 1 else "") for line, n in counts.items()]
 
 
+# --- Authoring a position from a flat form ---------------------------------
+#
+# Lives here, not in gameplay/positions.py, because `rubric_server.py` needs it
+# and the server's ONLY project import is this module — pulling in
+# gameplay/positions.py would put the card index, the gold set and the run files
+# on the import path of a public service. Both functions are pure string
+# parsing, so nothing followed them across.
+
+_COUNT_RE = re.compile(r"^x(\d+)$", re.I)
+
+_PT_RE = re.compile(r"^\d+/\d+$")
+
+# "untapped" and "blocking" are recognised and mean the DEFAULT, not a flag.
+# Without them an author writing the natural thing — "Island untapped" — got a
+# permanent whose card name was "Island untapped", which the renderer then
+# printed as `Island untapped — untapped`. Card-name validation catches it at
+# ingest, but only after the position is written, and the renderer showed the
+# corrupted name back to the author as if it were correct.
+_PERM_FLAGS = {"tapped": "tapped", "attacking": "attacking",
+               "sick": "summoning_sick", "summoning-sick": "summoning_sick",
+               "summoning": "summoning_sick"}
+_PERM_NOOP_WORDS = {"untapped", "unblocked", "blocking"}
+
+
+def parse_permanent_line(line: str, controller: str) -> list[dict]:
+    """Parse one battlefield line into permanents. Returns [] for a blank line."""
+    tokens = line.replace(",", " ").split()
+    if not tokens:
+        return []
+    count, pt, flags, name_parts = 1, None, {}, []
+    for tok in tokens:
+        low = tok.lower()
+        if (m := _COUNT_RE.match(tok)):
+            count = max(1, min(int(m.group(1)), 40))
+        elif _PT_RE.match(tok):
+            pt = tok
+        elif low in _PERM_FLAGS:
+            flags[_PERM_FLAGS[low]] = True
+        elif low in _PERM_NOOP_WORDS:
+            continue          # states the default; never part of the card name
+        else:
+            name_parts.append(tok)
+    name = " ".join(name_parts).strip()
+    if not name:
+        return []
+    out = []
+    for _ in range(count):
+        p = {"controller": controller, "card": name, "tapped": flags.get("tapped", False)}
+        if pt:
+            p["pt"] = pt
+        for key in ("attacking", "summoning_sick"):
+            if flags.get(key):
+                p[key] = True
+        out.append(p)
+    return out
+
+
+def position_from_form(f: dict) -> dict:
+    """Turn the authoring form's flat fields into a position record.
+
+    Kept server-side so the browser never constructs the schema: the form can
+    change shape without the stored records changing shape, and the same
+    function backs both the live preview and the save.
+    """
+    def rows(key):
+        return [s.strip() for s in (f.get(key) or "").splitlines() if s.strip()]
+
+    def num(key, default=0):
+        try:
+            return int(str(f.get(key, "")).strip() or default)
+        except ValueError:
+            return default
+
+    battlefield = []
+    for line in rows("you_battlefield"):
+        battlefield.extend(parse_permanent_line(line, "you"))
+    for line in rows("opp_battlefield"):
+        battlefield.extend(parse_permanent_line(line, "opp"))
+
+    pos = {
+        "id": (f.get("id") or "").strip(),
+        "format": (f.get("format") or "standard").strip(),
+        "turn": num("turn"),
+        "phase": (f.get("phase") or "").strip(),
+        "active_player": f.get("active_player") or "you",
+        "priority": f.get("priority") or "you",
+        "players": {
+            "you": {"life": num("you_life", 20), "hand": rows("you_hand"),
+                    "library_count": num("you_library", 0)},
+            "opp": {"life": num("opp_life", 20), "hand_count": num("opp_hand_count", 0),
+                    "library_count": num("opp_library", 0)},
+        },
+        "battlefield": battlefield,
+        "graveyards": {"you": rows("you_graveyard"), "opp": rows("opp_graveyard")},
+        "stack": rows("stack"),
+        "known_information": rows("known_information"),
+        "legal_actions": rows("legal_actions"),
+        "answer": (f.get("answer") or "").strip(),
+        "key_points": rows("key_points"),
+        "common_errors": rows("common_errors"),
+        "rule_citations": [s for s in (f.get("rule_citations") or "").replace(",", " ").split() if s],
+        "category": f.get("category") or "",
+        "difficulty": f.get("difficulty") or "",
+        "source": (f.get("source") or "").strip(),
+        "cr_version": CR_VERSION,
+    }
+    if f.get("mana_available"):
+        pos["mana_available"] = f["mana_available"].strip()
+    if f.get("deck_note"):
+        pos["deck_note"] = f["deck_note"].strip()
+    return pos
+
+
 def render_position(pos: dict) -> str:
     """Render a structured position into the text the model actually sees.
 

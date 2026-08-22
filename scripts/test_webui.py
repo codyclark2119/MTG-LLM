@@ -46,8 +46,15 @@ def served_html() -> str:
 
 
 def js_of(html: str) -> str:
+    """The page's script, or "" for a page that deliberately has none.
+
+    A page with no JavaScript is legitimate — the chooser is static by design —
+    and demanding exactly one block failed it for being simple. What must never
+    happen is a page with MORE than one, because `js_of` would silently check
+    only the first and the second could be anything.
+    """
     parts = re.findall(r"<script>(.*?)</script>", html, re.S)
-    check("exactly one <script> block", len(parts), 1)
+    check("at most one <script> block", len(parts) <= 1, True)
     return parts[0] if parts else ""
 
 
@@ -116,6 +123,11 @@ def main() -> None:
     import rubric_server
     check_page("rubric_server/rubric", rubric_server.INDEX_HTML)
     check_page("rubric_server/adjudicate", rubric_server.ADJUDICATE_HTML)
+    # Every page the server can return. A page added without a line here is a
+    # page whose JavaScript nothing parses — which is exactly how four views
+    # shipped blank for several commits (see the module docstring).
+    check_page("rubric_server/position", rubric_server.POSITION_HTML)
+    check_page("rubric_server/choose", rubric_server.CHOOSE_HTML)
 
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:

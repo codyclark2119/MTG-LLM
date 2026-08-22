@@ -30,7 +30,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from actions import Action, PHASE_NAMES, parse_line  # noqa: E402
-from common import (  # noqa: E402,F401  (lint_common_errors re-exported for webui)
+from common import (  # noqa: E402
+    parse_permanent_line,
+    position_from_form,  # noqa: E402,F401  (lint_common_errors re-exported for webui)
     CR_VERSION,
     POSITIONS_PATH,
     build_position_messages,
@@ -47,6 +49,11 @@ from common import (  # noqa: E402,F401  (lint_common_errors re-exported for web
 POSITION_CATEGORIES = [
     "mulligan", "land sequencing", "combat math", "blocking",
     "removal timing", "trigger ordering", "race vs stabilize",
+    # Stages 3 and 5 of the gameplay curriculum, which had no category and so
+    # could not be authored at all: "payment" is correct mana tapped and
+    # sorcery-speed timing, "closing the turn" is the postcombat main phase the
+    # set has never contained a position for (Section 21.71).
+    "payment", "closing the turn",
 ]
 DIFFICULTIES = ["basic", "intermediate", "advanced"]
 PLAYERS = ("you", "opp")
@@ -83,97 +90,10 @@ def position_card_names(pos: dict) -> list[str]:
 #   "Llanowar Elves 1/1 sick"
 # Flags are suffix words so the card name stays at the front where it reads
 # naturally and where name validation can find it.
-_PERM_FLAGS = {"tapped": "tapped", "attacking": "attacking",
-               "sick": "summoning_sick", "summoning-sick": "summoning_sick"}
-_PT_RE = re.compile(r"^\d+/\d+$")
-_COUNT_RE = re.compile(r"^x(\d+)$", re.I)
 
 
-def parse_permanent_line(line: str, controller: str) -> list[dict]:
-    """Parse one battlefield line into permanents. Returns [] for a blank line."""
-    tokens = line.replace(",", " ").split()
-    if not tokens:
-        return []
-    count, pt, flags, name_parts = 1, None, {}, []
-    for tok in tokens:
-        low = tok.lower()
-        if (m := _COUNT_RE.match(tok)):
-            count = max(1, min(int(m.group(1)), 40))
-        elif _PT_RE.match(tok):
-            pt = tok
-        elif low in _PERM_FLAGS:
-            flags[_PERM_FLAGS[low]] = True
-        else:
-            name_parts.append(tok)
-    name = " ".join(name_parts).strip()
-    if not name:
-        return []
-    out = []
-    for _ in range(count):
-        p = {"controller": controller, "card": name, "tapped": flags.get("tapped", False)}
-        if pt:
-            p["pt"] = pt
-        for key in ("attacking", "summoning_sick"):
-            if flags.get(key):
-                p[key] = True
-        out.append(p)
-    return out
 
 
-def position_from_form(f: dict) -> dict:
-    """Turn the authoring form's flat fields into a position record.
-
-    Kept server-side so the browser never constructs the schema: the form can
-    change shape without the stored records changing shape, and the same
-    function backs both the live preview and the save.
-    """
-    def rows(key):
-        return [s.strip() for s in (f.get(key) or "").splitlines() if s.strip()]
-
-    def num(key, default=0):
-        try:
-            return int(str(f.get(key, "")).strip() or default)
-        except ValueError:
-            return default
-
-    battlefield = []
-    for line in rows("you_battlefield"):
-        battlefield.extend(parse_permanent_line(line, "you"))
-    for line in rows("opp_battlefield"):
-        battlefield.extend(parse_permanent_line(line, "opp"))
-
-    pos = {
-        "id": (f.get("id") or "").strip(),
-        "format": (f.get("format") or "standard").strip(),
-        "turn": num("turn"),
-        "phase": (f.get("phase") or "").strip(),
-        "active_player": f.get("active_player") or "you",
-        "priority": f.get("priority") or "you",
-        "players": {
-            "you": {"life": num("you_life", 20), "hand": rows("you_hand"),
-                    "library_count": num("you_library", 0)},
-            "opp": {"life": num("opp_life", 20), "hand_count": num("opp_hand_count", 0),
-                    "library_count": num("opp_library", 0)},
-        },
-        "battlefield": battlefield,
-        "graveyards": {"you": rows("you_graveyard"), "opp": rows("opp_graveyard")},
-        "stack": rows("stack"),
-        "known_information": rows("known_information"),
-        "legal_actions": rows("legal_actions"),
-        "answer": (f.get("answer") or "").strip(),
-        "key_points": rows("key_points"),
-        "common_errors": rows("common_errors"),
-        "rule_citations": [s for s in (f.get("rule_citations") or "").replace(",", " ").split() if s],
-        "category": f.get("category") or "",
-        "difficulty": f.get("difficulty") or "",
-        "source": (f.get("source") or "").strip(),
-        "cr_version": CR_VERSION,
-    }
-    if f.get("mana_available"):
-        pos["mana_available"] = f["mana_available"].strip()
-    if f.get("deck_note"):
-        pos["deck_note"] = f["deck_note"].strip()
-    return pos
 
 
 def next_position_id(existing: list[dict], category: str) -> str:
@@ -698,6 +618,12 @@ def ingest(drafts: list[dict], existing: list[dict], author: str = "",
             continue
         seen.add(rid)
         pos = dict(pos)
+        # A draft from the web form carries no id: the form cannot see the gold
+        # set, so it cannot number without risking a collision between two
+        # authors. Numbering happens HERE, where the existing set is in hand —
+        # the same reason promotion is local and reviewed at all.
+        if not pos.get("id"):
+            pos["id"] = next_position_id(existing + accepted, pos.get("category") or "")
         pos.setdefault("cr_version", CR_VERSION)
         pos.setdefault("graveyards", {"you": [], "opp": []})
         # Attribution rides on the record when it carries one, so a file can
