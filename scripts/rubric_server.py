@@ -66,7 +66,10 @@ _WRITE_LOCK = threading.Lock()
 # the wording; they under-fire on action-list answers as a result (Section
 # 21.47). Segmenting on this is the only way to tell that apart from a real
 # change in the answers, so it rides on every submission the way `author` does.
-ADJUDICATION_FORM_VERSION = 2
+# 3: the form shows PROTOCOL_ERRORS alongside the position's own `common_errors`,
+# in the judge's numbering, and records `n_shown` so `score_run` can tell which
+# entries a verdict was actually offered (Section 21.75).
+ADJUDICATION_FORM_VERSION = 3
 
 
 def _answer_sha(answer: str) -> str:
@@ -574,6 +577,11 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
             # (Section 21.62).
             "answer_sha": _answer_sha(by_key[tid].get("answer") or ""),
             "errors_present": nums,
+            # How many rubric entries this reviewer was actually shown. A judge
+            # charge above this number cannot be scored against them — they were
+            # never offered it — and `score_run` excludes it rather than
+            # counting it as a false positive (Section 21.75).
+            "n_shown": n_errors,
             "blundered": bool(nums),
             "unsure": bool(body.get("unsure")),
             # "wrong, but none of the listed mistakes describe it" — the case
@@ -662,6 +670,10 @@ h2{font-family:var(--serif);font-size:1.22rem;margin:.1rem 0 .1rem;font-weight:6
 .card h3{margin:0 0 .45rem;font-size:.74rem;text-transform:uppercase;letter-spacing:.07em;
  color:var(--faint);font-weight:650}
 .answer{font-family:var(--serif);font-size:1.02rem}
+h3.grp{margin:1.1rem 0 .35rem;font-size:.74rem;text-transform:uppercase;
+ letter-spacing:.07em;color:var(--faint);font-weight:650;
+ border-top:1px solid var(--rule);padding-top:.7rem}
+h3.grp:first-of-type{border-top:0;padding-top:0;margin-top:.5rem}
 .draft{background:var(--rule-soft);border-radius:3px;padding:.5rem .7rem;
  font-family:var(--mono);font-size:.82rem;color:var(--soft);white-space:pre-wrap;
  user-select:text}
@@ -992,19 +1004,28 @@ function render(){
     '<h2>The correct line</h2><ul>'+(t.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
     '<h2>The answer under review</h2><pre class="answer">'+esc(t.answer)+'</pre>'+
     '<h2>Which of these mistakes does the answer make?</h2>'+
+    ((t.n_strategy>0)?'<h3 class="grp">Mistakes specific to this position</h3>':'')+
     '<p class="hint">Judge the <b>play</b>, not the wording. Check an item if the answer '+
     'does that thing. An action list like <code>PASS</code> still "takes 2 from the '+
     'Vanguard" even though it never says those words.</p>'+
     (t.common_errors||[]).map((e,n)=>
+      // The list is `common_errors + PROTOCOL_ERRORS`. The divider is inserted
+      // at n_strategy because the two halves are read differently: above it,
+      // mistakes specific to THIS board; below it, ones any answer can make.
+      // Numbering runs straight through both, matching the judge exactly.
+      ((n===t.n_strategy)?'<h3 class="grp">Mistakes any answer can make</h3>'+
+        '<p class="hint">These apply to every position. Check them the same '+
+        'way \u2014 by what the answer did, not by how it worded it.</p>':'')+
       '<label class="opt"><input type="checkbox" class="e" value="'+(n+1)+'">'+
       '<span><b>'+(n+1)+'.</b> '+esc(e)+'</span></label>').join('')+
     '<p class="hint"><b>Check none if it makes none of them</b> — a real verdict and a '+
     'common one, not a skip. You are not being asked whether a judge was right.</p>'+
     '<label class="opt"><input type="checkbox" id="notcovered"><span><b>Bad, but not '+
-    'for any reason above.</b> The answer is wrong or useless — does nothing, repeats '+
-    'itself, plays something illegal — and none of the listed mistakes describe it. '+
-    'This measures gaps in the rubric, so flagging it is worth as much as the '+
-    'checkboxes.</span></label>'+
+    'for any reason above.</b> The answer is wrong or useless and none of the listed '+
+    'mistakes describe it. This measures gaps in the rubric, so flagging it is worth '+
+    'as much as the checkboxes \u2014 but check the second group first: doing nothing, '+
+    'repeating itself and playing something illegal all have their own boxes now, and '+
+    'they did not before.</span></label>'+
     '<label class="opt"><input type="checkbox" id="unsure"><span>Genuinely ambiguous — '+
     'I could argue it either way</span></label>'+
     '<input type="text" id="note" placeholder="what the answer actually did, if a box '+

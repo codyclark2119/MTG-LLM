@@ -980,6 +980,39 @@ def test_adjudication_scoring() -> int:
     s7 = score_run(run2, [v("p5::a", [1])], {})
     failed += not check("a verdict with no digest still scores", s7["n"], 1)
 
+    # A charge the reviewer's form never displayed cannot be a false positive.
+    # The form showed `common_errors` while the judge was given
+    # `common_errors + PROTOCOL_ERRORS`, so every protocol charge fell into
+    # `judge - human` by construction (Section 21.75). The trigger rate tracks
+    # the condition under test — 0% of charges on a pre-protocol run, 68% on a
+    # protocol run — so it reversed the comparison it corrupted: 2.2% vs 2.8%
+    # unfixed, 5.6% vs 2.8% fixed.
+    run3 = _Path(tempfile.mkdtemp()) / "r3.jsonl"
+    run3.write_text(_json.dumps(
+        {"id": "p6", "arms": {"a": {"errors_made": [1, 9]}}}), encoding="utf-8")
+    # The reviewer saw 4 entries and ticked entry 1. Entry 9 is a protocol
+    # charge they were never offered.
+    s8 = score_run(run3, [v("p6::a", [1], n_shown=4)], {})
+    failed += not check("a charge above n_shown is not a false positive",
+                        s8["precision"], 1.0)
+    failed += not check("...and is counted, not dropped silently",
+                        s8["charges_not_shown"], 1)
+
+    # Same run, same verdict, but the reviewer WAS shown all 11 entries and did
+    # not tick 9. Now it is a real false positive.
+    s9 = score_run(run3, [v("p6::a", [1], n_shown=11)], {})
+    failed += not check("a charge within n_shown IS a false positive",
+                        s9["precision"], 0.5)
+    failed += not check("nothing restricted", s9["charges_not_shown"], 0)
+
+    # A verdict predating form_version 3 carries no n_shown; the fallback is the
+    # rubric's own strategy count, which is exactly what that form displayed.
+    s10 = score_run(run3, [v("p6::a", [1])],
+                    {"p6": {"common_errors": ["a", "b", "c", "d"]}})
+    failed += not check("legacy verdicts fall back to the strategy count",
+                        s10["charges_not_shown"], 1)
+    failed += not check("...and score as if restricted", s10["precision"], 1.0)
+
     # The ingest dedup, which is where the same assumption destroyed work rather
     # than mis-scoring it: six of six regrades dropped as "already on file"
     # because the identity was (key, author) (Section 21.65).

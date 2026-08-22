@@ -6991,3 +6991,101 @@ legal-but-wasteful rather than turn-invalidating. Being legal may be exactly why
 it is hard to notice. `PROTOCOL_INVALIDATING` excludes it from `valid_turn`, so
 the recall gap costs nothing on Gate 1 today; it would cost something the moment
 over-tapping became a scored blunder.
+
+### 21.75 The adjudication form was one release behind the judge, and it reversed the comparison
+
+`PROTOCOL_ERRORS` was added to the judge's rubric in 21.70 and to the form in
+neither place it needed to go. The consequence has two halves, and each half
+reads as a finding about something other than a form.
+
+#### Half one: the reviewer had no box, so they used the note
+
+`eval_positions` grades against `common_errors + PROTOCOL_ERRORS` — eleven
+entries on a typical position. `adjudicate.task_for` sent `common_errors` alone
+— four. The reviewer saw the strategy entries and nothing else.
+
+So when an answer tapped six lands it did not control, or cast a creature
+already on the battlefield, there was no checkbox for it. The reviewer did the
+only thing available: ticked **"Bad, but not for any reason above"** and wrote
+what happened in the note. Reading all 33 not-covered notes, **30 describe an
+entry that was already in `PROTOCOL_ERRORS`**. One of them names four at once:
+
+> *"Tapping all their forests to cast no spell, declaring that they are playing
+> 4 forests when they are already on the battlefield, casting a Grizzly Bears
+> that is not in their hand, Casting Grizzly Bears as a non-creature spell
+> targeting Centaur Courser twice."*
+
+That is entries 6, 7, 3 and 2, written out by hand, on a form that offered none
+of them.
+
+The 69% not-covered rate was read as **the rubric missing entries** (21.47). It
+is mostly the *form* missing entries the rubric already had. Only two of 33 —
+"there isn't an explanation why it mulliganed" and "doesn't go for lethal,
+holds up attacking instead" — are genuinely outside both lists, and those two
+are the real coverage gap.
+
+This is the 21.55 shape rotated one turn. There, a field the human filled in was
+stored and read by nothing. Here, a field the *judge* fills in was never offered
+to the human — so the reviewer's careful prose became unscoreable free text, and
+their effort was spent restating a list that existed.
+
+#### Half two: unofferable charges scored as false positives
+
+`score_run` computes `fp = len(judge - human)`. A protocol charge is never in
+`human`, because `human` can only contain numbers the form displayed. So every
+protocol charge counted as a judge error by construction.
+
+The trigger rate is the problem. On `pos_n24_verbose_32b`, produced before
+21.70, **0 of 129** fired numbers exceed the strategy list. On
+`pos_n24_protocol2_32b`, **129 of 190 (68%)** do. Same code, same verdicts:
+
+| scored against | unfixed precision | fixed |
+| --- | --- | --- |
+| `pos_n24_verbose_32b` (pre-protocol) | 2.8% | 2.8% |
+| `pos_n24_protocol2_32b` (protocol) | **2.2%** | **5.6%** |
+
+Unfixed, the protocol rubric looks like it made the judge *worse*. Fixed, it
+doubles precision. **The bug reversed the sign of the comparison**, and it did so
+because its rate is a function of the condition under test — the exact family as
+the unwrapped-JSON bug that hit V5 on 8 of 24 calls and V3 on 0 (21.39), where a
+harness failure arrived wearing the shape of a result about the treatment.
+
+A bug that fires uniformly is visible as a bug. One correlated with the
+treatment is indistinguishable from a finding, and the direction it points is
+arbitrary.
+
+#### Fixed on both sides, and neither fix alone is enough
+
+`task_for` now sends `common_errors + PROTOCOL_ERRORS` in the **judge's order**,
+so strategy entries keep 1..n and protocol entries take n+1..n+7 — the same
+concatenation `eval_positions` performs, because any other order renumbers every
+verdict silently. `n_strategy` marks the split so the form can group the two
+("Mistakes specific to this position" / "Mistakes any answer can make"), and
+form_version is 3.
+
+`score_run` restricts each judge charge to `n <= n_shown`, recorded by the form
+from v3 on. Verdicts collected earlier carry no `n_shown` and fall back to the
+rubric's strategy count — which is exactly what that form displayed, so the
+fallback is *exact* rather than a guess. The fallback derives the record id from
+the key rather than trusting a separate field, because a missing field would
+silently mean "no restriction", which is the unsafe direction: it is what the
+bug already did.
+
+Restricted charges are counted in `charges_not_shown` and printed as a loud
+separate line, not folded into the exclusions list. The others there
+(`unsure`, `stale`, `unmatched`) are properties of the sample. This one is a
+defect in the form, and its remedy is to re-export and redeploy, so it says so.
+
+#### What this does NOT do
+
+It does not produce a judge precision number. Both figures above rest on
+`tp = 1`, and the reason is now understood rather than mysterious: the reviewer
+could tick only strategy entries and the answers were mostly failing on
+protocol. **The 27 covered verdicts cannot be rescued by re-scoring** — the
+information was never collected. They have to be re-adjudicated against the
+eleven-entry form, and the 21.62 digest machinery makes that safe: the answers
+have not changed, so a fresh verdict on the same key is correctly a second
+verdict rather than a collision.
+
+The honest statement of judge-vs-human precision today is **not measured**, and
+the reason is a form field, not a judge.

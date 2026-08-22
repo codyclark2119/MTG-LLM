@@ -429,6 +429,11 @@ Two invariants worth keeping:
 - **Attribution rides on each submission**, not on the import command, so one
   file holds several authors and `eval.py --compare` can break agreement down
   per author.
+- **The form records what it showed.** `n_shown` rides on each verdict, because
+  the rubric a reviewer saw is not necessarily the one the judge was given, and
+  a judge charge against an entry nobody was offered is not a false positive
+  (21.75). `score_run` restricts to it and prints `charges_not_shown` loudly —
+  non-zero means the deployed form is behind the judge and must be re-exported.
 
 `deploy/` holds the Dockerfile, `fly.toml` and the three-line requirements. If
 the Dockerfile's COPY list ever grows, that is the moment to ask whether the
@@ -486,6 +491,17 @@ Each cost real time. They recur in new code, so they are worth knowing.
   carried 11 of 31 disputed judge calls; the one that had it drew zero. The
   lint cannot help — it checks the lines that are there, and this is a missing
   one.
+- **A rubric the judge was given and the human form was not.** `PROTOCOL_ERRORS`
+  reached `eval_positions` and not `adjudicate.task_for`, so the reviewer had no
+  checkbox for "taps six lands it does not control" and wrote it in the note
+  instead — **30 of 33** `not_covered` notes name an entry the rubric already
+  had, which is most of what 21.47 read as the *rubric* missing entries. Worse,
+  `score_run` counts `judge - human` as false positives, and a charge the form
+  never displayed can never be in `human`: 0% of charges on a pre-protocol run,
+  **68%** on a protocol run, so precision read 2.2% vs 2.8% unfixed and 5.6% vs
+  2.8% fixed — **the bug reversed the sign of the comparison**. Both sides are
+  fixed and neither alone was enough. When a judge's rubric grows, the human
+  form is a consumer of it (Section 21.75).
 - **A control that is collected, stored, and read by nothing.** The adjudication
   form asks "Genuinely ambiguous — I could argue it either way", the server
   stores it, the ingest writes it to the gold-adjacent file, and `score_run`

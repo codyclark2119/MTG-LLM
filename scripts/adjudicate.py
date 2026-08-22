@@ -65,6 +65,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from common import (  # noqa: E402
     GOLD_PATH,
+    PROTOCOL_ERRORS,
     cohens_kappa,
     POSITIONS_PATH,
     REPO_ROOT,
@@ -150,13 +151,32 @@ def task_for(item: dict, rubrics: dict) -> dict | None:
     if not rec:
         return None
     from calibrate_judge import question_text
+    strategy = list(rec["common_errors"])
     return {
         "key": item["key"],
         "record_id": item["record_id"],
         "arm": item["arm"],
         "question": question_text(rec),
         "answer": item["answer"],
-        "common_errors": rec["common_errors"],
+        # The SAME list the judge grades against, in the SAME order:
+        # `eval_positions` passes `common_errors + PROTOCOL_ERRORS`, so strategy
+        # entries keep 1..n and protocol entries take n+1..n+7. Concatenating in
+        # any other order here would renumber every verdict silently.
+        #
+        # The form used to show `common_errors` alone while the judge was asked
+        # about both. Two consequences, and each reads as a finding about
+        # something else. The reviewer had no box for a protocol error, so they
+        # wrote it in the note and ticked "not covered" — **30 of 33**
+        # not-covered notes describe an entry that was already in
+        # `PROTOCOL_ERRORS`, which is most of the 69% coverage gap 21.47 read as
+        # the rubric missing entries. And `score_run` counted every protocol
+        # charge as a false positive, because the human was never offered it:
+        # 0% of charges on a pre-protocol run, **68%** on a protocol run, so the
+        # damage arrives exactly when the thing under test changes (21.75).
+        "common_errors": strategy + list(PROTOCOL_ERRORS),
+        # Where the split falls, so the form can label the two groups and
+        # `score_run` can tell a legacy verdict from a current one.
+        "n_strategy": len(strategy),
         "key_points": rec.get("key_points") or [],
         "category": rec.get("category"),
         # `source_run` is deliberately NOT here. It is a filename like
@@ -242,7 +262,7 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     tp = fp = fn = 0
     b_right = b_total = 0
     fp_only = fn_only = 0
-    n_unsure = n_not_covered = n_unmatched = n_stale = 0
+    n_unsure = n_not_covered = n_unmatched = n_stale = n_not_shown = 0
     b_pairs: list[tuple[bool, bool]] = []
     for v in verdicts:
         if v["key"] not in by_key:
@@ -270,6 +290,33 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
             n_not_covered += 1
         human = set(v["errors_present"])
         judge = set(by_key[v["key"]])
+        # A charge the reviewer was never offered cannot be a false positive.
+        # The form showed `common_errors` while the judge was given
+        # `common_errors + PROTOCOL_ERRORS`, so every protocol charge landed in
+        # `judge - human` by construction — 0% of charges on a pre-protocol run
+        # and 68% on a protocol run. That is the 21.5-family trap in its worst
+        # form: a harness error whose rate tracks the condition under test, so
+        # it arrives wearing the shape of a result ("the protocol rubric made
+        # the judge much less precise") rather than the shape of a bug.
+        #
+        # `n_shown` is recorded by the form from form_version 3. Verdicts
+        # collected before it saw the strategy entries only, which is what the
+        # rubric index still reports, so the fallback is exact rather than a
+        # guess. Restricted charges are COUNTED and reported: a denominator that
+        # quietly shrinks is how a subset gets read as a sample (21.14).
+        shown = v.get("n_shown")
+        if shown is None:
+            # `record_id` is a separate field on a real verdict, but falling back
+            # to it alone means a row missing it silently gets NO restriction —
+            # the unsafe direction, since unrestricted is what the bug did. The
+            # key is `record_id::arm` by construction, so split it.
+            rid = v.get("record_id") or v.get("key", "").split("::")[0]
+            rec = rubrics.get(rid) or {}
+            shown = len(rec.get("common_errors") or [])
+        if shown:
+            beyond = {n for n in judge if n > shown}
+            n_not_shown += len(beyond)
+            judge -= beyond
         tp += len(human & judge)
         fp += len(judge - human)
         fn += len(human - judge)
@@ -297,6 +344,9 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         "excluded_unsure": n_unsure,
         "unmatched": n_unmatched,
         "stale": n_stale,
+        # Judge charges against an entry the reviewer's form never displayed.
+        # Non-zero means the form is behind the judge's rubric — re-export.
+        "charges_not_shown": n_not_shown,
         # Not excluded — a reviewer saying "the rubric has no entry for what
         # this answer did" while listing no error IS the human agreeing that no
         # LISTED error occurred, which is exactly what blunder rate is defined
@@ -547,6 +597,16 @@ def main() -> None:
                             "measures; the answer may still be bad, Section 21.49)")
             if bits:
                 print(f"\n{s['run']}: " + "; ".join(bits))
+            # Loud and separate, because this one is a defect in the FORM and
+            # not a property of the sample: it means the judge was graded on
+            # entries the reviewer could not see, and the precision above was
+            # computed without them (Section 21.75).
+            if s["charges_not_shown"]:
+                print(f"  !! {s['charges_not_shown']} judge charges name an error the "
+                      "reviewer's form never displayed, and are EXCLUDED from precision.\n"
+                      "     The form is behind the judge's rubric. Re-export tasks "
+                      "(`--export-tasks`) and redeploy, then re-adjudicate: until then "
+                      "no verdict can confirm or refute those charges.")
         return
 
     ap.print_help()
