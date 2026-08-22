@@ -902,6 +902,68 @@ def test_judge_identity() -> int:
     return failed
 
 
+def test_targeting_problems() -> int:
+    """A creature spell cast with a TARGET it does not have (Section 21.80).
+
+    Four reviewer notes named this and no rubric entry describes it; today it is
+    convicted only as "names a play that is not available", which fires because
+    the string does not match `legal_actions` rather than because anything about
+    the play was unavailable.
+
+    The check must MISS rather than guess — the rule `find_players` follows —
+    because a false fire convicts a correct play.
+    """
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from actions import parse_output
+    from positions import targeting_problems
+
+    class FakeIndex:
+        def __init__(self, cards):
+            self.cards = cards
+
+        def resolve(self, name):
+            return self.cards.get(name), "exact"
+
+    idx = FakeIndex({
+        "Grizzly Bears": {"type_line": "Creature — Bear", "text": ""},
+        "Doom Blade": {"type_line": "Instant",
+                       "text": "Destroy target nonblack creature."},
+        "Rancor": {"type_line": "Enchantment — Aura",
+                   "text": "Enchant creature\nEnchanted creature gets +2/+0."},
+        "Wall of Omens": {"type_line": "Creature — Wall",
+                          "text": "When Wall of Omens enters, draw a card."},
+        "Flametongue Kavu": {"type_line": "Creature — Kavu",
+                             "text": "When this enters, it deals 4 damage to "
+                                     "target creature an opponent controls."},
+    })
+    failed = 0
+
+    def probs(line):
+        return targeting_problems({}, parse_output(line + "\nPASS").actions, idx)
+
+    failed += not check("a vanilla creature with a TARGET fires",
+                        bool(probs("CAST Grizzly Bears TARGET Wall of Omens")), True)
+    failed += not check("a real targeting spell does not",
+                        probs("CAST Doom Blade TARGET Grizzly Bears"), [])
+    # Auras DO target on cast (303.4c) and their text says "Enchant", not
+    # "target" — the one case the oracle-text heuristic would get backwards.
+    failed += not check("an Aura does not fire",
+                        probs("CAST Rancor TARGET Grizzly Bears"), [])
+    # A creature whose ETB trigger targets is skipped. The SPELL still does not
+    # target, so this is a miss — chosen deliberately over a false conviction.
+    failed += not check("a creature with a targeting ETB is skipped (a miss)",
+                        probs("CAST Flametongue Kavu TARGET Grizzly Bears"), [])
+    failed += not check("a creature cast with no TARGET is fine",
+                        probs("CAST Grizzly Bears"), [])
+    # No card data means no opinion, like mana_problems and payment_problems —
+    # never silent credit.
+    failed += not check("no card index reports nothing",
+                        targeting_problems(
+                            {}, parse_output("CAST Grizzly Bears TARGET x").actions, None),
+                        [])
+    return failed
+
+
 def test_adjudication_scoring() -> int:
     """`unsure` must be excluded and every exclusion reported (21.55).
 
@@ -1613,6 +1675,7 @@ def main() -> None:
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),
                      ("judge_identity", test_judge_identity),
+                     ("targeting_problems", test_targeting_problems),
                      ("adjudication_scoring", test_adjudication_scoring),
                      ("cohens_kappa", test_cohens_kappa),
                      ("mana_problems", test_mana_problems),

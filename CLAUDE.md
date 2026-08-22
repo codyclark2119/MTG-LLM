@@ -366,6 +366,16 @@ entry that exists because the parser could not see it. Take the mechanically
 decidable entries from the parser; leave the judge the strategy entries, where
 no check exists and 81% of adjudicated answers came back `not_covered`.
 
+**One error class is measured and has no entry** (21.80). A creature spell cast
+with a TARGET — `CAST Ambush Viper TARGET Centaur Courser` — fires on **8%** of
+answers and is named in four reviewer notes. It is convicted today only as entry
+3 (*names an unavailable play*), which fires because the string does not match
+`legal_actions`, not because anything was unavailable; the reviewer who met it
+ticked `not_covered`. `positions.targeting_problems` measures it judge-free.
+It is **not** entry 8 yet: appending one moves `n_shown` 11 → 12 and marks every
+collected v4 verdict for re-reading (21.78), so the promotion is the reviewer's
+call with the cost stated.
+
 `PROTOCOL_ERRORS` is **append-only**. The judge returns error NUMBERS, so
 strategy errors must keep `1..n` or every verdict already collected silently
 changes meaning. Under-tapping (5) and over-tapping (6) are separate on purpose:

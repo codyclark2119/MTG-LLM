@@ -533,6 +533,54 @@ def battlefield_cast_problems(pos: dict, actions) -> list[str]:
     return out
 
 
+def targeting_problems(pos: dict, actions, card_index=None) -> list[str]:
+    """A creature spell cast with a TARGET it does not have.
+
+    From four separate reviewer notes naming the same mistake — *"casting
+    Grizzly Bears as a non-creature spell targeting Centaur Courser"*, *"Serra
+    Angel gets recasted targeting creatures like a non-creature spell"*, and
+    twice for Ambush Viper. Measured at **6 of 78** stored answers (Section
+    21.80). A creature spell does not target on cast; the model is treating it
+    like removal.
+
+    Today this is convicted only as `PROTOCOL_ERRORS` entry 3, "names a play
+    that is not available", because `CAST Ambush Viper TARGET Centaur Courser`
+    does not string-match the `CAST Ambush Viper` in `legal_actions`. That fires
+    for the wrong reason and gives no reason back — and the reviewer who met it
+    ticked **`not_covered`**, because "the play is unavailable" is not what went
+    wrong. The play was right; the operand was invented.
+
+    **Misses rather than guesses**, the rule `find_players` follows. It fires
+    only when the card is a Creature, is not an Aura (auras DO target on cast,
+    rule 303.4c, and their text says "Enchant" rather than "target"), and its
+    oracle text contains no "target" at all — so a creature whose ETB trigger
+    targets is skipped, even though the SPELL still does not target. A missed
+    case costs a diagnostic; a false one would convict a correct play.
+
+    Returns [] with no card index, like `mana_problems` and `payment_problems`,
+    so a caller without card data reports nothing rather than crediting.
+    """
+    if card_index is None:
+        return []
+    out = []
+    for a in actions:
+        if a.verb not in ("CAST", "PLAY") or len(a.args) < 2:
+            continue
+        name = a.args[0]
+        card, _how = card_index.resolve(name)
+        if card is None:
+            continue
+        types = (card.get("type_line") or card.get("type") or "")
+        text = (card.get("text") or card.get("oracle_text") or "")
+        if "Creature" not in types or "Aura" in types:
+            continue
+        if "target" in text.lower():
+            continue
+        out.append(f"CAST {name} TARGET {a.args[1]}: a creature spell does not "
+                   "target on cast")
+    return out
+
+
 def mana_problems(pos: dict, card_index=None) -> list[str]:
     """A `legal_action` the position could not actually pay for.
 

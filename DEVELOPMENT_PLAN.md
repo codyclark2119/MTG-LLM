@@ -7423,3 +7423,81 @@ all three arms produced across 26 positions, so this measurement tops out at
 n≈25 with ~11 clean. Enough to separate a working judge from a broken one; not
 enough to rank two working ones. Ranking needs more positions, which is the
 authoring work stages 3 and 5 already represent.
+
+### 21.80 A creature spell handed a target: the rubric's first evidence-driven gap
+
+The seventeenth verdict, and the first one where the reviewer's `not_covered`
+box did the job 21.77 rebuilt it for. The answer:
+
+```
+PHASE Declare Attackers Step
+TAP Forest FOR {G}
+TAP Forest FOR {G}
+CAST Ambush Viper TARGET Centaur Courser
+PASS
+```
+
+The reviewer ticked **no boxes**, marked `not_covered`, and wrote why: the cast
+was right, but `TARGET Centaur Courser` is invalid because Ambush Viper is a
+creature spell — the correct line was CAST, PASS, then BLOCK in the declare
+blockers step.
+
+Three graders, three different answers about the same four lines:
+
+| | verdict |
+| --- | --- |
+| **parser** | entry 3 true — *names a play not available in this position* |
+| **judge** (32B) | entry 4 — *PHASE names the wrong step*. A false positive, and it missed entry 3 |
+| **human** | nothing on the list describes this |
+
+The parser is right by technicality and wrong in substance. `legal_actions`
+holds `CAST Ambush Viper`; the answer said `CAST Ambush Viper TARGET Centaur
+Courser`, so the string does not match and entry 3 fires. But the play *was*
+available — the operand was invented. The reviewer read entry 3 the way it is
+written and correctly declined it.
+
+That matters because entry 3 is the **one** entry the judge grades well (80–85%
+precision, 21.74) and the only one a parser confirms cleanly. Quietly using it
+as the bucket for a second, unrelated error is how a good class becomes a muddy
+one.
+
+#### Measured before deciding anything
+
+`positions.targeting_problems` checks it against oracle text, no judge involved:
+
+| run | answers | fires |
+| --- | --- | --- |
+| `pos_n24_protocol2_32b` | 78 | **6 (8%)** |
+| `pos_n24_verbose_32b` | 72 | 5 (7%) |
+
+Every hit is a creature spell — Fog Bank, Serra Angel, Ambush Viper ×2, Grizzly
+Bears ×2. The model is treating creature spells like removal. And it is not a
+new observation: **four** reviewer notes name it independently, across three
+different cards, going back to the v2 form. It was visible the whole time and
+unaddressable, because free text in a note reaches no number.
+
+The check **misses rather than guesses**, the rule `find_players` follows. It
+fires only on a Creature that is not an Aura whose oracle text contains no
+"target" at all. Auras genuinely do target on cast (303.4c) while their text
+says "Enchant", which is the one case the heuristic would get backwards, and a
+creature whose *ETB trigger* targets is skipped even though the spell still does
+not target. Both are deliberate misses: a missed case costs a diagnostic line, a
+false one convicts a correct play.
+
+#### Why it is a diagnostic and not entry 8
+
+`PROTOCOL_ERRORS` is append-only, so an eighth entry renumbers nothing. What it
+does do is move `n_shown` from 11 to 12, and `verdict_is_current` then marks
+**every collected v4 verdict** as needing re-reading (21.78). That is 15
+verdicts of human time, spent to gain coverage of an 8% error class.
+
+So it is stored per-answer and reported per-run, and the promotion is left as a
+decision with its cost stated rather than taken silently — the same disposition
+`only_pass` (21.58) and the Gate 3 decomposition (21.76) got. Three sections now
+end this way, which is the correct shape: **the instrument measures, the person
+whose time it costs decides.**
+
+Worth noting what made this reachable. 21.77 changed the note from a fallback
+into the reasoning and 21.75 put the protocol entries on the form; without
+either, this verdict would have been another empty `not_covered` indistinguishable
+from the other 33.

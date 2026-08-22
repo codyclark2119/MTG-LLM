@@ -47,7 +47,7 @@ from common import (  # noqa: E402
 from positions import (battlefield_cast_problems, load_positions,
                        protocol_findings,
                        payment_problems, phase_problems, position_card_names,
-                       tap_problems)  # noqa: E402
+                       tap_problems, targeting_problems)  # noqa: E402
 
 # Four arms, matching the judge prompt's "labeled A, B, C, D". Each of the
 # three pre-registered predictions is a difference between two of them:
@@ -645,6 +645,13 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                     payment_problems(pos, parsed.actions, _card_index_for_taps())
                     if any(a.verb == "TAP" for a in parsed.actions) else []),
                 "battlefield_cast_problems": battlefield_cast_problems(pos, parsed.actions),
+                # A creature spell handed a TARGET. Stored as a DIAGNOSTIC and
+                # deliberately not a `PROTOCOL_ERRORS` entry: that list is
+                # append-only, so an eighth entry moves `n_shown` 11 -> 12 and
+                # marks every collected v4 verdict as needing re-reading (21.78).
+                # Measure first, promote later if it earns it (Section 21.80).
+                "targeting_problems": targeting_problems(
+                    pos, parsed.actions, _card_index_for_taps()),
                 "tap_problems": (
                     tap_problems(pos, parsed.actions, _card_index_for_taps())
                     if any(a.verb == "TAP" for a in parsed.actions) else []),
@@ -992,6 +999,26 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "list for a reason the list cannot state. The payment check is silent on answers "
             "that declare no taps, so it reports nothing on runs made before the verbose "
             "grammar rather than crediting them (Section 21.66).\n")
+
+    # A class of error the rubric has no entry for, measured before deciding
+    # whether it should. Convicted today only as entry 3 ("names a play that is
+    # not available") because the string does not match `legal_actions` — which
+    # fires for the wrong reason, and the reviewer who met it ticked
+    # `not_covered` rather than entry 3 (Section 21.80).
+    n_tgt = sum(1 for r in results for a in arm_names
+                if (r["arms"].get(a) or {}).get("targeting_problems"))
+    n_ans = sum(1 for r in results for a in arm_names
+                if (r["arms"].get(a) or {}).get("answer"))
+    if n_tgt:
+        lines.append(
+            f"\n- **{n_tgt}/{n_ans} answers cast a CREATURE spell with a TARGET ({n_tgt / n_ans:.0%}).** "
+            "A creature spell does not target on cast; the model is treating it like "
+            "removal. Four reviewer notes name this independently, and it is checked "
+            "against oracle text rather than a judge. It has **no rubric entry** — it is "
+            "convicted only as entry 3, for the wrong reason, and the one reviewer who "
+            "met it ticked `not_covered`. Reported as a diagnostic pending a decision on "
+            "an eighth `PROTOCOL_ERRORS` entry, which would invalidate every collected "
+            "v4 verdict (Section 21.80).\n")
 
     # Per-error precision on the protocol classes, decided by a parser. The
     # first judge-quality number this project can compute with no human and no
