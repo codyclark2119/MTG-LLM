@@ -1,6 +1,6 @@
 # Position Evaluation Report
 
-26 positions from `/Users/codyclark/Documents/code/magic-llm/data/gold/positions.jsonl`
+26 positions from `data/gold/positions.jsonl`
 
 - base model: `mlx-community/Qwen2.5-7B-Instruct-4bit`
 - adapter: `models/mtg-rules-adapter-v2-best`
@@ -22,6 +22,19 @@
 
 
 - **Protocol errors, checked by parser: precision 32% (49/154), recall 49% (49/101).** These six rubric entries are decidable from the board, so every charge the judge makes against them is confirmed or refuted mechanically — no human, no second judge. 58 checks could not be decided here and are excluded rather than counted as the judge being wrong (Section 21.70).
+
+
+## Blunder rate, decomposed
+
+| Arm | n | strategy (judge) | protocol (judge) | protocol (**parser**) | headline |
+| --- | --- | --- | --- | --- | --- |
+| base_open | 26 | 35% | 96% | **96%** | 96% |
+| base_closed | 26 | 27% | 62% | **62%** | 65% |
+| base_cards_open | 26 | 35% | 96% | **88%** | 96% |
+
+> **The headline mixes these two rubrics and adding the second moved it silently.** `errors_made` is the whole judge verdict, and since Section 21.70 the judge is given `common_errors + PROTOCOL_ERRORS` — so blunder rate went from *committed a listed strategy error* to *...or the judge thinks it committed a protocol one*, with no rename. **A run made before 21.70 is not comparable to one made after on this number.**
+
+> **And the two halves can rank the arms differently**, so the mixed number is not a tie-break between them. An answer that declines to play commits no listed *strategy* while committing protocol entry 1 — the blindness 21.58 documented and `PROTOCOL_ERRORS` was added to close. Read the **parser** column for the protocol half: 5 of its 7 classes are 100% decidable from the board, and the judge runs 37% precision on the same checks (21.74). Gate 3 is deliberately NOT redefined here — which number it should read is B3's call, the same as `only_pass`.
 
 
 ## Turn scenarios

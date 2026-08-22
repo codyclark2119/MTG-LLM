@@ -270,6 +270,67 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
             "fact about how far the model is from passing, not about the metric. Expect it "
             "to reverse as soon as an arm gets close.")
 
+    # The parser can ARBITRATE, which no other comparison in this project can.
+    #
+    # 21.57's problem is that judge-vs-judge kappa is +0.47 while judge-vs-human
+    # is +0.06, so two judges agreeing says nothing about either being right and
+    # a judge cannot validate itself. On the protocol half that is no longer
+    # true: `protocol_truth` is computed from the answer text and the board, so
+    # it is IDENTICAL under both judges by construction — the positive control
+    # for this whole comparison, exactly as Gate 1 is — and where the two judges
+    # fire differently it says which one was closer to what the board shows.
+    #
+    # This is the only place in the repo where a disagreement between two judges
+    # is settled without a person.
+    truth_mismatch = arb_a = arb_b = arb_tie = 0
+    for ra, rb in zip(rows_a, rows_b):
+        for arm in ra.get("arms", {}):
+            da = ra["arms"].get(arm) or {}
+            db = (rb.get("arms") or {}).get(arm) or {}
+            ta = da.get("protocol_truth") or {}
+            tb = db.get("protocol_truth") or {}
+            if not ta or not tb:
+                continue
+            if ta != tb:
+                truth_mismatch += 1
+                continue
+            truth = {int(k) for k, v in ta.items() if v}
+            fa = set(da.get("protocol_errors_made") or [])
+            fb = set(db.get("protocol_errors_made") or [])
+            if fa == fb:
+                continue
+            hit_a, hit_b = len(fa & truth), len(fb & truth)
+            if hit_a > hit_b:
+                arb_a += 1
+            elif hit_b > hit_a:
+                arb_b += 1
+            else:
+                arb_tie += 1
+    if arb_a or arb_b or arb_tie:
+        n_arb = arb_a + arb_b + arb_tie
+        lines.append("\n## The parser as arbiter\n")
+        lines.append(
+            f"On {n_arb} answers the two judges fired a different set of protocol errors. "
+            "`protocol_truth` is decided from the answer and the board with no judge "
+            "involved, so it can say which was closer — the one comparison here that does "
+            "not need a person (Section 21.76).\n")
+        lines.append(f"- parser sides with `{path_a.stem}`: **{arb_a}**")
+        lines.append(f"- parser sides with `{path_b.stem}`: **{arb_b}**")
+        lines.append(f"- neither closer: {arb_tie}")
+        lines.append(
+            "\n> **This settles a disagreement, not a judge.** It covers the protocol "
+            "entries only; the strategy entries have no mechanical check and are exactly "
+            "where 81% of adjudicated answers came back `not_covered`. A judge that loses "
+            "here is worse at the half a parser could have done anyway (21.74).")
+    if truth_mismatch:
+        lines.append(
+            f"\n> **{truth_mismatch} answer{'s' if truth_mismatch != 1 else ''} "
+            "carr" + ("y" if truth_mismatch != 1 else "ies") + " DIFFERENT `protocol_truth` "
+            "under the two runs.** The parser never sees the judge, so this must be zero: "
+            "it means the "
+            "two runs are not over byte-identical answers, and every agreement number above "
+            "is comparing two different things. Investigate before reading anything here.")
+
     disputed = [(rid, arm) for x, y, rid, arm in pairs if x != y]
     if disputed:
         lines.append(f"\n## {len(disputed)} disputed calls\n")
@@ -979,6 +1040,70 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "them is confirmed or refuted mechanically — no human, no second judge. "
             f"{und} checks could not be decided here and are excluded rather than counted "
             "as the judge being wrong (Section 21.70).\n")
+
+    # Blunder rate mixes two rubrics, and adding the second moved it silently.
+    #
+    # `errors_made` is the whole judge verdict, and since 21.70 the judge is
+    # given `common_errors + PROTOCOL_ERRORS`. So the headline blunder rate went
+    # from "committed a listed STRATEGY error" to "...or the judge thinks it
+    # committed a protocol one", with no rename and no note — 21.28's rule was
+    # kept to the letter (blunder rate still reads `errors_made`) and broken in
+    # substance. Measured on the same arms: base_open 75% -> 96%,
+    # base_cards_open 71% -> 92%. That is not a model that got worse.
+    #
+    # Worse, the two halves RANK THE ARMS DIFFERENTLY. base_closed is the best
+    # arm on the mixed number (58%) and the WORST on strategy alone (46% against
+    # 35% and 38%) — because an answer that declines to play commits no listed
+    # strategy while committing protocol entry 1, which is exactly the blindness
+    # 21.58 documented and PROTOCOL_ERRORS was added to close. Both readings are
+    # defensible; a single number that silently switched between them is not.
+    #
+    # So all three are printed. The parser column is the one to trust on the
+    # protocol half — 5 of 7 classes are 100% decidable from the board and the
+    # judge runs 37% precision on the same checks (21.74) — but the gate is NOT
+    # redefined here. Which number Gate 3 should read is B3's call, the same as
+    # `only_pass` (21.58).
+    decomp = []
+    for arm in arm_names:
+        n = sj = pj = pp = 0
+        for r in results:
+            d = r["arms"].get(arm) or {}
+            if d.get("blundered") is None:
+                continue
+            strat = d.get("strategy_errors_made")
+            if strat is None:
+                continue
+            n += 1
+            sj += bool(strat)
+            pj += bool(d.get("protocol_errors_made"))
+            truth = d.get("protocol_truth") or {}
+            pp += any(v for v in truth.values())
+        if n:
+            decomp.append((arm, n, sj / n, pj / n, pp / n))
+    if decomp:
+        lines.append("\n## Blunder rate, decomposed\n")
+        lines.append("| Arm | n | strategy (judge) | protocol (judge) | "
+                     "protocol (**parser**) | headline |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for arm, n, sj, pj, pp in decomp:
+            lines.append(f"| {arm} | {n} | {sj:.0%} | {pj:.0%} | **{pp:.0%}** | "
+                         f"{summary[arm]['blunder']:.0%} |")
+        lines.append(
+            "\n> **The headline mixes these two rubrics and adding the second moved it "
+            "silently.** `errors_made` is the whole judge verdict, and since Section 21.70 "
+            "the judge is given `common_errors + PROTOCOL_ERRORS` — so blunder rate went "
+            "from *committed a listed strategy error* to *...or the judge thinks it "
+            "committed a protocol one*, with no rename. **A run made before 21.70 is not "
+            "comparable to one made after on this number.**\n")
+        lines.append(
+            "> **And the two halves can rank the arms differently**, so the mixed number "
+            "is not a tie-break between them. An answer that declines to play commits no "
+            "listed *strategy* while committing protocol entry 1 — the blindness 21.58 "
+            "documented and `PROTOCOL_ERRORS` was added to close. Read the **parser** "
+            "column for the protocol half: 5 of its 7 classes are 100% decidable from the "
+            "board, and the judge runs 37% precision on the same checks (21.74). Gate 3 is "
+            "deliberately NOT redefined here — which number it should read is B3's call, "
+            "the same as `only_pass`.\n")
 
     # Sequences, reported apart from the single-decision positions they share a
     # run with. A turn is valid when EVERY step of it was: reporting the mean of

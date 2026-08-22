@@ -333,6 +333,60 @@ def test_scenario_paths() -> int:
     return failed
 
 
+def test_parser_arbitration() -> int:
+    """The parser settles a judge disagreement, and must be judge-invariant.
+
+    Judge-vs-judge kappa is +0.47 and judge-vs-human is +0.06 (21.57), so two
+    judges agreeing proves nothing. `protocol_truth` is computed from the answer
+    and the board, so it is identical under both judges by construction and can
+    say which one was closer — the only comparison here that needs no person
+    (Section 21.76). If it ever DIFFERS the runs are not over identical answers
+    and every agreement number is comparing two different things, so that must
+    warn loudly rather than quietly average.
+    """
+    import json as _json
+    import tempfile
+    failed = 0
+    sys.path.insert(0, str(Path(__file__).parent))
+    from eval_positions import compare_judges
+
+    def row(rid, fired, truth, blundered=True):
+        return {"id": rid, "category": "blocking", "difficulty": "basic",
+                "arms": {"base_open": {
+                    "blundered": blundered, "correctness": 3.0,
+                    "errors_made": list(fired), "protocol_errors_made": list(fired),
+                    "protocol_truth": {str(k): v for k, v in truth.items()},
+                    "answer": "PASS", "parsed_ok": True}}}
+
+    d = Path(tempfile.mkdtemp())
+    # Entry 1 is true; A fires it, B fires the wrong one. Parser sides with A.
+    truth = {1: True, 2: False}
+    a = d / "a.jsonl"
+    b = d / "b.jsonl"
+    a.write_text(_json.dumps(row("p1", [1], truth)) + "\n", encoding="utf-8")
+    b.write_text(_json.dumps(row("p1", [2], truth)) + "\n", encoding="utf-8")
+    out = d / "cmp.md"
+    compare_judges(a, b, out)
+    text = out.read_text()
+    failed += not check("parser names the closer judge",
+                        "sides with `a`: **1**" in text, True)
+    failed += not check("...and not the other one",
+                        "sides with `b`: **0**" in text, True)
+    failed += not check("no spurious mismatch warning",
+                        "DIFFERENT `protocol_truth`" in text, False)
+
+    # Same answers must yield the same truth. Different truth means the runs are
+    # not over identical answers, and that has to be said, not averaged over.
+    b2 = d / "b2.jsonl"
+    b2.write_text(_json.dumps(row("p1", [2], {1: False, 2: True})) + "\n",
+                  encoding="utf-8")
+    out2 = d / "cmp2.md"
+    compare_judges(a, b2, out2)
+    failed += not check("differing protocol_truth warns loudly",
+                        "DIFFERENT `protocol_truth`" in out2.read_text(), True)
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("gate2_discrimination", test_gate2),
@@ -340,7 +394,8 @@ def main() -> None:
                      ("coverage guard", test_coverage_guard),
                      ("gate2 vs stored runs", test_gate2_against_stored_runs),
                      ("unearned_action_points", test_unearned_action_points),
-                     ("scenario paths", test_scenario_paths)):
+                     ("scenario paths", test_scenario_paths),
+                     ("parser arbitration", test_parser_arbitration)):
         print(f"{name} ...")
         failed += fn()
 

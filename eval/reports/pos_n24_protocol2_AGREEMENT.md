@@ -25,6 +25,16 @@
 | 2 — discriminates | 65% PASS | 85% PASS | agree |
 | 3 — blunder ≤25% | 57% (base_closed) FAIL | 67% (base_closed) FAIL | agree |
 
+## The parser as arbiter
+
+On 58 answers the two judges fired a different set of protocol errors. `protocol_truth` is decided from the answer and the board with no judge involved, so it can say which was closer — the one comparison here that does not need a person (Section 21.76).
+
+- parser sides with `pos_n24_protocol2_32b`: **10**
+- parser sides with `pos_n24_protocol2_mistral`: **19**
+- neither closer: 29
+
+> **This settles a disagreement, not a judge.** It covers the protocol entries only; the strategy entries have no mechanical check and are exactly where 81% of adjudicated answers came back `not_covered`. A judge that loses here is worse at the half a parser could have done anyway (21.74).
+
 ## 7 disputed calls
 
 Each is a position where one judge saw a blunder and the other did not. These are the cases to read by hand — they show whether the rubric is ambiguous or a judge is simply wrong.

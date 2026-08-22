@@ -327,6 +327,15 @@ never is: **86% of position answers can be convicted with no judge at all**, and
 confirms or refutes. That is the only per-error precision this project can
 compute without a human (21.70).
 
+**The parser is judge-invariant, so it can arbitrate** (21.76). `protocol_truth`
+is computed from the answer and the board and was **identical on 78 of 78**
+arm-positions across two judges — the positive control for the comparison, the
+role Gate 1 plays for the gates. On the 58 answers where the judges fired
+different protocol sets it sides with Mistral **19** times and the 32B **10**.
+That is the first judge disagreement in this project settled with no person, and
+`compare_judges` now refuses to interpret a run pair whose `protocol_truth`
+differs at all. It ranks judges only on the half a parser could do anyway.
+
 **Measured, two judges, byte-identical answers: precision 37% (32B) and 34%
 (Mistral-24B) — so 37% is the task, not the judge** (21.74). Do not read the
 aggregate. Per class it is bimodal under *both* judges: entry 3 (*names a play
@@ -341,9 +350,22 @@ no check exists and 81% of adjudicated answers came back `not_covered`.
 strategy errors must keep `1..n` or every verdict already collected silently
 changes meaning. Under-tapping (5) and over-tapping (6) are separate on purpose:
 one makes the turn invalid, the other is legal and merely wasteful, and
-`PROTOCOL_INVALIDATING` is what `valid_turn` reads. **Blunder rate is unchanged**
-— it stays on `errors_made` per 21.28, with the strategy/protocol split stored
-beside it, so Gate 3 keeps meaning "picked the wrong play".
+`PROTOCOL_INVALIDATING` is what `valid_turn` reads.
+
+**Blunder rate did NOT stay unchanged, and this file said it did** (21.76).
+It still reads `errors_made`, exactly as 21.28 requires — and following that
+rule is what broke it, because the rule constrains the expression while the
+meaning lives in what feeds it. The judge now gets `common_errors +
+PROTOCOL_ERRORS`, so `base_open` went 75% → **96%** and `base_cards_open`
+71% → **92%** with no change in the model. **A run made before 21.70 is not
+comparable to one after it on blunder rate**; `gameplay_fingerprint` catches a
+prompt edit, not a rubric that grew.
+
+Worse, the halves **rank the arms differently**: `base_closed` is the best arm
+on the headline (58%) and the worst on strategy alone (46% vs 35%/38%), because
+declining to play commits no enumerated *strategy* — 21.58's blindness, which
+entry 1 exists to close. The report prints all three columns; **Gate 3 is
+deliberately not redefined** (B3's call, like `only_pass`).
 
 **A turn scenario is a sequence, and it is teacher-forced** (`gameplay/turns.py`,
 21.71). The board advances on the **reference** line, never on what the model

@@ -7125,3 +7125,93 @@ a regenerated arm means the old verdict describes text nobody will see again,
 while a grown rubric means the same answer needs re-reading. Splitting them also
 made the arithmetic check out — 11 and 16 are exactly the pre-change stale count
 and the pre-change covered count.
+
+### 21.76 Blunder rate quietly changed meaning, and the parser can arbitrate
+
+Two findings from the same decomposition, both about the mixed number Gate 3
+reads.
+
+#### Adding a rubric moved a metric that was documented as unchanged
+
+21.70 gave the judge `common_errors + PROTOCOL_ERRORS`. `errors_made` is the
+whole judge verdict, and blunder rate is `bool(errors_made)`. CLAUDE.md recorded
+that blunder rate was **unchanged** because it still reads `errors_made` — true
+to the letter, and false in substance. On the same three arms:
+
+| arm | blunder, pre-protocol | blunder, protocol |
+| --- | --- | --- |
+| `base_open` | 75% | **96%** |
+| `base_cards_open` | 71% | **92%** |
+| `base_closed` | 50% | 58% |
+
+That is not a model that got worse by 21 points. **A run made before 21.70 is
+not comparable to one made after it on this number**, and nothing said so —
+`gameplay_fingerprint` catches a prompt edit, not a rubric that grew.
+
+This is "one name, two meanings" again, and the way it arrived is worth naming:
+21.28's rule ("blunder rate is `errors_made` and nothing else") was followed
+exactly, and following it is what broke the metric, because the rule constrains
+the *expression* and the meaning lives in what feeds it.
+
+#### And the two halves rank the arms differently
+
+Decomposed, under the 32B:
+
+| arm | strategy (judge) | protocol (judge) | protocol (**parser**) | headline |
+| --- | --- | --- | --- | --- |
+| `base_open` | 35% | 92% | **96%** | 96% |
+| `base_closed` | **46%** | 35% | **62%** | 58% |
+| `base_cards_open` | 38% | 88% | **88%** | 92% |
+
+`base_closed` is the **best** arm on the headline (58%) and the **worst** on
+strategy alone (46% against 35% and 38%). The mechanism is 21.58's exactly: an
+answer that declines to play commits none of the enumerated *strategies*, and
+`base_open` passes on 42% of positions. Protocol entry 1 exists to close that
+blindness, so the mixed number is not "strategy plus a correction" — it is two
+metrics that disagree, averaged.
+
+Both readings are defensible. A single number that silently switched between
+them is not. All three columns are printed now, and **Gate 3 is deliberately not
+redefined** — which one it should read is B3's call, the same disposition
+`only_pass` got.
+
+#### The parser can settle a disagreement between two judges
+
+`protocol_truth` is computed from the answer text and the board. It never sees
+the judge, so across the 32B and Mistral runs it is **identical on 78 of 78**
+arm-positions — the positive control for the whole comparison, the same role
+Gate 1 plays for the gates.
+
+Which means it can do something nothing else in this project can. On the 58
+answers where the two judges fired *different* protocol sets:
+
+| | |
+| --- | --- |
+| parser sides with **Mistral-24B** | **19** |
+| parser sides with **Qwen2.5-32B** | 10 |
+| neither closer | 29 |
+
+21.57's difficulty was that judge-vs-judge kappa is +0.47 while judge-vs-human
+is +0.06 — two judges agreeing says nothing about either being right, and a
+judge cannot validate itself. On the protocol half that is no longer true. This
+is the first judge disagreement in the project resolved **without a person**,
+and it says Mistral is closer to the board, consistent with its higher recall
+(53% vs 43%, 21.74).
+
+Read the parser column and the same conclusion arrives from the other side: it
+reports `base_closed` at 62% under both judges, while the 32B's *judge* column
+says 35% and Mistral's says 62%. The 32B undercounts `base_closed`'s protocol
+errors by 27 points, and the mixed headline (58% vs 65%) hides it.
+
+Three limits, all real. It covers the **protocol entries only** — the strategy
+entries have no mechanical check and are exactly where 81% of adjudicated
+answers came back `not_covered`. Classes 5 and 6 are decidable on only 60% of
+answers (the payment check is silent when no taps are declared); the other five
+are 100%. And a judge that loses here is worse at **the half a parser could have
+done anyway** (21.74) — this ranks judges on the part of the job that least
+needs one.
+
+`compare_judges` also now refuses to interpret a run pair whose `protocol_truth`
+differs: the parser is deterministic over (answer, board), so a mismatch means
+the two files are not over identical answers and every agreement number above it
+is comparing two different things.
