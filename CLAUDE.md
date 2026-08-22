@@ -252,7 +252,15 @@ as it applies to ranking arms.
 
 ## Evaluation — read this before trusting any number
 
-**A kappa needs variance in BOTH raters, and this sample has none.** The first
+**A kappa can rest on one cell, and then it measures the cell.** At n=13 the
+32B scores **+0.63** and Mistral **−0.11** on identical answers — a decisive
+looking 0.74 spread that hangs entirely on a *single* human-clean answer. Flip
+one judge call and the 32B lands anywhere in **[−0.08, +1.00]**. `score_run`
+prints that range whenever it exceeds 0.4 and says the point estimate is not the
+number: the instrument states its own resolution, the same discipline as
+refusing a one-sided control (21.43), applied to sample size (21.79).
+
+**A kappa needs variance in BOTH raters, and an earlier sample had none.** The first
 batch on the matched form was 9/9 blundered under the human *and* the judge:
 100% agreement, kappa undefined. Pooling it with older verdicts made it
 computable at *+0.67* — variance manufactured by two form regimes, not by better

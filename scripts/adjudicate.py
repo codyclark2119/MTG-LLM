@@ -496,6 +496,21 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         # judge 9/9 blundered. Perfect agreement, zero information. The queue is
         # 82% blundered as the judge sees it, so this is the DEFAULT outcome of
         # a small sample, not an accident (Section 21.78).
+        # How far kappa moves if ONE judge call flips. A kappa resting on a
+        # single cell is not a measurement of the judge, it is a measurement of
+        # that cell — and at these sample sizes it always is: 13 verdicts with
+        # one human-clean answer gave +0.63, which becomes -0.08 or +1.00 if any
+        # single call changes. The point estimate looks like a result and the
+        # range is the actual resolution, so both are reported (Section 21.79).
+        # The observed value is INSIDE the range, so it reads as "this sample can
+        # land anywhere here" rather than as a perturbation that excludes its own
+        # estimate — perfect agreement otherwise reported a range not containing
+        # 1.0, which is true and unreadable.
+        "kappa_flip_range": (
+            (min(_flips), max(_flips)) if (_flips := [kappa] + [
+                cohens_kappa([(h, (not j) if i == k else j)
+                              for k, (h, j) in enumerate(b_pairs)])
+                for i in range(len(b_pairs))]) and b_pairs else None),
         "blunder_degenerate": (
             b_total > 0
             and (all(x for x, _ in b_pairs) or not any(x for x, _ in b_pairs)
@@ -815,6 +830,15 @@ def main() -> None:
                       "     A verdict given four entries is not comparable to one given "
                       "eleven (21.75), and pooling them can manufacture variance that "
                       "reads as agreement. Score a single version before quoting kappa.")
+            rng = s["kappa_flip_range"]
+            if rng and not s["blunder_degenerate"]:
+                lo, hi = rng
+                if hi - lo > 0.4:
+                    print(f"\n  !! {s['run']}: kappa {s['blunder_kappa']:+.2f} rests on too "
+                          f"few answers to mean anything — flipping ONE judge call moves it "
+                          f"to anywhere in [{lo:+.2f}, {hi:+.2f}].\n"
+                          "     That range is the resolution of this sample. Report it, "
+                          "not the point estimate (Section 21.79).")
             if s["blunder_degenerate"]:
                 print(f"\n  !! {s['run']}: the blunder-call kappa is UNDEFINED — every "
                       "answer in this sample falls on one side of the call, so agreement "

@@ -1114,6 +1114,29 @@ def test_adjudication_scoring() -> int:
     failed += not check("different text is not collapsed as superseded",
                         s14["superseded"], 0)
 
+    # A kappa resting on one cell measures that cell, not the judge. Reported as
+    # the range a single flipped call produces, because the point estimate looks
+    # like a result and the range is the real resolution (Section 21.79).
+    run6 = _Path(tempfile.mkdtemp()) / "r6.jsonl"
+    run6.write_text("\n".join(_json.dumps(
+        {"id": f"z{i}", "arms": {"a": {"errors_made": ([1] if i else []),
+                                       "answer": f"a{i}"}}}) for i in range(6)),
+        encoding="utf-8")
+    # Five blundered, one clean, human agreeing throughout: perfect agreement,
+    # but it hangs on the single clean answer.
+    agree = [v(f"z{i}::a", ([1] if i else []), n_shown=4) for i in range(6)]
+    s15 = score_run(run6, agree, {})
+    lo, hi = s15["kappa_flip_range"]
+    failed += not check("perfect agreement scores 1.0", s15["blunder_kappa"], 1.0)
+    failed += not check("...but one flipped call collapses it", lo < 0.5, True)
+    failed += not check("the range brackets the estimate", lo <= 1.0 <= hi, True)
+
+    # With no variance there is nothing to flip meaningfully — the degenerate
+    # flag is what speaks, not the range.
+    s16 = score_run(run4, allbad, {})
+    failed += not check("a degenerate sample is flagged, not ranged",
+                        s16["blunder_degenerate"], True)
+
     # The ingest dedup, which is where the same assumption destroyed work rather
     # than mis-scoring it: six of six regrades dropped as "already on file"
     # because the identity was (key, author) (Section 21.65).

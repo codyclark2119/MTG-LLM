@@ -7367,3 +7367,59 @@ excludes it, correctly. The reviewer used the box for "clean, but the line could
 be shown more fully" — a fair reading of the words, and a different claim from
 "I could argue it either way". Worth distinguishing, because that box is the one
 thing that removes a verdict from a sample already short of them.
+
+### 21.79 A kappa that rests on one cell, and the eleven answers that would fix it
+
+Four more verdicts, sixteen total, and the blunder-call kappa becomes computable
+for the first time. It should not be believed.
+
+| | n | precision | recall | blunder acc | **kappa** |
+| --- | --- | --- | --- | --- | --- |
+| Qwen2.5-32B, v4 only | 13 | 24% | 35% | 92% | **+0.63** |
+| Mistral-24B, v4 only | 13 | 27% | 61% | 77% | **−0.11** |
+
+A 0.74 spread between two judges on identical answers looks like a decisive
+result. The confusion matrices say otherwise:
+
+```
+32B                judge:BLUNDER  judge:clean       Mistral        BLUNDER  clean
+  human BLUNDER         11              1             human BLUNDER    10      2
+  human clean            0              1             human clean       1      0
+```
+
+**Both rest on a single human-clean answer.** The 32B "wins" because that one
+answer is also the one it called clean. Flip any single judge call and the 32B's
+kappa lands anywhere in **[−0.08, +1.00]**; Mistral's in [−0.13, +0.43]. That
+range is the resolution of the sample, and it spans essentially the whole
+statistic.
+
+So `score_run` reports it. A kappa whose single-flip range exceeds 0.4 prints
+the range and says the point estimate is not the number. This is the same
+discipline as refusing a one-sided control (21.43) or a single-judge gate
+verdict (9.9), applied to sample size rather than to design: **the instrument
+must state its own resolution**, because +0.63 and −0.11 are both perfectly
+plausible-looking and neither is measuring the judge.
+
+It also catches the near-miss in the other direction. 21.78's pooled +0.67 was
+manufactured by mixing form regimes; this +0.63 is a clean v4-only sample and is
+*still* uninterpretable, for an unrelated reason. Two different ways to get an
+encouraging wrong number out of the same fifteen rows.
+
+#### The fix is eleven specific answers, and they are already queued
+
+The reviewer has adjudicated 14 answers of which **three** were ones the judge
+called clean — because they were working the pre-rebalance queue, which is 82%
+blundered. 21.78's interleave put the clean answers on odd positions, and every
+blundered answer they have done occupies an even one.
+
+The result is an accident worth naming: **queue positions 7, 9, 11 … 27 are all
+undone and all judge-clean.** After a redeploy the next eleven tasks are exactly
+the eleven the measurement is short of — no instruction needed, and the reviewer
+is still never told which side of the call anything sits on.
+
+That takes the human-clean column from 1 to a plausible 8–10, which is where a
+kappa stops being one cell. It does not solve the ceiling: 14 clean answers is
+all three arms produced across 26 positions, so this measurement tops out at
+n≈25 with ~11 clean. Enough to separate a working judge from a broken one; not
+enough to rank two working ones. Ranking needs more positions, which is the
+authoring work stages 3 and 5 already represent.
