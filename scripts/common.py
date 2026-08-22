@@ -1382,6 +1382,36 @@ def _content(text: str, limit: int | None = None) -> list[str]:
     return words[:limit] if limit else words
 
 
+def verdict_is_current(verdict: dict, answer_sha: str, n_entries: int) -> bool:
+    """Is this verdict about the CURRENT text AND the CURRENT rubric?
+
+    Two things can go stale under a verdict, and checking one caught only half.
+
+    21.62 fixed the text: a verdict is keyed `record_id::arm`, the arms get
+    regenerated, and the same key names different words — so `answer_sha` rides
+    on every verdict and a mismatch means "not done".
+
+    The rubric goes stale independently. `PROTOCOL_ERRORS` was added to the
+    judge's list and not to the form, so 27 verdicts were given against four
+    entries where the judge was asked about eleven (21.75). The answers did not
+    change, so the digest still matches, so every one of those tasks would show
+    **done** — and the reviewer would skip exactly the tasks that most need
+    redoing. That is 21.62's failure one level up: the identifier survives and
+    what it identifies has changed underneath.
+
+    Compared on the ENTRY COUNT the verdict was offered rather than on
+    `form_version`, so a version bump for an unrelated reason does not discard
+    work, and a rubric that grows always does. A verdict with no `n_shown`
+    predates the field and is treated as not current — the same asymmetry
+    `api_tasks` already applies to a missing digest, and for the same reason:
+    asking for one duplicate verdict is visible and cheap, while silently
+    skipping one is neither.
+    """
+    if verdict.get("answer_sha") != answer_sha:
+        return False
+    return verdict.get("n_shown") == n_entries
+
+
 def lint_common_errors(pos: dict) -> list[str]:
     """Warn when a blunder's opening clause is also true of the correct line.
 

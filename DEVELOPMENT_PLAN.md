@@ -7089,3 +7089,39 @@ verdict rather than a collision.
 
 The honest statement of judge-vs-human precision today is **not measured**, and
 the reason is a form field, not a judge.
+
+#### And the done-set had to change with it, or nobody would redo them
+
+One consequence nearly cancelled the fix. A task is marked done when this
+author has a verdict carrying the current answer's digest — 21.62's machinery,
+which exists because regenerating the arms changes the text under a stable key.
+
+Here the text did **not** change. The rubric did. So all 16 covered tasks would
+have shown **done** on the redeployed form, and the reviewer would have skipped
+precisely the ones needing re-reading — 21.62's failure one level up, with the
+identifier surviving while what it identifies changes underneath.
+
+`common.verdict_is_current` now checks both, and it compares the **entry count
+offered** rather than `form_version`, so a version bump for an unrelated reason
+does not throw away human work while a rubric that grows always does. A verdict
+with no `n_shown` is treated as not current, matching the asymmetry already
+applied to a missing digest: asking for one duplicate verdict is visible and
+cheap, silently skipping one is neither.
+
+Two callers — `rubric_server.api_tasks` and `adjudicate --status` — so it is one
+function with a test asserting both exist, per 21.74. Coverage restated
+honestly:
+
+```
+covered    : 0/60 of the queue
+             (11 carry a verdict on an EARLIER answer — the arms were regenerated)
+             (16 were adjudicated against a SHORTER rubric — same answer, fewer
+              entries offered, so they need re-reading)
+```
+
+Those two lines were one line reading *"27 more keys carry a verdict on an
+EARLIER answer"*, which is wrong for 16 of them and points at the wrong remedy:
+a regenerated arm means the old verdict describes text nobody will see again,
+while a grown rubric means the same answer needs re-reading. Splitting them also
+made the arithmetic check out — 11 and 16 are exactly the pre-change stale count
+and the pre-change covered count.

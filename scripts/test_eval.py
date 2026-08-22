@@ -1013,6 +1013,30 @@ def test_adjudication_scoring() -> int:
                         s10["charges_not_shown"], 1)
     failed += not check("...and score as if restricted", s10["precision"], 1.0)
 
+    # Two things go stale under a verdict and the digest checks only one. The
+    # rubric grew from 4 entries to 11 while the answers did not change, so the
+    # done-set would have marked all 16 covered tasks done and the reviewer
+    # would have skipped exactly the ones needing redoing (Section 21.75).
+    from common import verdict_is_current
+    cur = {"answer_sha": "abc", "n_shown": 11}
+    failed += not check("current text and current rubric: done",
+                        verdict_is_current(cur, "abc", 11), True)
+    failed += not check("same text, SHORTER rubric: not done",
+                        verdict_is_current({"answer_sha": "abc", "n_shown": 4}, "abc", 11),
+                        False)
+    failed += not check("no n_shown (pre-v3) is not done",
+                        verdict_is_current({"answer_sha": "abc"}, "abc", 11), False)
+    failed += not check("different text is not done",
+                        verdict_is_current(cur, "xyz", 11), False)
+
+    # Both writers of this predicate must exist. No test over inputs and
+    # outputs can see a missing caller, and this repo has shipped that bug five
+    # times (21.74).
+    _sd = Path(__file__).parent
+    for who in ("adjudicate.py", "rubric_server.py"):
+        failed += not check(f"{who} uses the shared staleness predicate",
+                            "verdict_is_current" in (_sd / who).read_text(), True)
+
     # The ingest dedup, which is where the same assumption destroyed work rather
     # than mis-scoring it: six of six regrades dropped as "already on file"
     # because the identity was (key, author) (Section 21.65).

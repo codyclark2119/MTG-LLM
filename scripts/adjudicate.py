@@ -70,6 +70,7 @@ from common import (  # noqa: E402
     POSITIONS_PATH,
     REPO_ROOT,
     read_jsonl,
+    verdict_is_current,
 )
 
 ADJUDICATIONS_PATH = REPO_ROOT / "data/gold/judge_adjudications.jsonl"
@@ -490,9 +491,19 @@ def main() -> None:
         # it. Reporting 27/60 while 16 verdicts actually apply is the same
         # key-survives-meaning-changes error one more time (Section 21.62), here
         # inflating apparent progress by 11 tasks.
-        live = {i["key"]: answer_sha(i.get("answer") or "") for i in q}
+        # Both the TEXT and the RUBRIC can go stale under a verdict, and the
+        # digest checks only the first. See `common.verdict_is_current` — the
+        # second writer of this predicate is `rubric_server.api_tasks`, which is
+        # why it is one function (Section 21.75).
+        rubrics_now = _rubric_index()
+        live = {}
+        for i in q:
+            rec = rubrics_now.get(i.get("record_id")
+                                  or i["key"].split("::")[0]) or {}
+            n_entries = len(rec.get("common_errors") or []) + len(PROTOCOL_ERRORS)
+            live[i["key"]] = (answer_sha(i.get("answer") or ""), n_entries)
         done = {v["key"] for v in rows
-                if v.get("answer_sha") and live.get(v["key"]) == v["answer_sha"]}
+                if v["key"] in live and verdict_is_current(v, *live[v["key"]])}
         stale_only = {v["key"] for v in rows} & set(live) - done
         # Rows and keys are different numbers once anything is re-adjudicated,
         # and reporting the key count as "verdicts on file" made three appended
@@ -503,8 +514,27 @@ def main() -> None:
         print(f"queue      : {len(q)}")
         print(f"covered    : {len(done)}/{len(q)} of the queue")
         if stale_only:
-            print(f"             ({len(stale_only)} more keys carry a verdict on an EARLIER "
-                  "answer, which --score excludes)")
+            # Two different reasons a verdict is not current, and saying
+            # "an EARLIER answer" for both is wrong half the time — the rubric
+            # can grow under an answer that never changed (Section 21.75).
+            # They call for opposite responses: regenerated arms mean the old
+            # verdict is about text nobody will see again, while a grown rubric
+            # means the SAME answer needs re-reading against more entries.
+            # Classified by the BEST row per key, not by any row. A key often
+            # carries several verdicts; if even one of them is about the text
+            # the queue serves now, the thing blocking it is the rubric, and
+            # counting it under "earlier answer" hides that.
+            matched_text = {v["key"] for v in rows if v["key"] in live
+                            and v.get("answer_sha") == live[v["key"]][0]}
+            old_form = stale_only & matched_text
+            old_text = stale_only - old_form
+            for n, why in ((len(old_text), "carry a verdict on an EARLIER answer — the "
+                                           "arms were regenerated (Section 21.62)"),
+                           (len(old_form), "were adjudicated against a SHORTER rubric — "
+                                           "same answer, fewer entries offered, so they "
+                                           "need re-reading (Section 21.75)")):
+                if n:
+                    print(f"             ({n} {why})")
         # Rows and answers are different numbers, and mixing the all-time row
         # count with the current-queue key count made "32 re-adjudicated" out of
         # rows that mostly describe answers the queue no longer serves.

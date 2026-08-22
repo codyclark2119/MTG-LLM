@@ -54,7 +54,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 # The only project imports, all pure python — see the module docstring.
-from common import (lint_common_errors, stray_names, templatize, untemplatize)
+from common import (lint_common_errors, stray_names, templatize, untemplatize,
+                    verdict_is_current)
 
 # One writer at a time. Submissions append, and two contributors finishing a
 # question in the same instant would otherwise interleave a line.
@@ -436,11 +437,21 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
             # and corrupting. It is also self-clearing — every submission
             # collected from here on carries a digest, so this branch stops
             # firing once the current log is superseded.
-            live = {t["key"]: _answer_sha(t.get("answer") or "") for t in adj_tasks}
+            #
+            # The RUBRIC goes stale independently of the text, and checking the
+            # digest alone caught only half. `PROTOCOL_ERRORS` was added to the
+            # judge and not to this form, so 27 verdicts were given against four
+            # entries where the judge saw eleven — and since the answers never
+            # changed, every one of those tasks would show done and be skipped
+            # (Section 21.75). `verdict_is_current` compares both, and lives in
+            # `common` because `adjudicate --status` asks the same question.
+            live = {t["key"]: (_answer_sha(t.get("answer") or ""),
+                               len(t.get("common_errors") or []))
+                    for t in adj_tasks}
             mine = {s["key"] for s in subs
                     if s.get("author") == author and "errors_present" in s
                     and s["key"] in live
-                    and s.get("answer_sha") == live[s["key"]]}
+                    and verdict_is_current(s, *live[s["key"]])}
             return {"tasks": [dict(t, done=t["key"] in mine) for t in adj_tasks],
                     "done_by_me": len(mine), "total": len(adj_tasks)}
         # Intersect with the CURRENT task list. The submissions log is
