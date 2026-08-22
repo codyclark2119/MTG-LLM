@@ -252,7 +252,17 @@ as it applies to ranking arms.
 
 ## Evaluation — read this before trusting any number
 
-**The judge's CLEAN verdicts are the unreliable half** (21.81). With judge-clean
+**Two judges printed side by side are not a ranking** (21.82). At n=33 against
+the same human reference: κ **+0.29** (32B) vs **+0.11** (Mistral), difference
++0.18 with a paired bootstrap 95% CI of **[−0.12, +0.53]**, and exact McNemar
+**3 vs 3, p = 1.000**. Indistinguishable. `adjudicate --score` runs this whenever
+two runs are given, seeded and reproducible, and prints the refusal beside the
+kappas rather than after the caveats. Four times now this one sample has offered
+a plausible wrong number — pooled regimes (21.78), one cell (21.79), a selection
+effect (21.81), and now a ranking within noise.
+
+**The judge's CLEAN verdicts are the unreliable half** (21.81, replicated at
+n=33: **69%** of the 32B's clean calls and **78%** of Mistral's are wrong). With judge-clean
 answers finally in the sample (n=21): κ **+0.27** for the 32B, −0.04 for
 Mistral, and the dominant error cell is human-blunder/judge-clean — on
 `base_closed`, the human finds a blunder in **5 of 8** answers the judge cleared.

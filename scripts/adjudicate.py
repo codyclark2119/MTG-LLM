@@ -58,6 +58,7 @@ import argparse
 import hashlib
 import json
 import random
+from math import comb
 import sys
 from pathlib import Path
 
@@ -332,6 +333,85 @@ def notes_report(verdicts: list[dict], rubrics: dict) -> list[str]:
             lines.append(f"  {v['key']}  boxes={v['errors_present']}")
             lines.append(f"      {v['note'].strip()}")
     return lines
+
+
+def paired_judge_comparison(runs: list[Path], verdicts: list[dict],
+                            rubrics: dict, seed: int = 0) -> dict | None:
+    """Do two judges differ against the SAME human reference, on the SAME answers?
+
+    Two kappas printed side by side invite the reading that the larger one is
+    better, and at these sample sizes it usually is not. 21.81 reported +0.27 and
+    −0.04; at n=33 they are +0.29 and +0.11, and the difference is **not
+    distinguishable from zero**. Ranking on the point estimates would have
+    produced a default-judge decision from noise.
+
+    Two tests, because each answers a different question and one is exact:
+
+    - a **paired bootstrap** on the kappa difference, resampling ANSWERS so both
+      judges are resampled together — they graded identical text, so an unpaired
+      interval would throw away the pairing that makes the comparison sharp;
+    - **exact McNemar** on the answers where exactly one judge matches the human,
+      which needs no distributional assumption at all and is the honest test when
+      that count is small.
+
+    Deterministic: the seed is fixed and recorded, because everything else in
+    this harness reproduces exactly and a number that moves must mean something
+    real changed (9.9's discipline applied to the statistics rather than to the
+    judge).
+    """
+    if len(runs) < 2:
+        return None
+    tables = []
+    for run in runs:
+        by_key = {}
+        for row in read_jsonl(run):
+            rid = row.get("id") or row.get("gold_id")
+            for arm, d in (row.get("arms") or {}).items():
+                if d.get("errors_made") is not None:
+                    by_key[f"{rid}::{arm}"] = (bool(d["errors_made"]),
+                                               answer_sha(d.get("answer") or ""))
+        tables.append(by_key)
+
+    trips = []
+    for v in verdicts:
+        if v.get("unsure"):
+            continue
+        rid = v.get("record_id") or v.get("key", "").split("::")[0]
+        rec = rubrics.get(rid) or {}
+        if v.get("n_shown") != len(rec.get("common_errors") or []) + len(PROTOCOL_ERRORS):
+            continue
+        got = [t.get(v.get("key", "")) for t in tables]
+        if any(g is None for g in got):
+            continue
+        if v.get("answer_sha") and v["answer_sha"] != got[0][1]:
+            continue
+        trips.append((bool(v.get("errors_present")), [g[0] for g in got]))
+    if len(trips) < 4:
+        return None
+
+    def kap(i, sample):
+        return cohens_kappa([(h, j[i]) for h, j in sample])
+
+    a, b = kap(0, trips), kap(1, trips)
+    rng = random.Random(seed)
+    diffs = []
+    for _ in range(20000):
+        samp = [trips[rng.randrange(len(trips))] for _ in trips]
+        try:
+            diffs.append(kap(0, samp) - kap(1, samp))
+        except (ZeroDivisionError, ValueError):
+            continue
+    diffs.sort()
+    lo = diffs[int(0.025 * len(diffs))] if diffs else float("nan")
+    hi = diffs[int(0.975 * len(diffs))] if diffs else float("nan")
+    only_a = sum(1 for h, j in trips if j[0] == h and j[1] != h)
+    only_b = sum(1 for h, j in trips if j[1] == h and j[0] != h)
+    n = only_a + only_b
+    p = min(1.0, 2 * sum(comb(n, k) for k in range(min(only_a, only_b) + 1)) / 2 ** n) \
+        if n else 1.0
+    return {"n": len(trips), "runs": [r.name for r in runs[:2]],
+            "kappa": (a, b), "diff": a - b, "ci": (lo, hi),
+            "only_a": only_a, "only_b": only_b, "mcnemar_p": p, "seed": seed}
 
 
 def corrected_blunder(run: Path, verdicts: list[dict],
@@ -893,6 +973,24 @@ def main() -> None:
                   f"{s['f1']:6.2f} {s['blunder_accuracy']:12.0%} "
                   f"{'    n/a' if s['blunder_degenerate'] else format(s['blunder_kappa'], '+7.2f')} "
                   f"{s['false_blunder']:6d} {s['missed_blunder']:7d}")
+        # Two kappas side by side invite ranking on the point estimates, which
+        # at these sample sizes is ranking on noise. Printed immediately after
+        # the table so the comparison is read with it, not after the caveats.
+        pj = paired_judge_comparison(list(args.score), verdicts, rubrics)
+        if pj:
+            ka, kb = pj["kappa"]
+            lo, hi = pj["ci"]
+            same = lo <= 0 <= hi
+            print(f"\n{pj['runs'][0]} vs {pj['runs'][1]} — paired on {pj['n']} answers, "
+                  "same human reference:")
+            print(f"  kappa {ka:+.2f} vs {kb:+.2f}   difference {pj['diff']:+.2f}   "
+                  f"bootstrap 95% CI [{lo:+.2f}, {hi:+.2f}] (seed {pj['seed']})")
+            print(f"  matched the human alone: {pj['only_a']} vs {pj['only_b']}   "
+                  f"exact McNemar p = {pj['mcnemar_p']:.3f}")
+            print("  ** the two judges are NOT distinguishable on this sample — do not "
+                  "rank them **" if same or pj["mcnemar_p"] > 0.05 else
+                  "  the difference survives both tests")
+
         # Every reason the denominator is smaller than the queue, next to the
         # numbers it qualifies. `n` alone reads as the sample size; it is the
         # sample size AFTER three different exclusions.

@@ -1242,6 +1242,46 @@ def test_adjudication_scoring() -> int:
     got3 = {c["arm"]: c for c in corrected_blunder(run7, stale_form, rub)}["a"]
     failed += not check("a short-rubric verdict is excluded", got3["n_clean"], 1)
 
+    # Two kappas side by side invite ranking on the point estimates. At these
+    # sample sizes that is ranking on noise, so the comparison is paired and
+    # tested (Section 21.82).
+    from adjudicate import paired_judge_comparison
+    good = _Path(tempfile.mkdtemp()) / "good.jsonl"
+    bad = _Path(tempfile.mkdtemp()) / "bad.jsonl"
+    n = 40
+    # A judge that always matches the human, against one that always inverts:
+    # a difference this large must survive both tests.
+    good.write_text("\n".join(_json.dumps(
+        {"id": f"c{i}", "arms": {"a": {"errors_made": ([1] if i % 2 else []),
+                                       "answer": f"c{i}"}}}) for i in range(n)),
+        encoding="utf-8")
+    bad.write_text("\n".join(_json.dumps(
+        {"id": f"c{i}", "arms": {"a": {"errors_made": ([] if i % 2 else [1]),
+                                       "answer": f"c{i}"}}}) for i in range(n)),
+        encoding="utf-8")
+    rub2 = {f"c{i}": {"common_errors": ["e"]} for i in range(n)}
+    shown2 = 1 + len(PROTOCOL_ERRORS)
+    vs = [v(f"c{i}::a", ([1] if i % 2 else []), n_shown=shown2,
+            answer_sha=answer_sha(f"c{i}")) for i in range(n)]
+    pj = paired_judge_comparison([good, bad], vs, rub2)
+    failed += not check("a real difference is detected", pj["ci"][0] > 0, True)
+    failed += not check("...and McNemar agrees", pj["mcnemar_p"] < 0.05, True)
+
+    # Two judges that agree with each other and the human equally often must NOT
+    # separate, however the point estimates fall.
+    pj2 = paired_judge_comparison([good, good], vs, rub2)
+    failed += not check("identical judges do not separate", pj2["diff"], 0.0)
+    failed += not check("...with a CI containing zero",
+                        pj2["ci"][0] <= 0 <= pj2["ci"][1], True)
+    failed += not check("...and McNemar p = 1", pj2["mcnemar_p"], 1.0)
+
+    # Deterministic: the bootstrap seed is fixed, so a number that moves means
+    # something real changed.
+    failed += not check("the bootstrap reproduces exactly",
+                        paired_judge_comparison([good, bad], vs, rub2)["ci"], pj["ci"])
+    failed += not check("one run is not a comparison",
+                        paired_judge_comparison([good], vs, rub2), None)
+
     # The ingest dedup, which is where the same assumption destroyed work rather
     # than mis-scoring it: six of six regrades dropped as "already on file"
     # because the identity was (key, author) (Section 21.65).

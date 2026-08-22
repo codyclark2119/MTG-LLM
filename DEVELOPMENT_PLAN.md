@@ -7587,3 +7587,73 @@ loop, so every row re-opened the **last** run. Both judges printed identical
 corrected tables under different names — and identical tables are precisely what
 one expects when a parser is involved (21.76), so it read as a positive control
 rather than as a bug. The run path rides on the result now.
+
+### 21.82 At n=33 the two judges are indistinguishable, and the clean-verdict failure holds
+
+Twelve more verdicts, 36 of 60 covered, and the numbers have stopped moving.
+
+| | n | κ | one-flip range | precision | recall | P(human blunder \| judge **clean**) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Qwen2.5-32B | 33 | **+0.29** | [+0.18, +0.39] | 30% | 41% | **9/13 = 69%** |
+| Mistral-24B | 33 | +0.11 | [−0.04, +0.25] | 30% | 53% | **7/9 = 78%** |
+
+The 32B's kappa has gone **+0.63 → +0.27 → +0.29** as the sample went 13 → 21 →
+33, and its fragility range has narrowed from [−0.08, +1.00] to a fifth of a
+point. The first figure was one cell; this one is a measurement.
+
+#### The headline replicates and strengthens
+
+**When either judge calls a position answer clean, it is wrong about 70–78% of
+the time.** That is now 13 and 9 judge-clean answers respectively, up from 8 and
+6, and both rates rose. The judge's *false negatives* remain the dominant error
+cell — 9 human-blunder/judge-clean against 1 the other way for the 32B.
+
+Gate 3's correction holds: `base_closed` reads **58%** and corrects to **72%**
+(n_clean = 10, up from 8). `base_cards_open` now has an estimate too, 92% → 88%,
+on n_clean = 2 — which is why `n_clean` prints beside every row and should be
+read before the number is.
+
+#### And the two judges do not separate
+
+Two kappas printed side by side invite ranking on the point estimates. +0.29
+against +0.11 looks decisive. It is not:
+
+```
+paired on 33 answers, same human reference
+  difference           +0.18
+  bootstrap 95% CI     [-0.12, +0.53]      includes zero
+  matched the human alone   3 vs 3
+  exact McNemar        p = 1.000
+```
+
+Three answers only the 32B got right, three only Mistral did — a perfectly
+balanced disagreement. **The two judges are not distinguishable on this sample**,
+and a default-judge decision taken from +0.29 versus +0.11 would have been a
+decision taken from noise.
+
+`adjudicate --score` runs this whenever two runs are given and prints the
+refusal in the same block as the kappas, because a caveat that arrives after the
+exclusions list arrives too late. The bootstrap is seeded and reproduces
+exactly — the same discipline the judge itself is held to (9.9), applied to the
+statistics rather than to the model. Paired, because both judges graded
+byte-identical text and an unpaired interval discards the pairing that makes the
+comparison sharp; and McNemar alongside it, because when the discordant count is
+six, an exact test with no distributional assumption is the honest one.
+
+This is the third consecutive way the same sample has offered an encouraging
+wrong number. 21.78: a kappa manufactured by pooling form regimes. 21.79: a
+kappa resting on one cell. 21.81: a raw sample gap that was mostly selection.
+Now a judge ranking that is within noise. Each was plausible, each pointed
+somewhere different, and none survived being checked — which is the argument for
+building the check into the tool rather than remembering to do it.
+
+#### What the sample can and cannot now support
+
+Supported: the 32B agrees with a human at κ ≈ +0.29 on the blunder call; its
+clean verdicts are wrong roughly 70% of the time; Gate 3's best arm is ~12
+points worse than reported and still fails by a wide margin either way.
+
+Not supported: **which judge is better.** That needs either a much larger
+sample or a larger true difference, and 21.79's ceiling still binds — 14 clean
+answers is all three arms produced across 26 positions. More positions, not more
+adjudication.
