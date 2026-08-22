@@ -6696,3 +6696,111 @@ validates clean, not by one asserting the failure.
 
 All new positions are authored for the **verbose grammar**, so the format that
 scores them and the format they are written for are the same from the start.
+
+### 21.72 The first parser-checked judge number, and what it was actually measuring
+
+The protocol rubric ran: 24 positions + 2 scenario steps × 3 arms, 32B judge.
+**Precision 36% (69/190), recall 57% (69/122)**, with 62 undecidable checks
+excluded rather than counted against the judge.
+
+**The prediction written before the run was wrong.** It said recall would be
+high and precision the informative number, on the theory that a judge firing at
+everything (recall 100%, precision 3% against human verdicts, 21.65) would
+simply spread that firing across more classes. It is wrong in *both* directions
+— inaccurate rather than indiscriminate. Recording it because a prediction that
+survives contact is worth less than one that does not.
+
+#### Per class, and the miss that explained itself
+
+| # | class | prec | recall |
+| --- | --- | --- | --- |
+| 1 | takes no action | 20% | **42%** |
+| 2 | repeats an action | 45% | 50% |
+| 3 | unavailable play | 74% | 51% |
+| 4 | wrong phase | 41% | 90% |
+| 5 | under-taps | 27% | 75% |
+| 6 | over-taps | 13% | **18%** |
+| 7 | casts what is in play | 28% | 100% |
+
+No positional decay — class 7 is last and has 100% recall, class 1 is first and
+has 42% — so it is not attention drift down a list.
+
+Class 1 is the anomaly: *"the answer takes no action at all"* should be the
+easiest thing in the list to see. Reading the misses:
+
+```
+PHASE Declare Blockers
+TAP Forest FOR {G}   TAP Forest FOR {G}
+TAP Forest FOR {G}   TAP Forest FOR {G}
+PASS
+```
+
+**The judge was right and the rubric was wrong.** Told "takes no action at all",
+it looked at four visible actions and correctly declined to charge. The checker
+meant *no PLAY* — declarations excluded — and the wording said *no action*.
+
+A correct judge and a correct checker disagreed because the entry did not
+describe what the entry decides. And the cause is an interaction: **the verbose
+grammar (21.60) is what made a do-nothing answer look busy.** Before it, doing
+nothing was literally `PASS`.
+
+Every entry is reworded to name the grammar it talks about — plays versus `TAP`
+and `PHASE` lines — including "charge this if ANY line is unavailable" for class
+3, whose misses were answers with one good play and one bad one.
+
+#### And a real bug in the checker, found the same way
+
+`degenerate` fired on **13 of 18** answers whose longest run was a `TAP`.
+Tapping five Forests is what paying five mana looks like; it is not a loop.
+21.58 widened `degenerate` from collapsed repeats to *all* repetition — correct
+for `PLAY Plains` ×133 — and the verbose grammar then made that fire on correct
+play. Repetition is now counted over **plays**: `max_play_repeat`.
+
+21.58's case survives (a repeated `PLAY` is still a loop), and the genuinely
+abusive `TAP Island` ×56 is still convicted — by `tap_problems`, which reports
+*"only 3 untapped copies, tapped 4 times"*, and the turn is still invalid on
+class 3.
+
+**Measurement changed, stated:**
+
+| arm | `valid_turn` before | after | degenerate |
+| --- | --- | --- | --- |
+| `base_closed` | 46% | **58%** | 15% → **0%** |
+| `base_open` | 23% | 25% | 23% → 8% |
+| `base_cards_open` | 19% | 17% | 31% → 17% |
+
+The best arm plays a completely valid turn **58%** of the time, not 46%. The
+earlier figure was a checker artifact.
+
+#### Two things the run confirmed in passing
+
+The protocol run and the verbose run produce **byte-identical parser numbers**:
+only the rubric changed, generation is deterministic, and it reproduced exactly.
+That is the positive control for the whole comparison.
+
+And blunder rate moved 75→96%, 50→54%, 71→85% on those same answers, purely
+because the rubric gained seven chargeable entries. **Blunder rate is
+rubric-dependent**, so a fixed Gate 3 threshold is meaningless unless the rubric
+is frozen — a direct input to B3 that was not obvious before.
+
+#### The scenario table rendered nothing
+
+Both steps ran and the Turn scenarios section was empty, because the result rows
+never carried `scenario_id` — the report was built and the field it groups by
+was not. Output identical to *"no scenarios were run"*. Fixed, and backfilled
+from the ids:
+
+```
+turn-payment-combat-0001    base_open 0/2   base_closed 1/2   base_cards_open 1/2
+```
+
+No arm completed the turn. At one scenario that is plumbing confirmation, not a
+measurement.
+
+#### What this does not yet answer
+
+Whether the rewording recovers the missed recall. The 36%/57% was measured
+against wording that misdescribed two of seven classes and a checker that was
+wrong about a third, so it is a **lower bound on a superseded instrument**, not a
+verdict on the judge. Re-running is the next measurement, and until then nothing
+here says the judge cannot do this job — only that it was not asked properly.

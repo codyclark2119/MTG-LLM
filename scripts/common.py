@@ -132,14 +132,32 @@ WIKI_PIN = {
 #
 # ORDER IS PART OF THE DATA. The judge returns error NUMBERS, so reordering or
 # inserting renumbers every stored verdict. Append only.
+# WORDED TO MATCH THE CHECKER, not to read naturally. The first draft said "the
+# answer takes no action at all — it only passes", and the judge was shown
+# `PHASE Declare Blockers / TAP Forest FOR {G}` x4 / `PASS`. It correctly
+# declined to charge an answer with four visible actions in it. The checker
+# meant "no PLAY", counting declarations as not-plays; the wording said
+# "no action", and an answer full of taps contradicts that on its face.
+#
+# So a correct judge and a correct checker disagreed, and the number came out as
+# 42% recall on the most obvious class in the list. Every entry now names the
+# grammar it is talking about — plays versus TAP and PHASE lines — because the
+# verbose grammar (21.60) is exactly what made "did nothing" look busy
+# (Section 21.72).
 PROTOCOL_ERRORS = (
-    "The answer takes no action at all — it only passes.",
-    "The answer repeats the same action over and over instead of playing a line.",
-    "The answer names a play that is not available in this position.",
-    "The answer states a phase or step other than the one the position is in.",
-    "The answer does not tap enough mana to pay for the spells it casts.",
-    "The answer taps more mana than the spells it casts require.",
-    "The answer casts a permanent that is already on the battlefield.",
+    "The answer makes no play: it only passes, possibly after PHASE or TAP "
+    "lines. Declaring a phase and tapping lands are not plays.",
+    "The answer repeats the same PLAY over and over instead of playing a line. "
+    "Repeated TAP lines are not this error — tapping several lands is normal.",
+    "The answer names a play that is not available in this position. Charge this "
+    "if ANY line is unavailable, even when the other lines are correct.",
+    "The answer's PHASE line names a step other than the one the position is in.",
+    "The answer's TAP lines do not add up to the cost of the spells it casts — "
+    "it is short.",
+    "The answer's TAP lines add up to MORE than the spells it casts require, "
+    "floating mana for nothing. Only charge this when it actually casts something.",
+    "The answer casts a permanent that is already on the battlefield rather than "
+    "one in hand.",
 )
 
 # Which of the above make a turn INVALID versus merely bad. A reviewer drew the

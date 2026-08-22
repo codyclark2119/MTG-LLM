@@ -199,6 +199,22 @@ def test_tap_grammar() -> int:
                         sum(1 for x in three.actions if x.verb == "TAP"), 3)
     failed += not check("...and are not counted as a collapsed loop",
                         three.repeats_collapsed, 0)
+    # Repeating a TAP is arithmetic, not a loop: tapping five Forests is what
+    # paying five mana LOOKS like. 13 of 18 degenerate flags on the first
+    # protocol run were legitimate payments, because 21.58 widened `degenerate`
+    # to all repetition and the verbose grammar then made that fire on correct
+    # play (Section 21.72).
+    five_taps = parse_output("TAP Forest FOR {G}\n" * 5 + "CAST Grizzly Bears\nPASS")
+    failed += not check("five taps are not a loop", five_taps.degenerate, False)
+    failed += not check("...though the raw repetition is still recorded",
+                        five_taps.max_repeat, 5)
+    failed += not check("...and no PLAY repeated", five_taps.max_play_repeat, 0)
+    # 21.58's case must survive: a repeated PLAY is still a loop.
+    failed += not check("a repeated PLAY is still degenerate",
+                        parse_output("PLAY Plains\n" * 6 + "PASS").degenerate, True)
+    failed += not check("a repeated PASS is still degenerate",
+                        parse_output("PASS\n" * 6).degenerate, True)
+
     # But TAP must NOT have inherited the land-drop rule by being folded into
     # ONCE_PER_TURN — tapping many lands is legal.
     failed += not check("repeated taps are not a once-per-turn violation",

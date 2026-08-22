@@ -37,3 +37,6 @@ REPO_MAP.md
 data/gold/worksheets/tasks.json
 data/submissions.jsonl
 data/submissions.pre-migration.jsonl
+
+# Local planning doc — deliberately not published (see REPO_MAP.md precedent)
+PLAN_NEXT.md

@@ -110,6 +110,14 @@ class ParsedOutput:
     # before ONCE_PER_TURN exemptions are applied. `repeats_collapsed` cannot
     # answer "did this loop" on its own — see `degenerate`.
     max_repeat: int = 0
+    # The same, over PLAYS only. Section 21.58 widened `degenerate` to count
+    # every repetition, which was right for `PLAY Plains` x133. The verbose
+    # grammar then made it wrong: `TAP Forest FOR {G}` five times is what
+    # tapping five Forests LOOKS like, and 13 of 18 degenerate flags on the
+    # first protocol run were legitimate mana payments. Repeating a PLAY is a
+    # loop; repeating a TAP is usually arithmetic, and a tap you cannot afford
+    # is already `tap_problems`' finding (Section 21.72).
+    max_play_repeat: int = 0
 
     @property
     def plays(self) -> list["Action"]:
@@ -143,7 +151,7 @@ class ParsedOutput:
         further, then: `repeats_collapsed` is about the action LIST, and this is
         about the OUTPUT. A loop is a loop whichever verb it loops on.
         """
-        return self.repeats_collapsed >= 5 or self.max_repeat >= 5
+        return self.repeats_collapsed >= 5 or self.max_play_repeat >= 5
 
     @property
     def only_pass(self) -> bool:
@@ -427,6 +435,8 @@ def parse_output(text: str) -> ParsedOutput:
             if out.actions and out.actions[-1].key() == result.key():
                 run += 1
                 out.max_repeat = max(out.max_repeat, run)
+                if result.verb not in DECLARATIONS:
+                    out.max_play_repeat = max(out.max_play_repeat, run)
             else:
                 run = 1
             if (out.actions and out.actions[-1].key() == result.key()

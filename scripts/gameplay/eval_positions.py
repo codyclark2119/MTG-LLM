@@ -591,6 +591,15 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
         # judge is not interpretable.
         results.append({"id": pos["id"], "category": pos["category"],
                         "difficulty": pos["difficulty"],
+                        # Carried, or the sequence report has nothing to group
+                        # by. Built the report and forgot the field it reads:
+                        # the run produced both scenario steps and the Turn
+                        # scenarios table silently rendered nothing, which looks
+                        # exactly like "no scenarios were run" (Section 21.71).
+                        **({"scenario_id": pos["scenario_id"],
+                            "step_index": pos.get("step_index"),
+                            "step_count": pos.get("step_count")}
+                           if pos.get("scenario_id") else {}),
                         "judge_model": judge_model_id,
                         # The grammar the model was told to answer in. Until
                         # 21.60 nothing recorded it, so an edit to
