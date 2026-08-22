@@ -252,6 +252,18 @@ as it applies to ranking arms.
 
 ## Evaluation — read this before trusting any number
 
+**A kappa needs variance in BOTH raters, and this sample has none.** The first
+batch on the matched form was 9/9 blundered under the human *and* the judge:
+100% agreement, kappa undefined. Pooling it with older verdicts made it
+computable at *+0.67* — variance manufactured by two form regimes, not by better
+agreement, and quoting it would have been the most encouraging wrong number here
+yet. `score_run` prints `n/a` with the reason instead of `nan`, and flags a
+sample that spans form versions. These arms blunder on **82%** of answers, so a
+one-sided draw is the default, not bad luck; `build_queue` interleaves on the
+judge's call (blind to the reviewer, the line `disputed` already walks). **The
+ceiling is 14 clean answers** across all 26 positions — a powered blunder-call
+kappa needs more positions or better arms, not more adjudication (21.78).
+
 **Judge-vs-judge agreement is not correctness.** Measured: kappa **+0.47**
 between two calibrated judges on the same answers, and **+0.17 to +0.23** between
 each of them and a human on the same blunder calls (Section 21.57). They agree
@@ -575,6 +587,14 @@ Each cost real time. They recur in new code, so they are worth knowing.
   arm and position all match. The inverse of the promotion case below, and
   worse, because there the join silently missed and here it silently succeeds.
   Verdicts carry `answer_sha` now (Section 21.62).
+- **An identifier that survives while the RUBRIC changes under it.** A verdict
+  is `(key, author, answer_sha)`; grow the rubric and the answer is byte-identical,
+  so the digest matches and a fresh re-adjudication collides with the very row it
+  was collected to replace. `--status` said *redo this* and the ingest said
+  *already on file* about the same verdict — **12 of 12 dropped, silently**, and
+  the digest structurally cannot see it because nothing about the answer changed.
+  `n_shown` is the fourth component. Fourth appearance of this assumption after
+  21.13, 21.62 and 21.65 (Section 21.78).
 - **An identifier that changes when a record is promoted.** A RulesGuru
   candidate is `rg-1156`; promoted into the gold set it becomes
   `qa-amy-casts-assassin-s-trophy-...` and keeps `rulesguru_id: 1156`. The

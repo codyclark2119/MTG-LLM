@@ -1,110 +1,20 @@
 [
  {
-  "key": "pos-land-sequencing-0002::base_closed",
-  "record_id": "pos-land-sequencing-0002",
-  "arm": "base_closed",
-  "answer": "PHASE Pre-combat main phase\nPLAY Swamp\nTAP Swamp FOR B\nPLAY Dismal Backwater\nTAP Dismal Backwater FOR B\nPLAY Temple of Silence\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-race-vs-stabilize-0001::base_open",
-  "record_id": "pos-race-vs-stabilize-0001",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS \n\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\n\nCAST Serra Angel\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0004::base_open",
-  "record_id": "pos-combat-math-0004",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\n\nCAST Lightning Strike TARGET Wall of Omens\nPASS",
-  "n_errors": 5,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
   "key": "pos-trigger-ordering-0002::base_closed",
   "record_id": "pos-trigger-ordering-0002",
   "arm": "base_closed",
   "answer": "ORDER TRIGGERS Phyrexian Arena, Dark Confidant\nPASS",
   "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-land-sequencing-0001::base_closed",
-  "record_id": "pos-land-sequencing-0001",
+  "key": "pos-land-sequencing-0002::base_closed",
+  "record_id": "pos-land-sequencing-0002",
   "arm": "base_closed",
-  "answer": "PHASE Pre-combat main phase\nPLAY Swamp\nPLAY Swamp\nPLAY Temple of Silence\nCAST Doom Blade TARGET Vampire Nighthawk\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-race-vs-stabilize-0001::base_cards_open",
-  "record_id": "pos-race-vs-stabilize-0001",
-  "arm": "base_cards_open",
-  "answer": "PHASE Precombat Main\n\nPASS\n\nReasoning: The game is in the precombat main phase, and I have no cards in hand. I will pass to see if my opponent has any actions to take before the combat phase begins. If they do, I will respond accordingly. If not, I will proceed to the combat phase.\n\nPHASE Declare Attackers\n\nCAST Serra Angel TARGET Grizzly Bears, Centaur Courser\nATTACK Serra Angel, Grizzly Bears, Centaur Courser\n\nReasoning: I cast Serra Angel to attack both of my opponent's creatures. Serra Angel has flying and vigilance, so it won't tap to attack. I attack all three of my opponent's creatures to maximize the damage and trigger their battle cry abilities.\n\nPHASE Combat Damage\n\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\n\nGrizzly Bears 2/2 -1/-1\nCentaur Courser 3/3 -1/-1\n\nReasoning: I tap five Plains to produce five white mana to pay for the combat damage. Grizzly Bears and Centaur Courser each take 2 damage, reducing their power to 0. Serra Angel deals 4 damage to each of them, killing them both.\n\nPHASE End of Combat\n\nPASS\n\nReasoning: The combat phase is over, and I have no further actions to take until the beginning of my next turn.",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-removal-timing-0001::base_open",
-  "record_id": "pos-removal-timing-0001",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\n\nCAST Doom Blade TARGET Grizzly Bears\nPASS",
+  "answer": "PHASE Pre-combat main phase\nPLAY Swamp\nTAP Swamp FOR B\nPLAY Dismal Backwater\nTAP Dismal Backwater FOR B\nPLAY Temple of Silence\nPASS",
   "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0002::base_open",
-  "record_id": "pos-blocking-0002",
-  "arm": "base_open",
-  "answer": "PHASE Declare Blockers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0003::base_closed",
-  "record_id": "pos-blocking-0003",
-  "arm": "base_closed",
-  "answer": "PASS\n\nBLOCK Fog Bank -> Serra Angel\nBLOCK Fog Bank -> Grizzly Bears\nBLOCK Centaur Courser -> Grizzly Bears\n\nORDER TRIGGERS Fog Bank, Centaur Courser\n\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-mulligan-0001::base_closed",
-  "record_id": "pos-mulligan-0001",
-  "arm": "base_closed",
-  "answer": "MULLIGAN\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0005::base_open",
-  "record_id": "pos-combat-math-0005",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nPHASE Pre-combat main phase (continuing)\nPASS\n\nPHASE Combat phase\nPASS\n\nPHASE Begin of combat step\nPASS\n\nPHASE Declare attackers step\nCAST Shock TARGET Grizzly Bears\nPASS\n\nPHASE End of combat step\nPASS\n\nPHASE First main phase\nPASS\n\nPHASE Main phase\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Mountain FOR {R}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-race-vs-stabilize-0002::base_open",
-  "record_id": "pos-race-vs-stabilize-0002",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nPHASE Pre-combat main phase (end)\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPASS\n\nPHASE Combat phase\nDECLARE attackers\nATTACK Centaur Courser, Grizzly Bears -> Nessian Asp\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -113,16 +23,16 @@
   "arm": "base_closed",
   "answer": "PHASE Pre-combat main phase\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS\n\nThe Centaur Courser and Grizzly Bears are both untapped and have no abilities that would prevent them from attacking. Attacking with both creatures will maximize the damage output and potentially deal lethal damage to the opponent. \n\nATTACK Centaur Courser, Grizzly Bears",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-land-sequencing-0002::base_open",
-  "record_id": "pos-land-sequencing-0002",
+  "key": "pos-race-vs-stabilize-0001::base_open",
+  "record_id": "pos-race-vs-stabilize-0001",
   "arm": "base_open",
-  "answer": "PHASE Pre-combat main\n\nTAP Temple of Silence FOR black mana\nTAP Dismal Backwater FOR black mana\nTAP Swamp FOR black mana\nTAP Swamp FOR black mana\n\nPLAY Temple of Silence\nPLAY Dismal Backwater\nPLAY Swamp\nPLAY Swamp\nPLAY Doom Blade\nPLAY Vampire Nighthawk\n\nCAST Phyrexian Arena\n\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "answer": "PHASE Pre-combat main phase\nPASS \n\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\n\nCAST Serra Angel\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -131,97 +41,16 @@
   "arm": "base_closed",
   "answer": "PHASE Pre-combat main phase\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nCAST Doom Blade TARGET Nessian Asp\nPASS",
   "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-combat-math-0006::base_open",
-  "record_id": "pos-combat-math-0006",
+  "key": "pos-combat-math-0004::base_open",
+  "record_id": "pos-combat-math-0004",
   "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\n\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\n\nCAST Grizzly Bears\nCAST Grizzly Bears TARGET Centaur Courser\nCAST Grizzly Bears TARGET Centaur Courser\n\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-removal-timing-0002::base_cards_open",
-  "record_id": "pos-removal-timing-0002",
-  "arm": "base_cards_open",
-  "answer": "PHASE Declare Attackers Step\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Ambush Viper TARGET Centaur Courser\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0004::base_cards_open",
-  "record_id": "pos-blocking-0004",
-  "arm": "base_cards_open",
-  "answer": "PHASE Declare Attackers\n\nATTACK Nessian Asp 4/5, Centaur Courser 3/3\n\nPHASE Declare Blockers\n\nBLOCK Nessian Asp 4/5 -> Serra Angel 4/4\nBLOCK Centaur Courser 3/3 -> Serra Angel 4/4\n\nPHASE Combat Damage\n\nSerra Angel 4/4 deals 3 damage to Nessian Asp 4/5\nSerra Angel 4/4 deals 3 damage to Centaur Courser 3/3\n\nNessian Asp 4/5 is now 1/5\nCentaur Courser 3/3 is now 0/3\n\nPHASE End of Combat\n\nNessian Asp 4/5 regains 3 life (Monstrosity effect triggers)\nCentaur Courser 3/3 is put into the graveyard\n\nPHASE Main Phase\n\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-removal-timing-0004::base_cards_open",
-  "record_id": "pos-removal-timing-0004",
-  "arm": "base_cards_open",
-  "answer": "PHASE Declare Attackers\nCAST Doom Blade TARGET Colossal Dreadmaw\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-land-sequencing-0003::base_cards_open",
-  "record_id": "pos-land-sequencing-0003",
-  "arm": "base_cards_open",
-  "answer": "PHASE Precombat Main\nPASS\n\nTAP Forest FOR G\nPASS\n\nTAP Mountain FOR R\nPASS\n\nTAP Island FOR U\nPASS\n\nTAP Island FOR U\nPASS\n\nCAST Giant Growth TARGET Centaur Courser\nPASS\n\nCAST Shock TARGET Opponent\nPASS\n\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0003::base_cards_open",
-  "record_id": "pos-blocking-0003",
-  "arm": "base_cards_open",
-  "answer": "PHASE Declare Attackers\n\nCAST Fog Bank\nTAP Island FOR {U}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\n\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0005::base_closed",
-  "record_id": "pos-blocking-0005",
-  "arm": "base_closed",
-  "answer": "PASS\n\nBLOCK Sedge Scorpion -> Colossal Dreadmaw\nBLOCK Centaur Courser -> Colossal Dreadmaw",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-mulligan-0002::base_open",
-  "record_id": "pos-mulligan-0002",
-  "arm": "base_open",
-  "answer": "PHASE PreCombat Main\nPASS \n\nPHASE Combat\nPASS \n\nPHASE PostCombat Main\nPLAY Mountain\nCAST Lightning Strike TARGET Monastery Swiftspear\nCAST Lightning Strike TARGET Monastery Swiftspear\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-trigger-ordering-0002::base_cards_open",
-  "record_id": "pos-trigger-ordering-0002",
-  "arm": "base_cards_open",
-  "answer": "PHASE Upkeep\n\nDoom Blade TARGET Grizzly Bears\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0002::base_cards_open",
-  "record_id": "pos-combat-math-0002",
-  "arm": "base_cards_open",
-  "answer": "PHASE Precombat Main\nPASS\n\nExplanation: The game is in the precombat main phase, and you have priority. You have enough mana to cast Lightning Strike, but since your opponent has no cards in hand and you have no creatures to attack with, there's no immediate benefit to casting it. Therefore, you pass to let your opponent act.",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\n\nCAST Lightning Strike TARGET Wall of Omens\nPASS",
+  "n_errors": 5,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -230,88 +59,16 @@
   "arm": "base_closed",
   "answer": "PHASE Declare Blockers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nBLOCK Nessian Asp -> Serra Angel\nPASS",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-combat-math-0003::base_closed",
-  "record_id": "pos-combat-math-0003",
-  "arm": "base_closed",
-  "answer": "PHASE Pre-combat main phase\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nPASS\n\nWith no cards in hand, the only action available is to attack. Since the opponent has a 2/2 Grizzly Bears, attacking with either creature or both would be a reasonable choice. Given the higher power/toughness ratio of Serra Angel, attacking with it first would be the most direct way to deal with the threat.\n\nATTACK Serra Angel\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-land-sequencing-0001::base_cards_open",
+  "key": "pos-land-sequencing-0001::base_closed",
   "record_id": "pos-land-sequencing-0001",
-  "arm": "base_cards_open",
-  "answer": "PHASE Upkeep\nPASS\n\nPHASE Draw\nDRAW Doom Blade\nDRAW Vampire Nighthawk\nKEEP\n\nPHASE First Main\nPLAY Temple of Silence\nCAST Phyrexian Arena\nTAP Temple of Silence FOR {W}\nCAST Phyrexian Arena\nTAP Temple of Silence FOR {W}\nCAST Doom Blade TARGET Vampire Nighthawk\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-race-vs-stabilize-0001::base_closed",
-  "record_id": "pos-race-vs-stabilize-0001",
   "arm": "base_closed",
-  "answer": "PHASE Pre-combat main phase\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nPASS\n\nThe Serra Angel is the only creature you have, and there are no cards in your hand to cast. Since the opponent has creatures on the battlefield, attacking is the only action available to you. However, since you have no cards to play, you cannot attack. Therefore, you must pass the pre-combat main phase.",
+  "answer": "PHASE Pre-combat main phase\nPLAY Swamp\nPLAY Swamp\nPLAY Temple of Silence\nCAST Doom Blade TARGET Vampire Nighthawk\nPASS",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-removal-timing-0003::base_closed",
-  "record_id": "pos-removal-timing-0003",
-  "arm": "base_closed",
-  "answer": "CAST Doom Blade TARGET Serra Angel\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0003::base_open",
-  "record_id": "pos-blocking-0003",
-  "arm": "base_open",
-  "answer": "PHASE Declare Attackers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0002::base_closed",
-  "record_id": "pos-combat-math-0002",
-  "arm": "base_closed",
-  "answer": "PHASE Pre-combat main phase\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\nTAP Forest FOR {G}\nCAST Lightning Strike TARGET Grizzly Bears\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-removal-timing-0003::base_open",
-  "record_id": "pos-removal-timing-0003",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\n\nCAST Doom Blade TARGET Serra Angel\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0003::base_open",
-  "record_id": "pos-combat-math-0003",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nThe opponent has priority, so I will wait for them to act first. If they attack, I will respond accordingly. If they do not attack, I will proceed to the combat phase. For now, I will keep the opening hand as it is since I have no cards to play.\n\nKEEP",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-land-sequencing-0003::base_open",
-  "record_id": "pos-land-sequencing-0003",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPLAY Forest\nTAP Forest FOR {G}\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -320,7 +77,16 @@
   "arm": "base_open",
   "answer": "PHASE Pre-combat main\n\nTAP Swamp FOR black\nTAP Swamp FOR black\n\nPLAY Temple of Silence\nKEEP\n\nReasoning: Starting with a Temple of Silence is crucial as it provides a key piece of infrastructure for the deck, allowing for efficient card draw and card advantage. The black mana from the Swamps will be used to cast the Temple. Keeping the hand as is maximizes the potential for future plays.",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-race-vs-stabilize-0001::base_cards_open",
+  "record_id": "pos-race-vs-stabilize-0001",
+  "arm": "base_cards_open",
+  "answer": "PHASE Precombat Main\n\nPASS\n\nReasoning: The game is in the precombat main phase, and I have no cards in hand. I will pass to see if my opponent has any actions to take before the combat phase begins. If they do, I will respond accordingly. If not, I will proceed to the combat phase.\n\nPHASE Declare Attackers\n\nCAST Serra Angel TARGET Grizzly Bears, Centaur Courser\nATTACK Serra Angel, Grizzly Bears, Centaur Courser\n\nReasoning: I cast Serra Angel to attack both of my opponent's creatures. Serra Angel has flying and vigilance, so it won't tap to attack. I attack all three of my opponent's creatures to maximize the damage and trigger their battle cry abilities.\n\nPHASE Combat Damage\n\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\n\nGrizzly Bears 2/2 -1/-1\nCentaur Courser 3/3 -1/-1\n\nReasoning: I tap five Plains to produce five white mana to pay for the combat damage. Grizzly Bears and Centaur Courser each take 2 damage, reducing their power to 0. Serra Angel deals 4 damage to each of them, killing them both.\n\nPHASE End of Combat\n\nPASS\n\nReasoning: The combat phase is over, and I have no further actions to take until the beginning of my next turn.",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -329,52 +95,16 @@
   "arm": "base_closed",
   "answer": "MULLIGAN\nPASS",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-combat-math-0006::base_cards_open",
-  "record_id": "pos-combat-math-0006",
-  "arm": "base_cards_open",
-  "answer": "PHASE Untap Step\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0001::base_open",
-  "record_id": "pos-combat-math-0001",
+  "key": "pos-removal-timing-0001::base_open",
+  "record_id": "pos-removal-timing-0001",
   "arm": "base_open",
-  "answer": "PHASE Pre-combat Main\n\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\n\nCAST Lightning Strike TARGET Grizzly Bears\n\nPASS",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\n\nCAST Doom Blade TARGET Grizzly Bears\nPASS",
   "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-land-sequencing-0002::base_cards_open",
-  "record_id": "pos-land-sequencing-0002",
-  "arm": "base_cards_open",
-  "answer": "PHASE Beginning of turn\nPASS\n\nPHASE First main\nPLAY Temple of Silence\nCAST Phyrexian Arena\nTAP Temple of Silence FOR {W}\nTAP Dismal Backwater FOR {U}\nPASS\n\nPHASE Second main\nCAST Phyrexian Arena\nTAP Dismal Backwater FOR {U}\nPASS\n\nPHASE End of turn\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0002::base_open",
-  "record_id": "pos-combat-math-0002",
-  "arm": "base_open",
-  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\nTAP Forest FOR {G}\n\nCAST Lightning Strike TARGET Grizzly Bears\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-removal-timing-0002::base_open",
-  "record_id": "pos-removal-timing-0002",
-  "arm": "base_open",
-  "answer": "PHASE Declare Blockers\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -383,25 +113,16 @@
   "arm": "base_closed",
   "answer": "PHASE Pre-combat main phase\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\nCAST Lightning Strike TARGET Vampire Nighthawk\nPASS",
   "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-trigger-ordering-0001::base_open",
-  "record_id": "pos-trigger-ordering-0001",
+  "key": "pos-blocking-0002::base_open",
+  "record_id": "pos-blocking-0002",
   "arm": "base_open",
-  "answer": "PHASE Upkeep\nPASS\n\nPHASE Begin of Turn\nPASS\n\nPHASE First Main\nPASS\n\nPHASE Second Main\nPLAY Swamp\nPLAY Swamp\nPLAY Swamp\nPLAY Swamp\nPLAY Swamp\nCAST Doom Blade TARGET Grizzly Bears\nPASS",
+  "answer": "PHASE Declare Blockers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-removal-timing-0004::base_open",
-  "record_id": "pos-removal-timing-0004",
-  "arm": "base_open",
-  "answer": "PHASE Declare Blockers\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -410,7 +131,16 @@
   "arm": "base_closed",
   "answer": "PHASE Pre-combat main phase\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Mountain FOR {R}\nCAST Shock TARGET Grizzly Bears\nPASS",
   "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-blocking-0003::base_closed",
+  "record_id": "pos-blocking-0003",
+  "arm": "base_closed",
+  "answer": "PASS\n\nBLOCK Fog Bank -> Serra Angel\nBLOCK Fog Bank -> Grizzly Bears\nBLOCK Centaur Courser -> Grizzly Bears\n\nORDER TRIGGERS Fog Bank, Centaur Courser\n\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -419,25 +149,16 @@
   "arm": "base_closed",
   "answer": "PASS\n\nCAST Doom Blade TARGET Colossal Dreadmaw\n\nReasoning: The opponent's Colossal Dreadmaw is attacking with 6 power, and I have a Doom Blade in hand that can deal 3 damage to it. Since I have the required black mana to cast the spell, I will cast it targeting the attacking creature to reduce its toughness and potentially cause it to die if it has 3 or less toughness.",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-combat-math-0006::base_closed",
-  "record_id": "pos-combat-math-0006",
+  "key": "pos-mulligan-0001::base_closed",
+  "record_id": "pos-mulligan-0001",
   "arm": "base_closed",
-  "answer": "PHASE Pre-combat main phase\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS",
+  "answer": "MULLIGAN\nPASS",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0003::base_cards_open",
-  "record_id": "pos-combat-math-0003",
-  "arm": "base_cards_open",
-  "answer": "PHASE Precombat Main\nPASS\n\nPHASE First Main\nPLAY Plains\nPLAY Plains\nPLAY Plains\nPLAY Plains\nPLAY Plains\nPLAY Plains\nCAST Serra Angel\nCAST Centaur Courser\nPASS\n\nPHASE First Combat\nATTACK Serra Angel, Centaur Courser\nPASS\n\nPHASE Second Main\nCAST Giant Growth TARGET Grizzly Bears\nPASS\n\nPHASE Second Combat\nBLOCK Grizzly Bears -> Centaur Courser\nPASS\n\nPHASE End\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -446,88 +167,16 @@
   "arm": "base_closed",
   "answer": "PASS\n\nBLOCK Wall of Omens -> Grizzly Bears\nBLOCK Wall of Omens -> Elite Vanguard\n\nORDER TRIGGERS Wall of Omens, Llanowar Elves\n\nPASS",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
-  "key": "pos-race-vs-stabilize-0002::base_cards_open",
-  "record_id": "pos-race-vs-stabilize-0002",
-  "arm": "base_cards_open",
-  "answer": "PHASE Precombat Main\n\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\n\nCAST Centaur Courser\nCAST Grizzly Bears\n\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-mulligan-0002::base_cards_open",
-  "record_id": "pos-mulligan-0002",
-  "arm": "base_cards_open",
-  "answer": "PHASE Beginning of Turn\nPASS\n\nPHASE First Main Phase\nPLAY Mountain\nTAP Mountain FOR R\nCAST Monastery Swiftspear\nPASS\n\nPHASE First Main Phase (Continued)\nPLAY Mountain\nTAP Mountain FOR R\nCAST Monastery Swiftspear\nPASS\n\nPHASE First Main Phase (Continued)\nPLAY Mountain\nTAP Mountain FOR R\nCAST Lightning Strike TARGET Opponent\nPASS\n\nPHASE First Main Phase (Continued)\nPLAY Mountain\nTAP Mountain FOR R\nCAST Lightning Strike TARGET Opponent\nPASS\n\nPHASE First Main Phase (Continued)\nPASS\n\nPHASE First Main Phase (Completed)\nPASS\n\nPHASE First Combat Phase\nDECLARE attackers Monastery Swiftspear, Monastery Swiftspear\nPASS\n\nPHASE First Combat Phase (Continued)\nBLOCK Monastery Swiftspear -> Opponent\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Second Main Phase\nPASS\n\nPHASE End Step\nPASS\n\nPHASE Second Combat Phase\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Beginning of End Step\nPASS\n\nPHASE End Step\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE End Step\nPASS\n\nPHASE Cleanup Step\nPASS\n\nPHASE Upkeep\nPASS\n\nPHASE Draw\nPASS\n\nPHASE First Main Phase\nPASS\n\nPHASE First Combat Phase\nPASS\n\nPHASE First Main Phase (Continued)\nPASS\n\nPHASE First Combat Phase (Continued)\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Second Main Phase\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE End Step\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Cleanup Step\nPASS\n\nPHASE Upkeep\nPASS\n\nPHASE Draw\nPASS\n\nPHASE First Main Phase\nPASS\n\nPHASE First Combat Phase\nPASS\n\nPHASE First Main Phase (Continued)\nPASS\n\nPHASE First Combat Phase (Continued)\n",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-trigger-ordering-0002::base_open",
-  "record_id": "pos-trigger-ordering-0002",
-  "arm": "base_open",
-  "answer": "PHASE Upkeep\nPASS\n\nPHASE Begin of Turn\nPASS\n\nPHASE First Main\nPASS\n\nPHASE Second Main\nCAST Doom Blade TARGET Grizzly Bears\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0001::base_open",
-  "record_id": "pos-blocking-0001",
-  "arm": "base_open",
-  "answer": "PHASE Declare Blockers\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0005::base_open",
-  "record_id": "pos-blocking-0005",
-  "arm": "base_open",
-  "answer": "PHASE Declare Blockers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nBLOCK Colossal Dreadmaw -> Sedge Scorpion\nBLOCK Colossal Dreadmaw -> Centaur Courser\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-land-sequencing-0003::base_closed",
-  "record_id": "pos-land-sequencing-0003",
-  "arm": "base_closed",
-  "answer": "PHASE Pre-combat main phase\nPLAY Mountain\nPLAY Forest\nCAST Shock TARGET opponent's Island\nPASS",
-  "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0005::base_cards_open",
+  "key": "pos-combat-math-0005::base_open",
   "record_id": "pos-combat-math-0005",
-  "arm": "base_cards_open",
-  "answer": "PHASE Precombat Main\n\nCAST Shock TARGET Grizzly Bears\nPASS",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nPHASE Pre-combat main phase (continuing)\nPASS\n\nPHASE Combat phase\nPASS\n\nPHASE Begin of combat step\nPASS\n\nPHASE Declare attackers step\nCAST Shock TARGET Grizzly Bears\nPASS\n\nPHASE End of combat step\nPASS\n\nPHASE First main phase\nPASS\n\nPHASE Main phase\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Mountain FOR {R}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Shock\nPASS\n\nPHASE Main phase (continuing)\nPASS\n\nPHASE Main phase (continuing)\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST",
   "n_errors": 4,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-combat-math-0004::base_cards_open",
-  "record_id": "pos-combat-math-0004",
-  "arm": "base_cards_open",
-  "answer": "PHASE Precombat Main\n\nCAST Lightning Strike TARGET Opponent's Wall of Omens\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Mountain FOR {R}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nPASS",
-  "n_errors": 5,
-  "source_run": "pos_n24_verbose_32b.jsonl",
-  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
- },
- {
-  "key": "pos-blocking-0005::base_cards_open",
-  "record_id": "pos-blocking-0005",
-  "arm": "base_cards_open",
-  "answer": "PHASE Declare Attackers\nCAST Forest\nCAST Forest\nCAST Forest\nCAST Forest\nCAST Forest\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nATTACK Sedge Scorpion, Colossal Dreadmaw\nPASS",
-  "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  },
  {
@@ -536,7 +185,358 @@
   "arm": "base_cards_open",
   "answer": "PHASE Precombat Main\n\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\n\nCAST Doom Blade TARGET Serra Angel\nPASS",
   "n_errors": 3,
-  "source_run": "pos_n24_verbose_32b.jsonl",
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-race-vs-stabilize-0002::base_open",
+  "record_id": "pos-race-vs-stabilize-0002",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nPHASE Pre-combat main phase (end)\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPASS\n\nPHASE Combat phase\nDECLARE attackers\nATTACK Centaur Courser, Grizzly Bears -> Nessian Asp\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-trigger-ordering-0001::base_closed",
+  "record_id": "pos-trigger-ordering-0001",
+  "arm": "base_closed",
+  "answer": "ORDER TRIGGERS Lifecrafter's Bestiary, Phyrexian Arena\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-land-sequencing-0002::base_open",
+  "record_id": "pos-land-sequencing-0002",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main\n\nTAP Temple of Silence FOR black mana\nTAP Dismal Backwater FOR black mana\nTAP Swamp FOR black mana\nTAP Swamp FOR black mana\n\nPLAY Temple of Silence\nPLAY Dismal Backwater\nPLAY Swamp\nPLAY Swamp\nPLAY Doom Blade\nPLAY Vampire Nighthawk\n\nCAST Phyrexian Arena\n\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0001::base_cards_open",
+  "record_id": "pos-removal-timing-0001",
+  "arm": "base_cards_open",
+  "answer": "PHASE Precombat Main\n\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\n\nCAST Doom Blade TARGET Nessian Asp\n\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0006::base_open",
+  "record_id": "pos-combat-math-0006",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\n\nPLAY Forest\nPLAY Forest\nPLAY Forest\nPLAY Forest\n\nCAST Grizzly Bears\nCAST Grizzly Bears TARGET Centaur Courser\nCAST Grizzly Bears TARGET Centaur Courser\n\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0002::base_closed",
+  "record_id": "pos-removal-timing-0002",
+  "arm": "base_closed",
+  "answer": "PHASE Declare Blockers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Ambush Viper TARGET Centaur Courser\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0002::base_cards_open",
+  "record_id": "pos-removal-timing-0002",
+  "arm": "base_cards_open",
+  "answer": "PHASE Declare Attackers Step\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nCAST Ambush Viper TARGET Centaur Courser\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-blocking-0004::base_cards_open",
+  "record_id": "pos-blocking-0004",
+  "arm": "base_cards_open",
+  "answer": "PHASE Declare Attackers\n\nATTACK Nessian Asp 4/5, Centaur Courser 3/3\n\nPHASE Declare Blockers\n\nBLOCK Nessian Asp 4/5 -> Serra Angel 4/4\nBLOCK Centaur Courser 3/3 -> Serra Angel 4/4\n\nPHASE Combat Damage\n\nSerra Angel 4/4 deals 3 damage to Nessian Asp 4/5\nSerra Angel 4/4 deals 3 damage to Centaur Courser 3/3\n\nNessian Asp 4/5 is now 1/5\nCentaur Courser 3/3 is now 0/3\n\nPHASE End of Combat\n\nNessian Asp 4/5 regains 3 life (Monstrosity effect triggers)\nCentaur Courser 3/3 is put into the graveyard\n\nPHASE Main Phase\n\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0004::base_cards_open",
+  "record_id": "pos-removal-timing-0004",
+  "arm": "base_cards_open",
+  "answer": "PHASE Declare Attackers\nCAST Doom Blade TARGET Colossal Dreadmaw\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-land-sequencing-0003::base_cards_open",
+  "record_id": "pos-land-sequencing-0003",
+  "arm": "base_cards_open",
+  "answer": "PHASE Precombat Main\nPASS\n\nTAP Forest FOR G\nPASS\n\nTAP Mountain FOR R\nPASS\n\nTAP Island FOR U\nPASS\n\nTAP Island FOR U\nPASS\n\nCAST Giant Growth TARGET Centaur Courser\nPASS\n\nCAST Shock TARGET Opponent\nPASS\n\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-blocking-0003::base_cards_open",
+  "record_id": "pos-blocking-0003",
+  "arm": "base_cards_open",
+  "answer": "PHASE Declare Attackers\n\nCAST Fog Bank\nTAP Island FOR {U}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\n\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-blocking-0005::base_closed",
+  "record_id": "pos-blocking-0005",
+  "arm": "base_closed",
+  "answer": "PASS\n\nBLOCK Sedge Scorpion -> Colossal Dreadmaw\nBLOCK Centaur Courser -> Colossal Dreadmaw",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-mulligan-0002::base_open",
+  "record_id": "pos-mulligan-0002",
+  "arm": "base_open",
+  "answer": "PHASE PreCombat Main\nPASS \n\nPHASE Combat\nPASS \n\nPHASE PostCombat Main\nPLAY Mountain\nCAST Lightning Strike TARGET Monastery Swiftspear\nCAST Lightning Strike TARGET Monastery Swiftspear\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-trigger-ordering-0002::base_cards_open",
+  "record_id": "pos-trigger-ordering-0002",
+  "arm": "base_cards_open",
+  "answer": "PHASE Upkeep\n\nDoom Blade TARGET Grizzly Bears\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0002::base_cards_open",
+  "record_id": "pos-combat-math-0002",
+  "arm": "base_cards_open",
+  "answer": "PHASE Precombat Main\nPASS\n\nExplanation: The game is in the precombat main phase, and you have priority. You have enough mana to cast Lightning Strike, but since your opponent has no cards in hand and you have no creatures to attack with, there's no immediate benefit to casting it. Therefore, you pass to let your opponent act.",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0003::base_closed",
+  "record_id": "pos-combat-math-0003",
+  "arm": "base_closed",
+  "answer": "PHASE Pre-combat main phase\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nPASS\n\nWith no cards in hand, the only action available is to attack. Since the opponent has a 2/2 Grizzly Bears, attacking with either creature or both would be a reasonable choice. Given the higher power/toughness ratio of Serra Angel, attacking with it first would be the most direct way to deal with the threat.\n\nATTACK Serra Angel\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-land-sequencing-0001::base_cards_open",
+  "record_id": "pos-land-sequencing-0001",
+  "arm": "base_cards_open",
+  "answer": "PHASE Upkeep\nPASS\n\nPHASE Draw\nDRAW Doom Blade\nDRAW Vampire Nighthawk\nKEEP\n\nPHASE First Main\nPLAY Temple of Silence\nCAST Phyrexian Arena\nTAP Temple of Silence FOR {W}\nCAST Phyrexian Arena\nTAP Temple of Silence FOR {W}\nCAST Doom Blade TARGET Vampire Nighthawk\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-race-vs-stabilize-0001::base_closed",
+  "record_id": "pos-race-vs-stabilize-0001",
+  "arm": "base_closed",
+  "answer": "PHASE Pre-combat main phase\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nTAP Plains FOR {white}\nPASS\n\nThe Serra Angel is the only creature you have, and there are no cards in your hand to cast. Since the opponent has creatures on the battlefield, attacking is the only action available to you. However, since you have no cards to play, you cannot attack. Therefore, you must pass the pre-combat main phase.",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0003::base_closed",
+  "record_id": "pos-removal-timing-0003",
+  "arm": "base_closed",
+  "answer": "CAST Doom Blade TARGET Serra Angel\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-blocking-0003::base_open",
+  "record_id": "pos-blocking-0003",
+  "arm": "base_open",
+  "answer": "PHASE Declare Attackers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0002::base_closed",
+  "record_id": "pos-combat-math-0002",
+  "arm": "base_closed",
+  "answer": "PHASE Pre-combat main phase\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\nTAP Forest FOR {G}\nCAST Lightning Strike TARGET Grizzly Bears\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0003::base_open",
+  "record_id": "pos-removal-timing-0003",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\nTAP Swamp FOR {B}\n\nCAST Doom Blade TARGET Serra Angel\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0003::base_open",
+  "record_id": "pos-combat-math-0003",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nThe opponent has priority, so I will wait for them to act first. If they attack, I will respond accordingly. If they do not attack, I will proceed to the combat phase. For now, I will keep the opening hand as it is since I have no cards to play.\n\nKEEP",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-land-sequencing-0003::base_open",
+  "record_id": "pos-land-sequencing-0003",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main phase\nPLAY Forest\nTAP Forest FOR {G}\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0006::base_cards_open",
+  "record_id": "pos-combat-math-0006",
+  "arm": "base_cards_open",
+  "answer": "PHASE Untap Step\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0001::base_open",
+  "record_id": "pos-combat-math-0001",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat Main\n\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Plains FOR {W}\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\n\nCAST Lightning Strike TARGET Grizzly Bears\n\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-land-sequencing-0002::base_cards_open",
+  "record_id": "pos-land-sequencing-0002",
+  "arm": "base_cards_open",
+  "answer": "PHASE Beginning of turn\nPASS\n\nPHASE First main\nPLAY Temple of Silence\nCAST Phyrexian Arena\nTAP Temple of Silence FOR {W}\nTAP Dismal Backwater FOR {U}\nPASS\n\nPHASE Second main\nCAST Phyrexian Arena\nTAP Dismal Backwater FOR {U}\nPASS\n\nPHASE End of turn\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0002::base_open",
+  "record_id": "pos-combat-math-0002",
+  "arm": "base_open",
+  "answer": "PHASE Pre-combat main phase\nPASS\n\nTAP Mountain FOR {R}\nTAP Mountain FOR {R}\nTAP Forest FOR {G}\n\nCAST Lightning Strike TARGET Grizzly Bears\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0002::base_open",
+  "record_id": "pos-removal-timing-0002",
+  "arm": "base_open",
+  "answer": "PHASE Declare Blockers\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-trigger-ordering-0001::base_open",
+  "record_id": "pos-trigger-ordering-0001",
+  "arm": "base_open",
+  "answer": "PHASE Upkeep\nPASS\n\nPHASE Begin of Turn\nPASS\n\nPHASE First Main\nPASS\n\nPHASE Second Main\nPLAY Swamp\nPLAY Swamp\nPLAY Swamp\nPLAY Swamp\nPLAY Swamp\nCAST Doom Blade TARGET Grizzly Bears\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-removal-timing-0004::base_open",
+  "record_id": "pos-removal-timing-0004",
+  "arm": "base_open",
+  "answer": "PHASE Declare Blockers\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0006::base_closed",
+  "record_id": "pos-combat-math-0006",
+  "arm": "base_closed",
+  "answer": "PHASE Pre-combat main phase\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-combat-math-0003::base_cards_open",
+  "record_id": "pos-combat-math-0003",
+  "arm": "base_cards_open",
+  "answer": "PHASE Precombat Main\nPASS\n\nPHASE First Main\nPLAY Plains\nPLAY Plains\nPLAY Plains\nPLAY Plains\nPLAY Plains\nPLAY Plains\nCAST Serra Angel\nCAST Centaur Courser\nPASS\n\nPHASE First Combat\nATTACK Serra Angel, Centaur Courser\nPASS\n\nPHASE Second Main\nCAST Giant Growth TARGET Grizzly Bears\nPASS\n\nPHASE Second Combat\nBLOCK Grizzly Bears -> Centaur Courser\nPASS\n\nPHASE End\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-race-vs-stabilize-0002::base_cards_open",
+  "record_id": "pos-race-vs-stabilize-0002",
+  "arm": "base_cards_open",
+  "answer": "PHASE Precombat Main\n\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\n\nCAST Centaur Courser\nCAST Grizzly Bears\n\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-mulligan-0002::base_cards_open",
+  "record_id": "pos-mulligan-0002",
+  "arm": "base_cards_open",
+  "answer": "PHASE Beginning of Turn\nPASS\n\nPHASE First Main Phase\nPLAY Mountain\nTAP Mountain FOR R\nCAST Monastery Swiftspear\nPASS\n\nPHASE First Main Phase (Continued)\nPLAY Mountain\nTAP Mountain FOR R\nCAST Monastery Swiftspear\nPASS\n\nPHASE First Main Phase (Continued)\nPLAY Mountain\nTAP Mountain FOR R\nCAST Lightning Strike TARGET Opponent\nPASS\n\nPHASE First Main Phase (Continued)\nPLAY Mountain\nTAP Mountain FOR R\nCAST Lightning Strike TARGET Opponent\nPASS\n\nPHASE First Main Phase (Continued)\nPASS\n\nPHASE First Main Phase (Completed)\nPASS\n\nPHASE First Combat Phase\nDECLARE attackers Monastery Swiftspear, Monastery Swiftspear\nPASS\n\nPHASE First Combat Phase (Continued)\nBLOCK Monastery Swiftspear -> Opponent\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Second Main Phase\nPASS\n\nPHASE End Step\nPASS\n\nPHASE Second Combat Phase\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Beginning of End Step\nPASS\n\nPHASE End Step\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE End Step\nPASS\n\nPHASE Cleanup Step\nPASS\n\nPHASE Upkeep\nPASS\n\nPHASE Draw\nPASS\n\nPHASE First Main Phase\nPASS\n\nPHASE First Combat Phase\nPASS\n\nPHASE First Main Phase (Continued)\nPASS\n\nPHASE First Combat Phase (Continued)\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Second Main Phase\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE End Step\nPASS\n\nPHASE End of Turn\nPASS\n\nPHASE Cleanup Step\nPASS\n\nPHASE Upkeep\nPASS\n\nPHASE Draw\nPASS\n\nPHASE First Main Phase\nPASS\n\nPHASE First Combat Phase\nPASS\n\nPHASE First Main Phase (Continued)\nPASS\n\nPHASE First Combat Phase (Continued)\n",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-trigger-ordering-0002::base_open",
+  "record_id": "pos-trigger-ordering-0002",
+  "arm": "base_open",
+  "answer": "PHASE Upkeep\nPASS\n\nPHASE Begin of Turn\nPASS\n\nPHASE First Main\nPASS\n\nPHASE Second Main\nCAST Doom Blade TARGET Grizzly Bears\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-blocking-0001::base_open",
+  "record_id": "pos-blocking-0001",
+  "arm": "base_open",
+  "answer": "PHASE Declare Blockers\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP Island FOR {U}\nTAP",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-blocking-0005::base_open",
+  "record_id": "pos-blocking-0005",
+  "arm": "base_open",
+  "answer": "PHASE Declare Blockers\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nTAP Forest FOR {G}\nBLOCK Colossal Dreadmaw -> Sedge Scorpion\nBLOCK Colossal Dreadmaw -> Centaur Courser\nPASS",
+  "n_errors": 3,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
+  "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
+ },
+ {
+  "key": "pos-land-sequencing-0003::base_closed",
+  "record_id": "pos-land-sequencing-0003",
+  "arm": "base_closed",
+  "answer": "PHASE Pre-combat main phase\nPLAY Mountain\nPLAY Forest\nCAST Shock TARGET opponent's Island\nPASS",
+  "n_errors": 4,
+  "source_run": "pos_n24_protocol2_32b.jsonl",
   "gameplay_fingerprint": "d094e3934d2dc330815cc2cb5b28cbd51e51d4b185f37093501b022702a598d8"
  }
 ]

@@ -1063,6 +1063,57 @@ def test_adjudication_scoring() -> int:
                         verdict_is_current({"answer_sha": "a", "n_shown": 11,
                                             "form_version": 3}, "a", 11), True)
 
+    # Kappa is UNDEFINED when either rater has no variance, and it returns nan,
+    # which in a table reads as a missing number rather than "this sample cannot
+    # answer the question". The first v4 batch was 9/9 blundered under both
+    # raters — 100% agreement, zero information (Section 21.78).
+    run4 = _Path(tempfile.mkdtemp()) / "r4.jsonl"
+    run4.write_text("\n".join(_json.dumps(r) for r in [
+        {"id": "q1", "arms": {"a": {"errors_made": [1], "answer": "x"}}},
+        {"id": "q2", "arms": {"a": {"errors_made": [1], "answer": "y"}}},
+    ]), encoding="utf-8")
+    allbad = [v("q1::a", [1], n_shown=4), v("q2::a", [1], n_shown=4)]
+    s11 = score_run(run4, allbad, {})
+    failed += not check("a one-sided sample is flagged degenerate",
+                        s11["blunder_degenerate"], True)
+    # BOTH raters must vary. An earlier version of this case varied only the
+    # human and still fired, correctly: the run called both answers blundered.
+    run5 = _Path(tempfile.mkdtemp()) / "r5.jsonl"
+    run5.write_text("\n".join(_json.dumps(r) for r in [
+        {"id": "q1", "arms": {"a": {"errors_made": [1], "answer": "x"}}},
+        {"id": "q2", "arms": {"a": {"errors_made": [], "answer": "y"}}},
+    ]), encoding="utf-8")
+    mixed_calls = [v("q1::a", [1], n_shown=4), v("q2::a", [], n_shown=4)]
+    s12 = score_run(run5, mixed_calls, {})
+    failed += not check("a sample with variance is not flagged",
+                        s12["blunder_degenerate"], False)
+
+    # Pooling form versions can manufacture the variance that makes kappa
+    # computable, so which versions were scored is reported.
+    failed += not check("form versions scored are recorded",
+                        score_run(run4, [v("q1::a", [1], n_shown=4, form_version=2),
+                                         v("q2::a", [], n_shown=4, form_version=4)],
+                                  {})["form_versions"], [2, 4])
+
+    # Two verdicts on the SAME text by the same author, one offered more entries
+    # than the other: the reviewer graded that answer once, so it contributes
+    # once, and the one that saw more rubric wins (Section 21.78).
+    sha = answer_sha("x")
+    both = [v("q1::a", [1], n_shown=4, answer_sha=sha),
+            v("q1::a", [1], n_shown=11, answer_sha=sha)]
+    s13 = score_run(run4, both, {})
+    failed += not check("the same answer contributes one verdict", s13["n"], 1)
+    failed += not check("...and the superseded one is reported", s13["superseded"], 1)
+    failed += not check("the verdict that saw more rubric wins",
+                        s13["charges_not_shown"], 0)
+
+    # But two verdicts on DIFFERENT text must both survive — they are about
+    # different answers (21.62), and the stale filter decides which applies.
+    s14 = score_run(run4, [v("q1::a", [1], n_shown=11, answer_sha=sha),
+                           v("q1::a", [1], n_shown=11, answer_sha=answer_sha("other"))], {})
+    failed += not check("different text is not collapsed as superseded",
+                        s14["superseded"], 0)
+
     # The ingest dedup, which is where the same assumption destroyed work rather
     # than mis-scoring it: six of six regrades dropped as "already on file"
     # because the identity was (key, author) (Section 21.65).

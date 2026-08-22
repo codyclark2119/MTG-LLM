@@ -130,6 +130,10 @@ def build_queue(runs: list[Path], n: int, seed: int = 42) -> list[dict]:
                 # self-describing after the run is archived or superseded.
                 "source_run": runs[0].name,
                 "gameplay_fingerprint": row.get("gameplay_fingerprint"),
+                # Used ONLY to balance the ordering below, then deleted before
+                # the queue is written — it must never reach `task_for`, where
+                # the blind-task assertion lists exactly this kind of field.
+                "_blundered": bool(d["errors_made"]),
             })
             for other in loaded[1:]:
                 od = ((other.get(rid) or {}).get("arms") or {}).get(arm) or {}
@@ -142,8 +146,37 @@ def build_queue(runs: list[Path], n: int, seed: int = 42) -> list[dict]:
     rng.shuffle(cands)
     # Disputed first, then the rest — so a short session still spends its time
     # on the pairs where a human verdict decides something.
+    #
+    # Then INTERLEAVED by the judge's blunder call, because a queue drawn in
+    # proportion cannot answer the question it exists for. These arms blunder on
+    # ~82% of answers as the judge sees them, so the first nine verdicts came
+    # back 9/9 blundered under BOTH raters: 100% agreement, and a kappa that is
+    # undefined rather than high, because kappa needs variance in both raters
+    # (Section 21.78). Adjudicating more of the same changes nothing.
+    #
+    # This is the 21.43 lesson one level over. A control measured on one half of
+    # a distribution is uninterpretable; so is an agreement statistic measured
+    # only on answers that blundered. Both halves or no number.
+    #
+    # Sampling on judge output is allowed and showing it is not — the same line
+    # `disputed` already walks. The reviewer sees a shuffled queue and is never
+    # told which side of the call anything sits on.
     cands.sort(key=lambda c: (c["key"] not in disputed,))
-    return cands[:n]
+    clean = [c for c in cands if not c["_blundered"]]
+    blund = [c for c in cands if c["_blundered"]]
+    mixed = []
+    while clean or blund:
+        if clean:
+            mixed.append(clean.pop(0))
+        if blund:
+            mixed.append(blund.pop(0))
+    out = mixed[:n]
+    n_clean = sum(1 for c in out if not c["_blundered"])
+    print(f"queue is {n_clean}/{len(out)} answers the judge called clean "
+          f"({n_clean / len(out):.0%}) — both sides are needed for a kappa")
+    for c in out:
+        del c["_blundered"]
+    return out
 
 
 def task_for(item: dict, rubrics: dict) -> dict | None:
@@ -324,6 +357,35 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     fp_only = fn_only = 0
     n_unsure = n_not_covered = n_unmatched = n_stale = n_not_shown = 0
     b_pairs: list[tuple[bool, bool]] = []
+    scored_rows: list[dict] = []
+
+    # One verdict per (key, author), preferring the one that saw the most rubric
+    # entries. Keeping every row would score the same answer twice once 21.75's
+    # re-adjudications land beside the v2 verdicts they replace — the reviewer
+    # graded that answer once, so it must contribute one verdict.
+    #
+    # `n_shown` ordering is the same rule `verdict_is_current` applies: a verdict
+    # offered eleven entries supersedes one offered four on identical text. -1
+    # for a missing value keeps pre-v3 rows below every stamped one without
+    # discarding them, since they are all that exists for keys nobody redid.
+    # Grouped by (key, author, answer_sha), NOT (key, author). Two verdicts on
+    # the same key by the same author against DIFFERENT text are about different
+    # answers (21.62) and must both survive — the stale filter below decides
+    # which one this run is entitled to. Collapsing them here would sometimes
+    # keep the verdict that does not match the run and discard the one that does.
+    best: dict[tuple, dict] = {}
+    superseded = 0
+    for v in verdicts:
+        k = (v.get("key"), v.get("author"), v.get("answer_sha"))
+        prior = best.get(k)
+        if prior is None:
+            best[k] = v
+            continue
+        superseded += 1
+        if (v.get("n_shown") or -1) > (prior.get("n_shown") or -1):
+            best[k] = v
+    verdicts = list(best.values())
+
     for v in verdicts:
         if v["key"] not in by_key:
             n_unmatched += 1
@@ -381,6 +443,7 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         fp += len(judge - human)
         fn += len(human - judge)
         b_total += 1
+        scored_rows.append(v)
         b_pairs.append((bool(human), bool(judge)))
         if bool(human) == bool(judge):
             b_right += 1
@@ -404,6 +467,15 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         "excluded_unsure": n_unsure,
         "unmatched": n_unmatched,
         "stale": n_stale,
+        # Earlier verdicts on the same answer by the same author, replaced by one
+        # that was offered more rubric entries (21.75). Kept on file, not scored.
+        "superseded": superseded,
+        # Which form versions the scored verdicts came from. A number pooled
+        # across two is a number about the pooling: the v4 rows are all
+        # "blundered" and carry no variance on their own, so the +0.67 kappa the
+        # mixed sample reports is manufactured by the regime difference, not by
+        # the judge agreeing better (Section 21.78).
+        "form_versions": sorted({v.get("form_version", 1) for v in scored_rows}),
         # Judge charges against an entry the reviewer's form never displayed.
         # Non-zero means the form is behind the judge's rubric — re-export.
         "charges_not_shown": n_not_shown,
@@ -417,6 +489,17 @@ def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
         "f1": 2 * prec * rec / (prec + rec) if prec == prec and rec == rec and prec + rec else float("nan"),
         "blunder_accuracy": b_right / b_total if b_total else float("nan"),
         "blunder_kappa": kappa,
+        # Kappa is UNDEFINED when either rater has no variance, and it comes
+        # back nan rather than 0 — which in a results table reads as a missing
+        # number rather than as "this sample cannot answer the question".
+        # Measured on the first v4 batch: 9 verdicts, human 9/9 blundered,
+        # judge 9/9 blundered. Perfect agreement, zero information. The queue is
+        # 82% blundered as the judge sees it, so this is the DEFAULT outcome of
+        # a small sample, not an accident (Section 21.78).
+        "blunder_degenerate": (
+            b_total > 0
+            and (all(x for x, _ in b_pairs) or not any(x for x, _ in b_pairs)
+                 or all(y for _, y in b_pairs) or not any(y for _, y in b_pairs))),
         "false_blunder": fp_only, "missed_blunder": fn_only,
         "tp": tp, "fp": fp, "fn": fn,
     }
@@ -509,12 +592,32 @@ def main() -> None:
         # answers, so stamping an old submission from it would attribute a
         # verdict to text its author never saw — the exact error 21.62 exists to
         # prevent, committed by the fix for it (Section 21.65).
-        exact = {(v.get("key"), v.get("author"), v.get("answer_sha")) for v in on_file}
+        #
+        # `n_shown` is the FOURTH component, and leaving it out dropped ten real
+        # re-adjudications. 21.75 established that a verdict given against four
+        # rubric entries is not a verdict on the eleven-entry form, and
+        # `verdict_is_current` acts on that — `--status` correctly reported those
+        # tasks as needing redoing. The ingest disagreed and won: the answers did
+        # not change, so the digest matched, so every fresh verdict collided with
+        # the v2 row it was collected to replace. The done-set said "redo this"
+        # and the ingest said "already on file" about the same verdict, and the
+        # work was discarded in between.
+        #
+        # Fourth appearance of one assumption. Each time the key survived while
+        # what it identified changed underneath: 21.13 (promotion renamed the
+        # id), 21.62 (the arms were regenerated), 21.65 (the same, in the ingest
+        # rather than in scoring), and now the rubric growing under fixed text —
+        # which the digest structurally cannot see, because nothing about the
+        # answer changed.
+        def identity(v):
+            return (v.get("key"), v.get("author"), v.get("answer_sha"), v.get("n_shown"))
+
+        exact = {identity(v) for v in on_file}
         loose = {(v.get("key"), v.get("author")) for v in on_file}
 
         def seen(v):
             if v.get("answer_sha"):
-                return (v.get("key"), v.get("author"), v["answer_sha"]) in exact
+                return identity(v) in exact
             return (v.get("key"), v.get("author")) in loose
 
         new = [v for v in incoming if not seen(v)]
@@ -528,8 +631,20 @@ def main() -> None:
         regrades = sum(1 for v in new
                        if v.get("answer_sha") and (v.get("key"), v.get("author")) in loose)
         if regrades:
-            print(f"  {regrades} are fresh verdicts on a key already adjudicated against "
-                  "DIFFERENT text — the arms were regenerated, so both are kept")
+            # Two reasons a key is adjudicated twice, and they are not the same
+            # event. Reporting both as "the arms were regenerated" was wrong for
+            # every row of the first v4 ingest (Section 21.78).
+            shas = {(v.get("key"), v.get("author"), v.get("answer_sha")) for v in on_file}
+            regrown = sum(1 for v in new if v.get("answer_sha")
+                          and (v.get("key"), v.get("author"), v["answer_sha"]) in shas)
+            if regrown:
+                print(f"  {regrown} re-adjudicate the SAME answer against a larger rubric "
+                      "(21.75) — the earlier verdict was not offered every entry, so both "
+                      "are kept and `--score` prefers the one that saw more")
+            if regrades - regrown:
+                print(f"  {regrades - regrown} are fresh verdicts on a key already "
+                      "adjudicated against DIFFERENT text — the arms were regenerated, "
+                      "so both are kept")
         by_author = {}
         for v in new:
             by_author[v.get("author", "?")] = by_author.get(v.get("author", "?"), 0) + 1
@@ -675,7 +790,7 @@ def main() -> None:
             scored.append(s)
             print(f"{s['run']:40s} {s['n']:4d} {s['precision']:6.0%} {s['recall']:7.0%} "
                   f"{s['f1']:6.2f} {s['blunder_accuracy']:12.0%} "
-                  f"{s['blunder_kappa']:+7.2f} "
+                  f"{'    n/a' if s['blunder_degenerate'] else format(s['blunder_kappa'], '+7.2f')} "
                   f"{s['false_blunder']:6d} {s['missed_blunder']:7d}")
         # Every reason the denominator is smaller than the queue, next to the
         # numbers it qualifies. `n` alone reads as the sample size; it is the
@@ -693,6 +808,20 @@ def main() -> None:
                 bits.append(f"{s['not_covered']} flagged `not_covered` (counted — the human "
                             "agreed no LISTED error occurred, which is what blunder rate "
                             "measures; the answer may still be bad, Section 21.49)")
+            if len(s["form_versions"]) > 1:
+                vs = ", ".join(f"v{v}" for v in s["form_versions"])
+                print(f"\n  !! {s['run']}: this sample pools form versions {vs}, which "
+                      "showed the reviewer DIFFERENT rubrics.\n"
+                      "     A verdict given four entries is not comparable to one given "
+                      "eleven (21.75), and pooling them can manufacture variance that "
+                      "reads as agreement. Score a single version before quoting kappa.")
+            if s["blunder_degenerate"]:
+                print(f"\n  !! {s['run']}: the blunder-call kappa is UNDEFINED — every "
+                      "answer in this sample falls on one side of the call, so agreement "
+                      "is 100% and carries no information.\n"
+                      "     The queue is ~82% blundered as the judge sees it, so a small "
+                      "sample lands here by default. Adjudicate answers the judge called "
+                      "CLEAN to make this computable (Section 21.78).")
             if bits:
                 print(f"\n{s['run']}: " + "; ".join(bits))
             # Loud and separate, because this one is a defect in the FORM and

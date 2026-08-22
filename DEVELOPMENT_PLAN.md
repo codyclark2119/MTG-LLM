@@ -7279,3 +7279,91 @@ dead: `.rules` and `.cancelled` were removed, and `.done` — which existed to
 green the "saved" marker and was applied to nothing — is now applied.
 
 Confirmed by mutation: putting `h3.grp` back on the wrong page fails the check.
+
+### 21.78 Twelve verdicts the ingest would have thrown away, and a kappa that cannot exist
+
+The first batch collected on the v4 form, and three defects between it and a
+number — each in the layer below the last one fixed.
+
+#### The ingest dropped every re-adjudication it was collected to receive
+
+`--ingest-submissions --dry-run` reported **63 submitted, 0 new**. All twelve
+were real work.
+
+The identity was `(key, author, answer_sha)`. 21.75 established that a verdict
+given four rubric entries is not a verdict on the eleven-entry form, and
+`verdict_is_current` acts on exactly that — `--status` correctly listed those
+tasks as needing redoing. **The ingest disagreed and won.** The answers had not
+changed, so the digest matched, so every fresh verdict collided with the v2 row
+it was collected to replace. One half of the system said *redo this* and the
+other said *already on file*, about the same verdict, and the work vanished
+between them.
+
+Fourth appearance of one assumption, and each time the key survived while what
+it identified changed underneath:
+
+| | what changed under a stable key |
+| --- | --- |
+| 21.13 | promotion renamed the id (`rg-1156` → `qa-…`) |
+| 21.62 | the arms were regenerated — same key, different text |
+| 21.65 | the same, in the ingest rather than in scoring |
+| **21.78** | **the rubric grew under fixed text** |
+
+This one the digest structurally *cannot* see, because nothing about the answer
+changed. `n_shown` is the fourth component now.
+
+And keeping both rows created a second problem immediately: `score_run` iterates
+verdicts, so the same answer would have been scored twice — once against four
+entries and once against eleven. It now keeps one verdict per
+`(key, author, answer_sha)`, preferring the one offered more rubric. Grouped on
+all three deliberately: an earlier attempt grouped on `(key, author)` and
+collapsed verdicts about *different* text, which are different verdicts (21.62)
+— it silently cut n from 15 to 11.
+
+#### The measurement it unblocked cannot be made yet
+
+With the form finally showing what the judge sees, `charges_not_shown` is **0**
+on the v4 subset — the fix worked. The numbers:
+
+| | n | precision | recall | blunder acc | kappa |
+| --- | --- | --- | --- | --- | --- |
+| 32B, v4 only | 9 | 18% | 22% | **100%** | **undefined** |
+| Mistral, v4 only | 9 | 24% | 56% | 89% | undefined |
+| pooled across v2/v3/v4 | 15 | 14% | 24% | 87% | *+0.67* |
+
+**That +0.67 is not a result.** Kappa needs variance in both raters, and the v4
+sample has none: human 9/9 blundered, judge 9/9 blundered. Perfect agreement,
+zero information. The pooled figure only becomes computable by mixing two form
+regimes that showed the reviewer different rubrics — the variance is
+manufactured by the regime difference, not by the judge agreeing better. Had
+this been quoted as *"judge-vs-human kappa rose from +0.06 to +0.67"* it would
+have been the most encouraging wrong number the project has produced.
+
+Both are reported now rather than trusted: a degenerate sample prints `n/a` with
+the reason instead of `nan`, and a sample spanning form versions says so.
+
+#### It is the default outcome, not bad luck
+
+These arms blunder on **82%** of answers as the judge sees them, so nine
+blundered draws is unremarkable (p ≈ 0.17). Adjudicating more of the same queue
+changes nothing.
+
+This is 21.43 one level over. A control measured on one half of a distribution
+is uninterpretable; so is an agreement statistic measured only on answers that
+blundered. `build_queue` now interleaves by the judge's blunder call — sampling
+on judge output is allowed and *showing* it is not, the line `disputed` already
+walks, so the reviewer sees a shuffled queue and is never told which side
+anything sits on. The balancing field is deleted before the queue is written and
+`export_tasks`' blind-task assertion covers it.
+
+**The ceiling is 14.** That is every clean answer these three arms produced
+across 26 positions, so 23% is the best a 60-task queue can be. A properly
+powered blunder-call kappa needs either more positions or arms that fail less
+often — it is not reachable by adjudicating harder.
+
+One more reason the sample is one-sided, and it is not a defect: the single
+human-clean verdict is also the only one marked *genuinely ambiguous*, so 21.55
+excludes it, correctly. The reviewer used the box for "clean, but the line could
+be shown more fully" — a fair reading of the words, and a different claim from
+"I could argue it either way". Worth distinguishing, because that box is the one
+thing that removes a verdict from a sample already short of them.
