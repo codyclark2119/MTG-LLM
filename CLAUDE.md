@@ -451,6 +451,12 @@ Two invariants worth keeping:
 - **Attribution rides on each submission**, not on the import command, so one
   file holds several authors and `eval.py --compare` can break agreement down
   per author.
+- **The note is the reasoning, not a fallback** (form_version 4, 21.77). The
+  boxes say *which* mistakes; the note says *why*, on every faulted verdict.
+  An absent note means different things under v3 and v4, so `--notes` never
+  pools them. `form_version` is deliberately **not** read by
+  `verdict_is_current` — only a rubric that *grew* invalidates a verdict, so a
+  version bump never discards human work.
 - **The form records what it showed.** `n_shown` rides on each verdict, because
   the rubric a reviewer saw is not necessarily the one the judge was given, and
   a judge charge against an entry nobody was offered is not a false positive
@@ -609,6 +615,16 @@ Each cost real time. They recur in new code, so they are worth knowing.
   `--help` exits 0, because the server half was never broken. `test_webui.py`
   now parse-checks the served script with JavaScriptCore. **Testing the API of
   a page is not testing the page.**
+- **A CSS rule on the page that does not use it.** `rubric_server.py` holds four
+  complete pages as separate strings; twice a selector was added to one while
+  the markup it styles was in another, and the group headings 21.75 added
+  shipped **unstyled on a deployed form**. This one cannot even fail loudly —
+  the page renders, the JS parses, every endpoint returns 200; the rule is dead
+  in one page and absent from the other. CSS is a third language inside the
+  second, so the JavaScript parse-check above cannot see it either.
+  `test_webui.py` now asserts every `#id`/`.class` rule names something that
+  page's markup uses, in the dead-rule direction only — markup without CSS is
+  ordinary, CSS without markup is a mistake (Section 21.77).
 - **Valid JSON in an unexpected shape, read as absence.** Twice. The judge
   emitted `"points_hit": 3` where a list was expected (Section 21.12), and — for
   a single candidate — the entry *unwrapped*, without the `{"A": …}` around it

@@ -70,7 +70,15 @@ _WRITE_LOCK = threading.Lock()
 # 3: the form shows PROTOCOL_ERRORS alongside the position's own `common_errors`,
 # in the judge's numbering, and records `n_shown` so `score_run` can tell which
 # entries a verdict was actually offered (Section 21.75).
-ADJUDICATION_FORM_VERSION = 3
+# 4: the note asks for the REASONING on every faulted verdict, where v3 asked
+# for it only when no box applied. An absent note therefore means different
+# things under the two versions -- "a box covered it" vs "the reviewer did not
+# explain" -- so the version is what tells them apart (Section 21.77).
+#
+# Deliberately NOT read by `verdict_is_current`, which compares the entry count
+# shown. The checkbox verdict a v3 reviewer gave is still a correct verdict, so
+# bumping this must not discard their work; only a rubric that GREW invalidates.
+ADJUDICATION_FORM_VERSION = 4
 
 
 def _answer_sha(answer: str) -> str:
@@ -601,7 +609,10 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
             # obviously bad. Recorded separately because it measures rubric
             # COVERAGE, which no judge number can (Section 21.47).
             "not_covered": bool(body.get("not_covered")),
-            "note": (body.get("note") or "").strip()[:500],
+            # 2000, not 500: from form_version 4 this is the reviewer's
+            # reasoning rather than a one-line fallback, and one v3 note already
+            # reached 461 of the old cap.
+            "note": (body.get("note") or "").strip()[:2000],
             "author": (body.get("author") or "").strip()[:60],
             "form_version": ADJUDICATION_FORM_VERSION,
             "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -681,10 +692,7 @@ h2{font-family:var(--serif);font-size:1.22rem;margin:.1rem 0 .1rem;font-weight:6
 .card h3{margin:0 0 .45rem;font-size:.74rem;text-transform:uppercase;letter-spacing:.07em;
  color:var(--faint);font-weight:650}
 .answer{font-family:var(--serif);font-size:1.02rem}
-h3.grp{margin:1.1rem 0 .35rem;font-size:.74rem;text-transform:uppercase;
- letter-spacing:.07em;color:var(--faint);font-weight:650;
- border-top:1px solid var(--rule);padding-top:.7rem}
-h3.grp:first-of-type{border-top:0;padding-top:0;margin-top:.5rem}
+
 .draft{background:var(--rule-soft);border-radius:3px;padding:.5rem .7rem;
  font-family:var(--mono);font-size:.82rem;color:var(--soft);white-space:pre-wrap;
  user-select:text}
@@ -724,7 +732,6 @@ h3.grp:first-of-type{border-top:0;padding-top:0;margin-top:.5rem}
 .chip:hover{border-color:var(--accent)}
 .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .caption{font-size:.78rem;color:var(--faint);margin:-.2rem 0 .6rem}
-.rules{font-size:.83rem;color:var(--soft)}
 .rules li{margin-bottom:.2rem}
 .empty{color:var(--faint);text-align:center;padding:4rem 1rem;font-size:.95rem}
 a{color:var(--accent)}
@@ -976,8 +983,17 @@ label.opt{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;marg
 label.opt:has(input:checked){border-color:var(--accent);background:var(--accent-bg)}
 label.opt input{margin:.25rem 0 0;width:1.1rem;height:1.1rem;flex:none}
 .hint{font-size:.8rem;color:var(--faint);margin:.5rem 0 0}
-input[type=text]{width:100%;padding:.55rem .6rem;font:inherit;font-size:.9rem;
+input[type=text],#note{width:100%;padding:.55rem .6rem;font:inherit;font-size:.9rem;
  background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:4px}
+/* The note became a textarea at form_version 4 — it carries the reasoning now,
+   not a one-line fallback — and input[type=text] does not match a textarea, so
+   on its own it would render unstyled. */
+#note{resize:vertical;min-height:5.5rem;line-height:1.5;font-size:16px}
+#note:focus{outline:2px solid var(--accent);outline-offset:1px}
+h3.grp{margin:1.1rem 0 .35rem;font-size:.74rem;text-transform:uppercase;
+ letter-spacing:.07em;color:var(--faint);font-weight:650;
+ border-top:1px solid var(--rule);padding-top:.7rem}
+h3.grp:first-of-type{border-top:0;padding-top:0;margin-top:.5rem}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);
  border-top:1px solid var(--rule);padding:.7rem .9rem;display:flex;gap:.6rem;
  max-width:44rem;margin:0 auto}
@@ -1009,7 +1025,11 @@ function render(){
   const t=T[i];
   if(!t){$('#main').innerHTML='<p>Nothing queued.</p>';return}
   $('#prog').textContent=T.filter(x=>x.done).length+'/'+T.length;
-  $('#meta').textContent=t.record_id+' · '+t.arm+(t.done?' · saved':'');
+  // innerHTML, not textContent, because the saved marker carries a class —
+  // .done existed in the stylesheet and was applied to nothing. Both halves
+  // are escaped; neither is free text.
+  $('#meta').innerHTML=esc(t.record_id)+' · '+esc(t.arm)+
+    (t.done?' <span class="done">· saved</span>':'');
   $('#main').innerHTML=
     '<h2>The situation</h2><pre>'+esc(t.question)+'</pre>'+
     '<h2>The correct line</h2><ul>'+(t.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
@@ -1036,16 +1056,33 @@ function render(){
     'mistakes describe it. This measures gaps in the rubric, so flagging it is worth '+
     'as much as the checkboxes \u2014 but check the second group first: doing nothing, '+
     'repeating itself and playing something illegal all have their own boxes now, and '+
-    'they did not before.</span></label>'+
+    'they did not before. Say what the missing entry should be in the box at the '+
+    'bottom.</span></label>'+
     '<label class="opt"><input type="checkbox" id="unsure"><span>Genuinely ambiguous — '+
     'I could argue it either way</span></label>'+
-    '<input type="text" id="note" placeholder="what the answer actually did, if a box '+
-    'above does not capture it">';
+    // The note is the REASONING, not a fallback for an uncovered case. The
+    // boxes record WHICH mistakes; this records WHY the play is wrong, which
+    // is the part no checkbox can carry and the only part that can tell a
+    // missing rubric entry from a misread board (form_version 4).
+    '<h3 class="grp">Why is this play wrong?</h3>'+
+    '<p class="hint">The boxes above are the verdict; this is the reasoning. '+
+    'Explain what the right line was and what this answer got wrong about the '+
+    'board \u2014 not just what it did. Leave it empty only when the answer is '+
+    'fine.</p>'+
+    '<textarea id="note" rows="4" placeholder="e.g. Doom Blade costs 1 generic '+
+    'and 1 black, so tapping all four Swamps floats two. It is also an instant, '+
+    'so it should be held until the opponent declares attackers."></textarea>';
 }
 $('#skip').onclick=()=>{i=Math.min(T.length-1,i+1);render();scrollTo(0,0)};
 $('#go').onclick=async()=>{
   const t=T[i];if(!t)return;
   const present=[...document.querySelectorAll('.e')].filter(c=>c.checked).map(c=>+c.value);
+  // Confirm, never block. A verdict that says the play is wrong and does not
+  // say why is usually an oversight, but the reviewer is the authority on
+  // their own verdict and a hard gate would trap them mid-queue.
+  const faulted=present.length||$('#notcovered').checked;
+  if(faulted && !$('#note').value.trim() &&
+     !confirm('Submit without saying why this play is wrong?'))return;
   const r=await fetch('/api/adjudicate',{method:'POST',
     headers:{'content-type':'application/json'},
     body:JSON.stringify({key:t.key,errors_present:present,author:who(),

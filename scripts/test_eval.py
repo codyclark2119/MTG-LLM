@@ -1037,6 +1037,32 @@ def test_adjudication_scoring() -> int:
         failed += not check(f"{who} uses the shared staleness predicate",
                             "verdict_is_current" in (_sd / who).read_text(), True)
 
+    # The note changed job at form_version 4: v3 asked for it only when no box
+    # applied, v4 asks for the reasoning on every faulted verdict. So an absent
+    # note means different things under the two and they must never be pooled
+    # (Section 21.77). And the field must be READ by something — it was
+    # collected, stored and read by nothing, which is 21.55's shape exactly.
+    from adjudicate import notes_report
+    mixed = [
+        {"key": "p1::a", "errors_present": [1], "note": "", "form_version": 3},
+        {"key": "p2::a", "errors_present": [1], "note": "why", "form_version": 4},
+        {"key": "p3::a", "errors_present": [], "not_covered": True,
+         "note": "no entry for a second land drop", "form_version": 4},
+    ]
+    out = "\n".join(notes_report(mixed, {}))
+    failed += not check("faulted verdicts are counted", "2/3 verdicts carry a note" in out, True)
+    failed += not check("pre-v4 verdicts are called out as not comparable",
+                        "pre-v4" in out, True)
+    failed += not check("not_covered notes are surfaced separately",
+                        "no entry for a second land drop" in out, True)
+
+    # A version bump must not discard human work — only a rubric that GREW does.
+    # The reviewer's checkbox verdict is still a correct verdict when the note's
+    # job changes underneath it.
+    failed += not check("a v3 verdict survives the v4 form",
+                        verdict_is_current({"answer_sha": "a", "n_shown": 11,
+                                            "form_version": 3}, "a", 11), True)
+
     # The ingest dedup, which is where the same assumption destroyed work rather
     # than mis-scoring it: six of six regrades dropped as "already on file"
     # because the identity was (key, author) (Section 21.65).

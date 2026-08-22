@@ -242,6 +242,65 @@ def answer_sha(answer: str) -> str:
     return hashlib.sha256(answer.encode("utf-8")).hexdigest()[:12]
 
 
+def notes_report(verdicts: list[dict], rubrics: dict) -> list[str]:
+    """The reviewer's reasoning, grouped by what it is evidence OF.
+
+    Written because the note was collected, stored and read by **nothing** —
+    the exact shape 21.55 documents, where the adjudication form's "genuinely
+    ambiguous" box was stored and never scored. The 30-of-33 finding in 21.75
+    came from reading this field by hand; nothing in the repo could produce it.
+
+    From form_version 4 the note is the REASONING behind every faulted verdict
+    rather than a fallback for an uncovered one, so an absent note means
+    different things under v3 and v4 and the two are never pooled.
+
+    The split that matters is `not_covered`: a note there names a rubric entry
+    that should exist, which is the only channel by which the rubric grows from
+    evidence rather than from guessing (Section 21.77).
+    """
+    from collections import Counter
+    lines: list[str] = []
+    with_note = [v for v in verdicts if (v.get("note") or "").strip()]
+    vers = Counter(v.get("form_version", 1) for v in verdicts)
+    faulted = [v for v in verdicts if v.get("errors_present") or v.get("not_covered")]
+    faulted_noted = [v for v in faulted if (v.get("note") or "").strip()]
+
+    lines.append(f"{len(with_note)}/{len(verdicts)} verdicts carry a note")
+    lines.append(f"{len(faulted_noted)}/{len(faulted)} FAULTED verdicts explain why "
+                 "(the number that matters from form_version 4 on)")
+    lines.append("by form version: " + ", ".join(f"v{k}: {n}" for k, n in sorted(vers.items())))
+    # v3 asked for a note only when no box applied, so a v3 verdict with no note
+    # is not a reviewer who declined to explain. Pooling them would read the
+    # older convention as a coverage failure of the newer one.
+    old = [v for v in faulted if v.get("form_version", 1) < 4]
+    if old:
+        lines.append(f"  ({len(old)} of the faulted are pre-v4, when the note was a "
+                     "fallback rather than the reasoning — not comparable)")
+
+    uncovered = [v for v in with_note if v.get("not_covered")]
+    if uncovered:
+        lines.append(f"\n--- {len(uncovered)} notes on `not_covered` verdicts ---")
+        lines.append("Each names something no listed entry described. This is the only "
+                     "evidence-driven route to a new rubric entry; read them together, "
+                     "because one recurring theme is an entry and one-offs are not.\n")
+        for v in uncovered:
+            rec = rubrics.get(v.get("record_id") or v.get("key", "").split("::")[0]) or {}
+            cat = rec.get("category") or "?"
+            lines.append(f"  [{cat}] {v['key']}")
+            lines.append(f"      {v['note'].strip()}")
+
+    explained = [v for v in with_note if v.get("errors_present") and not v.get("not_covered")]
+    if explained:
+        lines.append(f"\n--- {len(explained)} notes explaining a BOXED verdict ---")
+        lines.append("The boxes say which mistake; these say why. Where the reasoning "
+                     "does not match the box, the entry is worded ambiguously — which "
+                     "moved per-class recall by up to 30 points in 21.73.\n")
+        for v in explained:
+            lines.append(f"  {v['key']}  boxes={v['errors_present']}")
+            lines.append(f"      {v['note'].strip()}")
+    return lines
+
+
 def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     """Score one judge run against the human verdicts.
 
@@ -378,6 +437,8 @@ def main() -> None:
                     help="merge verdicts collected by the deployed form")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--status", action="store_true", help="how far through the queue")
+    ap.add_argument("--notes", action="store_true",
+                    help="the reviewers' reasoning, grouped by what it is evidence of")
     ap.add_argument("--score", type=Path, nargs="+",
                     help="score run(s) against the human verdicts collected so far")
     ap.add_argument("--form-version", type=int, default=None, metavar="N",
@@ -480,6 +541,13 @@ def main() -> None:
         for v in new:
             append_verdict(v)
         print(f"appended {len(new)} -> {ADJUDICATIONS_PATH}")
+        return
+
+    if args.notes:
+        rows = read_jsonl(ADJUDICATIONS_PATH)
+        if not rows:
+            raise SystemExit(f"no verdicts in {ADJUDICATIONS_PATH}")
+        print("\n".join(notes_report(rows, _rubric_index())))
         return
 
     if args.status:

@@ -129,6 +129,34 @@ def main() -> None:
     check_page("rubric_server/position", rubric_server.POSITION_HTML)
     check_page("rubric_server/choose", rubric_server.CHOOSE_HTML)
 
+    # This file holds four complete pages as separate Python strings, and
+    # nothing ties a CSS rule to the page whose markup uses it. Twice now a
+    # selector has been added to one page while the elements it styles live in
+    # another: `h3.grp` landed in INDEX_HTML while the group headings it exists
+    # for are in ADJUDICATE_HTML, so they rendered unstyled on a deployed form.
+    #
+    # It cannot fail loudly. The page renders, the JS parses, every endpoint
+    # returns 200 — the rule is simply dead in one page and absent in the other.
+    # Same family as the `#` comment that blanked four views: a string in one
+    # language inside a file of another gets no checking from either.
+    #
+    # Checked in the dead-rule direction only. A page with markup and no CSS is
+    # ordinary; a page with CSS for a selector it never uses is a mistake.
+    for name, page in (("rubric", rubric_server.INDEX_HTML),
+                       ("adjudicate", rubric_server.ADJUDICATE_HTML),
+                       ("position", rubric_server.POSITION_HTML),
+                       ("choose", rubric_server.CHOOSE_HTML),
+                       ("webui", served_html())):
+        style = "\n".join(re.findall(r"<style>(.*?)</style>", page, re.S))
+        body = page.replace(style, "")
+        for sel in sorted(set(re.findall(r"[#.]([A-Za-z][\w-]*)\s*(?=[{,:])", style))):
+            # Word-boundary, and never after a dot: `t.done` is a property read,
+            # not the class `.done`, and `common_errors` is not `.err`. Matching
+            # on a bare substring reported nine of these and six were noise.
+            used = re.search(r"(?<![\w.\-])" + re.escape(sel) + r"(?![\w\-])", body)
+            check(f"{name}: CSS for {sel!r} is on the page that uses it",
+                  bool(used), True)
+
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:
         raise SystemExit(1)

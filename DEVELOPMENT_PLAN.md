@@ -7215,3 +7215,67 @@ needs one.
 differs: the parser is deterministic over (answer, board), so a mismatch means
 the two files are not over identical answers and every agreement number above it
 is comparing two different things.
+
+### 21.77 The note becomes the reasoning, and two stylesheets pointed at the wrong pages
+
+A reviewer request, mid-session: the note should describe **why** a play is
+wrong on every faulted verdict, rather than serving as a fallback when no
+checkbox applied. The boxes are the verdict; the note is the argument.
+
+That is a change of *meaning*, not of wording, so it is `form_version` **4**.
+Under v3 an absent note means "a box covered it"; under v4 it means "the
+reviewer did not explain". Pooling the two would read the older convention as a
+coverage failure of the newer one, which is the same mistake 21.75 made in the
+other direction.
+
+Four changes follow from the new job:
+
+- `<input type="text">` → `<textarea>`. A rationale is prose; one v3 note
+  already reached **461** characters against a 500 cap, so the cap is 2,000.
+- A soft confirm when something is marked wrong with no explanation. It
+  **confirms, never blocks** — a missing rationale is usually an oversight, but
+  the reviewer is the authority on their own verdict and a hard gate would trap
+  them mid-queue.
+- The `not_covered` box no longer advertises the note as its companion; it asks
+  what the missing entry should *be*.
+- **`form_version` is deliberately not read by `verdict_is_current`.** That
+  compares the entry count shown (21.75), so a v3 checkbox verdict stays valid
+  under the v4 form. Only a rubric that GREW invalidates work. A reviewer
+  adjudicating while this shipped loses nothing.
+
+#### The field was collected, stored, and read by nothing
+
+Exactly 21.55's shape, one field over. The 30-of-33 finding in 21.75 came from
+reading these notes **by hand**; no code in the repo could have produced it.
+`adjudicate.py --notes` now reads them, split by what each is evidence of:
+notes on `not_covered` verdicts name entries the rubric should have — the only
+evidence-driven route by which it grows rather than being guessed at — and notes
+on boxed verdicts show whether the reasoning matches the box it was filed under,
+which is how 21.73's ±30-point wording sensitivity would surface next time. v3
+and v4 are counted separately and never pooled.
+
+#### And two stylesheets were on the wrong pages
+
+`rubric_server.py` holds **four complete pages** as separate Python strings.
+Twice now a CSS rule has been added to one page while the markup it styles lives
+in another: `h3.grp` went into `INDEX_HTML` while the group headings 21.75
+introduced are in `ADJUDICATE_HTML`, so those headings shipped **unstyled on a
+deployed form**; the same nearly happened to `#note` an hour later.
+
+It cannot fail loudly. The page renders, the JavaScript parses, every endpoint
+returns 200 — the rule is simply dead in one page and absent from the other.
+Same family as the `#` comments that blanked four views: a string in one
+language inside a file of another gets no checking from either, and here even
+the JavaScript parse-check added for that cannot see it, because CSS is a third
+language inside the second.
+
+`test_webui.py` now asserts that every `#id` and `.class` rule in a page's
+`<style>` names something that page's markup actually uses. Checked in the
+dead-rule direction only — markup without CSS is ordinary, CSS without markup is
+a mistake. Matching is word-boundary and never after a dot, because a bare
+substring reported nine hits of which six were noise (`t.done` is a property
+read, `common_errors` is not `.err`). The surviving three were all genuinely
+dead: `.rules` and `.cancelled` were removed, and `.done` — which existed to
+green the "saved" marker and was applied to nothing — is now applied.
+
+Confirmed by mutation: putting `h3.grp` back on the wrong page fails the check.

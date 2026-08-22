@@ -565,8 +565,7 @@ button:focus-visible,summary:focus-visible,a:focus-visible,input:focus-visible,t
 .status{font-family:var(--mono);font-size:.72rem;padding:.06rem .35rem;border-radius:2px;border:1px solid var(--rule)}
 .status.running{color:var(--accent);border-color:var(--accent)}
 .status.done{color:var(--ok);border-color:var(--ok)}
-.status.failed,.status.cancelled{color:var(--bad);border-color:var(--bad)}
-ul.problems{margin:.4rem 0 0;padding-left:1.1rem;color:var(--bad);font-size:.85rem}
+.status.failed,.statusul.problems{margin:.4rem 0 0;padding-left:1.1rem;color:var(--bad);font-size:.85rem}
 .empty{padding:3rem 1rem;text-align:center;color:var(--soft)}
 .adjboard{font-family:var(--mono);font-size:.78rem;line-height:1.45;white-space:pre-wrap;background:var(--panel);border:1px solid var(--rule);padding:.7rem;margin:0 0 1rem}
 .adjans{font-family:var(--mono);font-size:.82rem;white-space:pre-wrap;border-left:2px solid var(--accent);padding:.2rem 0 .2rem .9rem;margin:0 0 1.1rem}
