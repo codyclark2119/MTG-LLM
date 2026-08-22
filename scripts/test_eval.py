@@ -1327,6 +1327,63 @@ def test_protocol_findings() -> int:
     return failed
 
 
+def test_turn_scenarios() -> int:
+    """Multi-step scenarios: teacher-forced, and self-checking (21.71)."""
+    import copy
+
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from turns import expand_steps, validate_scenario
+
+    failed = 0
+    base = {"id": "t1", "turn": 3, "phase": "precombat main", "active_player": "you",
+            "priority": "you", "battlefield": [],
+            "players": {"you": {"life": 20, "hand": ["Shock"], "library_count": 30},
+                        "opp": {"life": 6, "hand_count": 1, "library_count": 30}},
+            "steps": [
+                {"phase": "precombat main", "legal_actions": ["CAST Shock TARGET Bear"],
+                 "reference_actions": ["CAST Shock TARGET Bear"],
+                 "key_points": ["Shock the Bear"]},
+                {"phase": "declare attackers", "legal_actions": ["ATTACK Courser"],
+                 "reference_actions": ["ATTACK Courser"], "key_points": ["Attack"],
+                 "players": {"you": {"life": 20, "hand": [], "library_count": 30},
+                             "opp": {"life": 6, "hand_count": 1, "library_count": 30}}}]}
+
+    steps = expand_steps(base)
+    failed += not check("one position per step", len(steps), 2)
+    failed += not check("each step is separately addressable",
+                        [x["id"] for x in steps], ["t1::step1", "t1::step2"])
+    # A step is a complete position, so every existing check works unchanged.
+    failed += not check("a step carries its own phase", steps[1]["phase"], "declare attackers")
+    failed += not check("a step carries its own legal_actions",
+                        steps[1]["legal_actions"], ["ATTACK Courser"])
+    failed += not check("unstated fields inherit from the scenario", steps[1]["turn"], 3)
+    # The sequence is carried as knowledge, not derived by a rules engine.
+    failed += not check("step 1 is told nothing was done yet",
+                        any("Already done" in k for k in steps[0].get("known_information") or []),
+                        False)
+    failed += not check("step 2 is told what step 1 did",
+                        any("CAST Shock TARGET Bear" in k
+                            for k in steps[1].get("known_information") or []), True)
+    failed += not check("a clean scenario validates", validate_scenario(base), [])
+
+    # One step is a position, not a scenario — the distinction is the point.
+    one = dict(base, steps=base["steps"][:1])
+    failed += not check("a single-step scenario is refused",
+                        any("at least 2 steps" in p for p in validate_scenario(one)), True)
+    # A step with no reference_actions leaves the next step blind to the line.
+    noref = copy.deepcopy(base)
+    del noref["steps"][0]["reference_actions"]
+    failed += not check("a middle step with no reference_actions is caught",
+                        any("reference_actions" in p for p in validate_scenario(noref)), True)
+    # The trap this validator exists for: a cast card still in hand later reads
+    # as the model ignoring a play when it is the scenario lying to it.
+    stale = copy.deepcopy(base)
+    del stale["steps"][1]["players"]
+    failed += not check("a spent card still in hand is caught",
+                        any("still in hand" in p for p in validate_scenario(stale)), True)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1406,6 +1463,7 @@ def main() -> None:
                      ("phase_declaration", test_phase_declaration),
                      ("payment_and_battlefield", test_payment_and_battlefield_casts),
                      ("protocol_findings", test_protocol_findings),
+                     ("turn_scenarios", test_turn_scenarios),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

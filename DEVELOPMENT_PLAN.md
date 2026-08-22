@@ -6628,3 +6628,71 @@ measured.
 make a do-nothing answer a "blunder" and stop the metric meaning "picked the
 wrong play". Validity is Gate 1's business, and `valid_turn` is the number it
 should be read against.
+
+### 21.71 Stepwise scenarios: a turn is a sequence, not a harder position
+
+A reviewer set out the gameplay curriculum as seven stages — mulligan, land
+order, payment, combat, closing the turn, full-turn validity, full-game
+validity — and mapping it against the 24 positions showed where the shape runs
+out.
+
+| stage | current coverage |
+| --- | --- |
+| 1 mulligan — curve, mana dorks | **both exist** (`mulligan-0002`, `mulligan-0001`) |
+| 2 land order — dual colour, tapland first | **both exist** (`-0003`, `-0001`/`-0002`) |
+| 3 payment in the main phase | **gap** — nothing tests it, though the `TAP` grammar was built for it |
+| 4 combat — lethal, trick-then-attack, blocking | 11 positions, all **one** decision |
+| 5 closing the turn post-combat | **zero** — the set has no `postcombat main` position at all |
+| 6 full-turn validity | metric exists; positions cannot express it |
+| 7 full-game validity | out of reach |
+
+Stages 4, 6 and 7 are not harder positions. Every position is **one board, one
+decision** — 1 to 4 legal actions, answered once — and *"cast the trick, then
+attack"* is two decisions with the board changing between them.
+
+#### Teacher-forced, and that is the design decision
+
+A scenario is a base position plus ordered **steps**, each carrying its own
+phase, `legal_actions` and rubric. The board advances on the **reference** line,
+never on what the model actually did. Two reasons, and the second decides it:
+
+- Applying the model's own actions needs a **rules engine** — resolve the spell,
+  update the battlefield, recompute legality. This repo is deliberately not one,
+  and a half-built engine produces wrong board states that read as model errors.
+- **Errors compound.** If step 2 inherits step 1's mistake, every later step
+  measures step 1 again, and a model that misplays the first decision scores
+  zero on four independent skills it might have.
+
+So each step is scored independently and the **sequence** is the unit: a turn is
+valid when every step was. What that does not test is recovery from one's own
+mistake, which needs the engine and is a later problem — stated rather than
+quietly absent.
+
+Each expanded step is a **complete position**, so `legality`,
+`protocol_findings` and `judge_batch_rubric` all work on it unchanged. Nothing
+downstream needs to know a scenario existed. The sequence reaches the model as
+`Already done this turn: TAP Mountain FOR {R}; CAST Shock TARGET Wall of Omens`
+— what a real player knows, and no board derived from another board.
+
+#### The validator earns its keep immediately
+
+The first authored scenario had step 2 still showing **Shock in hand** after step
+1 cast it. `players` is inherited unless a step overrides it, and forgetting the
+override shows the model a card it cannot have — which reads as *the model
+ignoring an obvious play* when it is **the scenario lying to it**. That is the
+worst class of harness bug: it manufactures a model error out of an authoring
+slip, and it would have been invisible in the scores.
+
+`validate_scenario` now tracks what the reference line spends and refuses a
+scenario that leaves it in hand. It caught the bug on the first run.
+
+**And the check had the falsy-value bug on its first draft.** `step_hand or
+base_hand` fell through to the scenario's hand whenever a step declared an
+**empty** hand — which is the commonest state on a turn's final step — so every
+correctly-authored ending would have been reported as an error. Presence of the
+override decides now, never its truthiness. Same shape as `entry.get(k)` dropping
+a legitimate `False`, and it was caught by a test asserting a clean scenario
+validates clean, not by one asserting the failure.
+
+All new positions are authored for the **verbose grammar**, so the format that
+scores them and the format they are written for are the same from the start.
