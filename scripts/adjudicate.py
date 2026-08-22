@@ -334,6 +334,87 @@ def notes_report(verdicts: list[dict], rubrics: dict) -> list[str]:
     return lines
 
 
+def corrected_blunder(run: Path, verdicts: list[dict],
+                      rubrics: dict) -> list[dict]:
+    """Per-arm blunder rate corrected by what the human found the judge missed.
+
+    Gate 3 reads the judge's blunder rate. This asks what that rate would be if
+    the judge's calls were replaced by a human's, using the two conditional
+    rates a stratified sample can estimate:
+
+        corrected = P(judge blunder) x P(human blunder | judge blunder)
+                  + P(judge clean)   x P(human blunder | judge clean)
+
+    The second term is the one that was unmeasurable until 21.79's rebalance.
+    An unstratified queue is 82% blundered, so it estimates the first term well
+    and the second not at all — and the second is where a judge's *misses* live.
+
+    **Do not read the raw sample rates instead.** The queue is deliberately
+    enriched for judge-clean answers (43% against 18% in the run), so comparing
+    the human's raw blunder rate to the judge's overstates the gap by a factor
+    of four — 24 points raw, ~5 pooled. Reweighting to each arm's own mix is the
+    whole point, and skipping it is a selection effect wearing the shape of a
+    result (Section 21.81).
+
+    Conditioned PER ARM where the arm's own sample allows, because the arms
+    differ enormously in how often the judge calls them clean — 42% for
+    `base_closed`, 4% for `base_open` — and that is exactly the weight the
+    correction applies. `n_clean` is reported beside every row: a correction
+    resting on two verdicts is not a correction.
+    """
+    by_arm: dict[str, dict] = {}
+    answers: dict[str, tuple[str, bool]] = {}
+    for row in read_jsonl(run):
+        rid = row.get("id") or row.get("gold_id")
+        for arm, d in (row.get("arms") or {}).items():
+            if d.get("errors_made") is None:
+                continue
+            a = by_arm.setdefault(arm, {"n": 0, "judge_b": 0,
+                                        "hb_given_b": [], "hb_given_c": []})
+            a["n"] += 1
+            a["judge_b"] += bool(d["errors_made"])
+            answers[f"{rid}::{arm}"] = (arm, bool(d["errors_made"]),
+                                        answer_sha(d.get("answer") or ""))
+
+    for v in verdicts:
+        got = answers.get(v.get("key", ""))
+        if not got or v.get("unsure"):
+            continue
+        # Only verdicts offered the CURRENT rubric. A verdict shown four entries
+        # where the judge saw eleven ticked fewer boxes because it had fewer, so
+        # counting it as "the human found no error" biases the correction toward
+        # the judge being right — the very thing being measured. The first draft
+        # of this pooled them and read 70% where v4-only reads 84% (21.81).
+        rid = v.get("record_id") or v.get("key", "").split("::")[0]
+        rec = rubrics.get(rid) or {}
+        want = len(rec.get("common_errors") or []) + len(PROTOCOL_ERRORS)
+        if v.get("n_shown") != want:
+            continue
+        arm, judged_blunder, sha = got
+        if v.get("answer_sha") and v["answer_sha"] != sha:
+            continue
+        bucket = "hb_given_b" if judged_blunder else "hb_given_c"
+        by_arm[arm][bucket].append(bool(v.get("errors_present")))
+
+    out = []
+    for arm, a in by_arm.items():
+        p_b = a["judge_b"] / a["n"]
+        gb, gc = a["hb_given_b"], a["hb_given_c"]
+        if not gc:
+            # No adjudicated judge-clean answer for this arm: the term that
+            # carries the correction is unmeasured, so report no estimate
+            # rather than one that silently assumes the judge was right.
+            out.append({"arm": arm, "judged": p_b, "corrected": None,
+                        "n_clean": 0, "n_blunder": len(gb)})
+            continue
+        r_b = (sum(gb) / len(gb)) if gb else 1.0
+        r_c = sum(gc) / len(gc)
+        out.append({"arm": arm, "judged": p_b,
+                    "corrected": p_b * r_b + (1 - p_b) * r_c,
+                    "n_clean": len(gc), "n_blunder": len(gb)})
+    return sorted(out, key=lambda x: x["judged"])
+
+
 def score_run(run: Path, verdicts: list[dict], rubrics: dict) -> dict:
     """Score one judge run against the human verdicts.
 
@@ -802,6 +883,11 @@ def main() -> None:
         scored = []
         for r in args.score:
             s = score_run(r, verdicts, rubrics)
+            # The path, not just the name. The reporting loop below needs to
+            # re-open this run, and reaching for the `r` of a finished loop gives
+            # the LAST run for every row -- which printed one run's corrected
+            # table under both names, identically, and looked like a real result.
+            s["path"] = r
             scored.append(s)
             print(f"{s['run']:40s} {s['n']:4d} {s['precision']:6.0%} {s['recall']:7.0%} "
                   f"{s['f1']:6.2f} {s['blunder_accuracy']:12.0%} "
@@ -839,6 +925,18 @@ def main() -> None:
                           f"to anywhere in [{lo:+.2f}, {hi:+.2f}].\n"
                           "     That range is the resolution of this sample. Report it, "
                           "not the point estimate (Section 21.79).")
+            corr = corrected_blunder(s["path"], verdicts, rubrics)
+            if any(c["corrected"] is not None for c in corr):
+                print(f"\n{s['run']} — blunder rate corrected by human verdicts:")
+                print("  arm                judged   corrected   (n clean / n blunder adjudicated)")
+                for c in corr:
+                    est = "     --" if c["corrected"] is None else f"{c['corrected']:9.0%}"
+                    print(f"  {c['arm']:18s} {c['judged']:5.0%} {est}"
+                          f"      ({c['n_clean']} / {c['n_blunder']})")
+                print("  Corrected = P(judge blunder)xP(human blunder|judge blunder)"
+                      " + P(judge clean)xP(human blunder|judge clean).")
+                print("  Read n_clean first: it is the only term an unstratified queue "
+                      "cannot estimate, and a row with 0 gets no estimate at all.")
             if s["blunder_degenerate"]:
                 print(f"\n  !! {s['run']}: the blunder-call kappa is UNDEFINED — every "
                       "answer in this sample falls on one side of the call, so agreement "

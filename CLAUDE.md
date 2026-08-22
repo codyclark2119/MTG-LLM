@@ -252,6 +252,22 @@ as it applies to ranking arms.
 
 ## Evaluation — read this before trusting any number
 
+**The judge's CLEAN verdicts are the unreliable half** (21.81). With judge-clean
+answers finally in the sample (n=21): κ **+0.27** for the 32B, −0.04 for
+Mistral, and the dominant error cell is human-blunder/judge-clean — on
+`base_closed`, the human finds a blunder in **5 of 8** answers the judge cleared.
+False negatives, not false positives, and structurally invisible while the queue
+was 82% blundered, because *P(human blunder | judge clean)* had no sample.
+
+So **Gate 3 is optimistic**: `base_closed` reads 58% and corrects to **70%**
+(0.577×0.750 + 0.423×0.625). The gate still fails at a 25% bar, but the
+correction is largest exactly where the judge calls answers clean most often —
+the arm the gate selects. Never quote the raw sample gap (+24 points): the queue
+is deliberately 43% judge-clean against 18% in the run, so reweighting to each
+arm's own mix is mandatory, and the direction is judge-specific (32B 58→70,
+Mistral 65→**62**). `adjudicate --score` prints it with `n_clean` beside every
+row and no estimate at all for an arm with none.
+
 **A kappa can rest on one cell, and then it measures the cell.** At n=13 the
 32B scores **+0.63** and Mistral **−0.11** on identical answers — a decisive
 looking 0.74 spread that hangs entirely on a *single* human-clean answer. Flip

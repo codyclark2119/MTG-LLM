@@ -1199,6 +1199,49 @@ def test_adjudication_scoring() -> int:
     failed += not check("a degenerate sample is flagged, not ranged",
                         s16["blunder_degenerate"], True)
 
+    # Correcting the judge's blunder rate by what the human found it missed.
+    # The queue is deliberately enriched for judge-clean answers, so the RAW
+    # sample gap is a selection effect; reweighting to the run's own mix is the
+    # whole point (Section 21.81).
+    from adjudicate import corrected_blunder
+    from common import PROTOCOL_ERRORS
+    run7 = _Path(tempfile.mkdtemp()) / "r7.jsonl"
+    # 4 answers: 2 judged blunder, 2 judged clean -> P(judge blunder) = 0.5
+    run7.write_text("\n".join(_json.dumps(r) for r in [
+        {"id": "w1", "arms": {"a": {"errors_made": [1], "answer": "w1"}}},
+        {"id": "w2", "arms": {"a": {"errors_made": [1], "answer": "w2"}}},
+        {"id": "w3", "arms": {"a": {"errors_made": [], "answer": "w3"}}},
+        {"id": "w4", "arms": {"a": {"errors_made": [], "answer": "w4"}}},
+    ]), encoding="utf-8")
+    rub = {f"w{i}": {"common_errors": ["e"]} for i in range(1, 5)}
+    shown = 1 + len(PROTOCOL_ERRORS)
+
+    def hv(key, errs):
+        return v(key, errs, n_shown=shown, answer_sha=answer_sha(key.split("::")[0]))
+
+    # Human agrees on both blundered; finds a blunder in ONE of the two the
+    # judge called clean. corrected = .5*1.0 + .5*0.5 = 0.75 against a judged .5
+    verds = [hv("w1::a", [1]), hv("w2::a", [1]), hv("w3::a", [1]), hv("w4::a", [])]
+    got = {c["arm"]: c for c in corrected_blunder(run7, verds, rub)}["a"]
+    failed += not check("judged rate is the run's own", got["judged"], 0.5)
+    failed += not check("corrected reweights by the run's mix", got["corrected"], 0.75)
+    failed += not check("n_clean is reported", got["n_clean"], 2)
+
+    # With no adjudicated judge-CLEAN answer the correcting term is unmeasured,
+    # so there must be no estimate rather than one assuming the judge was right.
+    only_b = [hv("w1::a", [1]), hv("w2::a", [1])]
+    got2 = {c["arm"]: c for c in corrected_blunder(run7, only_b, rub)}["a"]
+    failed += not check("no judge-clean verdicts means no estimate",
+                        got2["corrected"], None)
+    failed += not check("...and n_clean says why", got2["n_clean"], 0)
+
+    # A verdict shown a SHORTER rubric ticked fewer boxes because it had fewer,
+    # so counting it biases the correction toward the judge being right.
+    stale_form = [hv("w1::a", [1]), hv("w2::a", [1]), hv("w3::a", [1]),
+                  v("w4::a", [], n_shown=2, answer_sha=answer_sha("w4"))]
+    got3 = {c["arm"]: c for c in corrected_blunder(run7, stale_form, rub)}["a"]
+    failed += not check("a short-rubric verdict is excluded", got3["n_clean"], 1)
+
     # The ingest dedup, which is where the same assumption destroyed work rather
     # than mis-scoring it: six of six regrades dropped as "already on file"
     # because the identity was (key, author) (Section 21.65).

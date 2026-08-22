@@ -7501,3 +7501,89 @@ Worth noting what made this reachable. 21.77 changed the note from a fallback
 into the reasoning and 21.75 put the protocol entries on the form; without
 either, this verdict would have been another empty `not_covered` indistinguishable
 from the other 33.
+
+### 21.81 The judge's *clean* verdicts are the unreliable half, and Gate 3 is optimistic
+
+Seven verdicts on the rebalanced queue — all of them answers the judge called
+clean — and the blunder-call kappa becomes a measurement rather than a cell.
+
+| | n | κ | one-flip range | precision | recall |
+| --- | --- | --- | --- | --- | --- |
+| Qwen2.5-32B | 21 | **+0.27** | [+0.11, +0.41] | 23% | 29% |
+| Mistral-24B | 21 | −0.04 | [−0.27, +0.16] | 25% | 54% |
+
+21.79's range was [−0.08, +1.00] on the same statistic. Eleven judge-clean
+answers collapsed it to a third of a point, and the 32B's **+0.63 became
++0.27** — the earlier figure was the one-cell artifact, exactly as the range
+said it might be. Modest positive agreement, robust to any single call. Mistral
+is at chance.
+
+#### Where the disagreement actually lives
+
+```
+32B                judge:BLUNDER  judge:clean
+  human BLUNDER         11              6
+  human clean            1              3
+```
+
+The dominant error cell is **human-blunder / judge-clean: 6**. The judge's
+false *positives* were never the main problem — its false *negatives* are. On
+`base_closed`, the arm Gate 3 reads, the human found a blunder in **5 of the 8**
+answers the judge called clean.
+
+This was structurally invisible until now. The unstratified queue was 82%
+blundered, so it estimated *P(human blunder | judge blunder)* well and
+*P(human blunder | judge clean)* not at all — and every judge miss lives in the
+second. The instrument could not see its own dominant failure mode.
+
+#### Gate 3 is optimistic, and by how much is a reweighting question
+
+Correcting the judge's rate with the two conditional rates:
+
+```
+corrected = P(judge blunder)·P(human blunder | judge blunder)
+          + P(judge clean)  ·P(human blunder | judge clean)
+```
+
+| arm | judged | corrected | n clean / n blunder |
+| --- | --- | --- | --- |
+| **`base_closed`** | **58%** | **70%** | 8 / 4 |
+| `base_open` | 96% | 100% | 1 / 8 |
+| `base_cards_open` | 92% | — | 0 / 2 |
+
+`base_closed` = 0.577 × 0.750 + 0.423 × 0.625 = **0.697**. Gate 3's best arm is
+twelve points worse than reported, and the gate still fails — the bar is 25% —
+so no verdict moves. What moves is the margin, and *which* arm looks best: the
+correction is largest exactly where the judge calls answers clean most often,
+which is the arm the gate selects.
+
+**The raw comparison would have said +24 points.** In-sample the human calls 81%
+blundered against the judge's 57%. That gap is mostly selection: the queue is now
+**43%** judge-clean against **18%** in the run. Reweighting to each arm's own mix
+gives +12 for `base_closed`. Quoting the raw gap would have been a selection
+effect wearing the shape of a result — the same shape as 21.39's harness bug and
+21.75's unofferable charges, arrived at by a third route.
+
+An arm with **no** adjudicated judge-clean answer gets **no** estimate rather
+than one that silently assumes the judge was right, and `n_clean` prints beside
+every row, because a correction resting on two verdicts is not a correction.
+
+And the correction is judge-specific in *direction*: the 32B goes 58% → 70%,
+Mistral 65% → **62%**. They call different answers clean, so the human corrects
+them opposite ways. There is no single "true" blunder rate to be recovered here,
+only a per-judge one — which is 9.9's rule surviving one level deeper than it
+has been tested before.
+
+#### Two bugs found writing this
+
+The first draft pooled every form version into the conditional rates. A verdict
+shown four entries ticked fewer boxes *because it had fewer*, so counting it as
+"the human found no error" biases the correction toward the judge being right —
+the exact quantity under measurement. Filtered to the current rubric: 70%, not
+the 62% the pooled version reported.
+
+The second: the reporting loop reached for `r`, the variable of a *finished*
+loop, so every row re-opened the **last** run. Both judges printed identical
+corrected tables under different names — and identical tables are precisely what
+one expects when a parser is involved (21.76), so it read as a positive control
+rather than as a bug. The run path rides on the result now.
