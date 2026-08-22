@@ -314,6 +314,31 @@ expected effect needs far fewer.
 
 ## Gameplay (`scripts/gameplay/`)
 
+**The gameplay layer supervises the judge layer, not the reverse.** Judge-vs-judge
+kappa is +0.47 and judge-vs-**human** is **+0.06** (21.65) — a judge cannot
+validate itself. But a board state is machine-checkable in a way a rules question
+never is: **86% of position answers can be convicted with no judge at all**, and
+`common.PROTOCOL_ERRORS` turns those seven checks into rubric entries a *parser*
+confirms or refutes. That is the only per-error precision this project can
+compute without a human (21.70).
+
+`PROTOCOL_ERRORS` is **append-only**. The judge returns error NUMBERS, so
+strategy errors must keep `1..n` or every verdict already collected silently
+changes meaning. Under-tapping (5) and over-tapping (6) are separate on purpose:
+one makes the turn invalid, the other is legal and merely wasteful, and
+`PROTOCOL_INVALIDATING` is what `valid_turn` reads. **Blunder rate is unchanged**
+— it stays on `errors_made` per 21.28, with the strategy/protocol split stored
+beside it, so Gate 3 keeps meaning "picked the wrong play".
+
+**A turn scenario is a sequence, and it is teacher-forced** (`gameplay/turns.py`,
+21.71). The board advances on the **reference** line, never on what the model
+did: applying the model's own actions needs a rules engine this repo deliberately
+is not, and errors would compound so that every later step re-measures step 1.
+Each expanded step is a *complete position*, so `legality`, `protocol_findings`
+and `judge_batch_rubric` work unchanged — do not add a second evaluation path. A
+turn is valid only when **every** step is; averaging per-step validity lets four
+good steps hide one that makes the turn illegal.
+
 **An answer that declines to play beats one that plays.** `PASS` is the protocol
 terminator, so it always matches `legal_actions` — an answer whose only action is
 `PASS` scored `all_legal=True` on **69 of 69**, and the judge called it clean on

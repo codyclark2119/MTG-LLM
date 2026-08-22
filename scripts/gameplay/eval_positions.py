@@ -39,6 +39,7 @@ from common import (  # noqa: E402
     PROTOCOL_INVALIDATING,
     build_position_messages,
     cohens_kappa,
+    read_jsonl,
     gameplay_fingerprint,
     pearson_r,
     render_position,
@@ -287,6 +288,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--positions", type=Path, default=POSITIONS_PATH)
+    parser.add_argument("--scenarios", type=Path, default=None,
+                        help="multi-step turn scenarios (data/gold/turn_scenarios.jsonl). "
+                             "Each step is evaluated as a position; the SEQUENCE is "
+                             "reported separately (Section 21.71).")
     parser.add_argument("--limit", type=int, default=None)
     # Comparing two BASE MODELS needs the adapter arm dropped -- a LoRA trained
     # on Qwen2.5-7B cannot be applied to a different base at all. But Section
@@ -347,6 +352,29 @@ def main() -> None:
     judge_model_id = args.judge_model or base_model
 
     positions = load_positions(args.positions)
+
+    # Scenarios expand into position-shaped steps and then travel the SAME path
+    # as everything else — one generation call, one judge call, every judge-free
+    # check unchanged. Nothing downstream knows a scenario existed, which is the
+    # point: a second evaluation path would be a second place for the gates to
+    # drift (Section 21.71).
+    #
+    # Appended, never interleaved, so the 24 single-decision positions keep
+    # their order and a run with --scenarios must reproduce a run without it on
+    # every one of them.
+    scenario_steps: list[dict] = []
+    if args.scenarios:
+        from turns import expand_steps, validate_scenario
+        scenarios = read_jsonl(args.scenarios, missing_ok=True)
+        if not scenarios:
+            raise SystemExit(f"no scenarios in {args.scenarios}")
+        bad = [p for sc in scenarios for p in validate_scenario(sc)]
+        if bad:
+            raise SystemExit("scenario problems:\n  " + "\n  ".join(bad))
+        scenario_steps = [st for sc in scenarios for st in expand_steps(sc)]
+        print(f"{len(scenarios)} scenarios -> {len(scenario_steps)} steps")
+        positions = positions + scenario_steps
+
     if not positions:
         raise SystemExit(f"no positions in {args.positions}")
 
@@ -913,6 +941,35 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "them is confirmed or refuted mechanically — no human, no second judge. "
             f"{und} checks could not be decided here and are excluded rather than counted "
             "as the judge being wrong (Section 21.70).\n")
+
+    # Sequences, reported apart from the single-decision positions they share a
+    # run with. A turn is valid when EVERY step of it was: reporting the mean of
+    # per-step validity would let four good steps hide one that makes the turn
+    # illegal, which is the whole reason a sequence is the unit (21.71).
+    seqs: dict[str, dict[str, list]] = {}
+    for r in results:
+        sid = r.get("scenario_id")
+        if not sid:
+            continue
+        for arm in arm_names:
+            d = r["arms"].get(arm) or {}
+            seqs.setdefault(sid, {}).setdefault(arm, []).append(bool(d.get("valid_turn")))
+    if seqs:
+        lines.append("\n## Turn scenarios\n")
+        lines.append("| Scenario | Steps | " + " | ".join(arm_names) + " |")
+        lines.append("| --- | --- | " + " | ".join("---" for _ in arm_names) + " |")
+        for sid, per_arm in sorted(seqs.items()):
+            n_steps = len(next(iter(per_arm.values())))
+            cells = []
+            for arm in arm_names:
+                v = per_arm.get(arm) or []
+                cells.append(f"{sum(v)}/{len(v)} steps" + (" — **VALID TURN**" if v and all(v) else ""))
+            lines.append(f"| `{sid}` | {n_steps} | " + " | ".join(cells) + " |")
+        lines.append(
+            "\n> A turn counts as valid only when **every** step of it is. Steps are scored "
+            "independently and the board advances on the REFERENCE line, so a mistake at "
+            "step 1 never makes step 2 unanswerable — what this does not test is recovery "
+            "from one's own mistake, which needs a rules engine (Section 21.71).\n")
 
     n_unearned = n_credited = n_checkable = 0
     for r in results:
