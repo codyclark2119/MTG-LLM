@@ -47,7 +47,8 @@ from common import (  # noqa: E402
 from positions import (battlefield_cast_problems, load_positions,
                        protocol_findings,
                        payment_problems, phase_problems, position_card_names,
-                       tap_problems, targeting_problems)  # noqa: E402
+                       tap_problems, targeting_problems,
+                       wasted_tap_problems, missing_phase_problems)  # noqa: E402
 
 # Four arms, matching the judge prompt's "labeled A, B, C, D". Each of the
 # three pre-registered predictions is a difference between two of them:
@@ -652,6 +653,11 @@ def _judge_all(rules_eval, judge_model_id, positions, answers, arm_names, args) 
                 # Measure first, promote later if it earns it (Section 21.80).
                 "targeting_problems": targeting_problems(
                     pos, parsed.actions, _card_index_for_taps()),
+                # Two more classes the reviewer named and no entry describes.
+                # Diagnostics for the same reason as targeting_problems: an
+                # eighth entry costs every collected v4 verdict (Section 21.83).
+                "wasted_tap_problems": wasted_tap_problems(pos, parsed.actions),
+                "missing_phase_problems": missing_phase_problems(pos, parsed.actions),
                 "tap_problems": (
                     tap_problems(pos, parsed.actions, _card_index_for_taps())
                     if any(a.verb == "TAP" for a in parsed.actions) else []),
@@ -1019,6 +1025,27 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "met it ticked `not_covered`. Reported as a diagnostic pending a decision on "
             "an eighth `PROTOCOL_ERRORS` entry, which would invalidate every collected "
             "v4 verdict (Section 21.80).\n")
+
+    # Two more measured-but-unentered classes, reported together with the
+    # targeting one because the decision about all three is the same decision.
+    for field, blurb in (
+        ("wasted_tap_problems",
+         "declare mana and then spend none of it. The mana empties at end of step, "
+         "so nothing is held up by it. `PROTOCOL_ERRORS` entry 6 is over-tapping and "
+         "does NOT cover this — its wording presumes spells were cast, and it fires on "
+         "0 of these"),
+        ("missing_phase_problems",
+         "make a play without ever declaring a PHASE. `phase_problems` checks a "
+         "declaration against the board and stays silent when there is none, which was "
+         "right when the grammar merely allowed the line and wrong since 21.60 made it "
+         "required"),
+    ):
+        k = sum(1 for r in results for a in arm_names
+                if (r["arms"].get(a) or {}).get(field))
+        if k:
+            lines.append(f"\n- **{k}/{n_ans} answers {blurb} ({k / n_ans:.0%}).** "
+                         "Parser-decided, named in reviewer notes, and with no rubric "
+                         "entry (Section 21.83).\n")
 
     # Per-error precision on the protocol classes, decided by a parser. The
     # first judge-quality number this project can compute with no human and no

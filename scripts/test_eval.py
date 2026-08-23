@@ -964,6 +964,48 @@ def test_targeting_problems() -> int:
     return failed
 
 
+def test_uncovered_classes() -> int:
+    """Two error classes the reviewer named that no rubric entry describes.
+
+    Both parser-decided, both measured before any decision about promoting them
+    (Section 21.83). `wasted_tap_problems` exists because entry 6's wording
+    presumes spells were cast and fires on 0 of the 11 answers that tap and cast
+    nothing; `missing_phase_problems` because `phase_problems` deliberately
+    treats silence as "not stated", which stopped being right when 21.60 made
+    the PHASE line required.
+    """
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from actions import parse_output
+    from positions import missing_phase_problems, wasted_tap_problems
+    failed = 0
+
+    def w(text):
+        return bool(wasted_tap_problems({}, parse_output(text).actions))
+
+    def m(text):
+        return bool(missing_phase_problems({}, parse_output(text).actions))
+
+    failed += not check("tapping then passing is wasted mana",
+                        w("PHASE Main Phase 1\nTAP Forest FOR {G}\nPASS"), True)
+    failed += not check("tapping then casting is not",
+                        w("TAP Forest FOR {G}\nCAST Grizzly Bears\nPASS"), False)
+    failed += not check("no TAP line means no opinion",
+                        w("PHASE Main Phase 1\nPASS"), False)
+
+    failed += not check("a play with no PHASE line fires",
+                        m("ATTACK Grizzly Bears -> opponent\nPASS"), True)
+    failed += not check("a play with a PHASE line does not",
+                        m("PHASE Declare Attackers Step\n"
+                          "ATTACK Grizzly Bears -> opponent\nPASS"), False)
+    # PASS-only is entry 1's case. Charging it here too would double-charge
+    # 21.58's do-nothing answer, which is already the most over-charged case.
+    failed += not check("a PASS-only answer is exempt", m("PASS"), False)
+    # Declarations are not plays: an answer that only declares still made none.
+    failed += not check("TAP alone is not a play needing a phase",
+                        m("TAP Forest FOR {G}\nPASS"), False)
+    return failed
+
+
 def test_adjudication_scoring() -> int:
     """`unsure` must be excluded and every exclusion reported (21.55).
 
@@ -1759,6 +1801,7 @@ def main() -> None:
                      ("coverage_lines", test_coverage_lines),
                      ("judge_identity", test_judge_identity),
                      ("targeting_problems", test_targeting_problems),
+                     ("uncovered_classes", test_uncovered_classes),
                      ("adjudication_scoring", test_adjudication_scoring),
                      ("cohens_kappa", test_cohens_kappa),
                      ("mana_problems", test_mana_problems),

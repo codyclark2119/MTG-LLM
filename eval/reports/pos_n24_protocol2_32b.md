@@ -21,6 +21,15 @@
 - **25/78 answers declare taps that do not pay for what they cast (32%); 8/78 cast a permanent already on the battlefield (10%).** Neither is visible to `legal_actions`: an over-tapped payment names only legal taps, and a spell already in play is absent from the list for a reason the list cannot state. The payment check is silent on answers that declare no taps, so it reports nothing on runs made before the verbose grammar rather than crediting them (Section 21.66).
 
 
+- **6/78 answers cast a CREATURE spell with a TARGET (8%).** A creature spell does not target on cast; the model is treating it like removal. Four reviewer notes name this independently, and it is checked against oracle text rather than a judge. It has **no rubric entry** — it is convicted only as entry 3, for the wrong reason, and the one reviewer who met it ticked `not_covered`. Reported as a diagnostic pending a decision on an eighth `PROTOCOL_ERRORS` entry, which would invalidate every collected v4 verdict (Section 21.80).
+
+
+- **11/78 answers declare mana and then spend none of it. The mana empties at end of step, so nothing is held up by it. `PROTOCOL_ERRORS` entry 6 is over-tapping and does NOT cover this — its wording presumes spells were cast, and it fires on 0 of these (14%).** Parser-decided, named in reviewer notes, and with no rubric entry (Section 21.83).
+
+
+- **10/78 answers make a play without ever declaring a PHASE. `phase_problems` checks a declaration against the board and stays silent when there is none, which was right when the grammar merely allowed the line and wrong since 21.60 made it required (13%).** Parser-decided, named in reviewer notes, and with no rubric entry (Section 21.83).
+
+
 - **Protocol errors, checked by parser: precision 36% (41/114), recall 39% (41/104).** These six rubric entries are decidable from the board, so every charge the judge makes against them is confirmed or refuted mechanically — no human, no second judge. 60 checks could not be decided here and are excluded rather than counted as the judge being wrong (Section 21.70).
 
 

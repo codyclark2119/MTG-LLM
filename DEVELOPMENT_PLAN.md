@@ -7657,3 +7657,82 @@ Not supported: **which judge is better.** That needs either a much larger
 sample or a larger true difference, and 21.79's ceiling still binds — 14 clean
 answers is all three arms produced across 26 positions. More positions, not more
 adjudication.
+
+### 21.83 The notes report earns itself: two more classes the rubric has no entry for
+
+21.77 rebuilt the note as the reviewer's reasoning and added `--notes` so
+something would read it. With 34 v4 verdicts on file it has produced its first
+result, and a prediction check on the way.
+
+#### The coverage gap was mostly the form, and now it is measured
+
+21.75 argued that most `not_covered` ticks were the *form* lacking protocol
+entries rather than the *rubric* lacking them, on the strength of 30 of 33 notes
+naming an entry `PROTOCOL_ERRORS` already had. The prediction: put those entries
+on the form and `not_covered` should collapse.
+
+| form | `not_covered` |
+| --- | --- |
+| v2 (strategy entries only) | **33/48 = 69%** |
+| v4 (strategy + protocol) | **8/34 = 24%** |
+
+It collapsed, and not all the way — which is the useful part. The residual 24%
+is the genuinely uncovered material, and eight notes is few enough to read.
+
+#### Three themes, two of them parser-decidable
+
+Reading all eight, three recur:
+
+1. **mana tapped and never spent** — *"Taps lands for no reason"*, *"it
+   pointlessly taps the forests before passing wasting the mana"*, *"Taps mana
+   unnecessarily"*
+2. **a play made with no PHASE declared** — *"doesnt declare the change to the
+   declare attackers phase"* (three notes)
+3. **reasoning that misstates a card** — Doom Blade described as dealing "3
+   damage to it" when it destroys
+
+| class | fires | pre-protocol run | already convicted? |
+| --- | --- | --- | --- |
+| wasted taps | **11/78 (14%)** | 15% | entry 6 fires on **0 of 11** |
+| missing PHASE | **10/78 (13%)** | 14% | nothing covers it |
+| creature TARGET (21.80) | 6/78 (8%) | 7% | entry 3, for the wrong reason |
+
+Both new classes are more frequent than the targeting one, both are stable
+across two runs, and both fail for a reason worth stating.
+
+**Entry 6 does not cover wasted taps.** Its wording — *"add up to MORE than the
+spells it casts require"* — presumes spells were cast, and `payment_problems` is
+silent when none were, so it fires on none of the eleven. Three of the eleven
+have no entry firing at all. And the case is unambiguous rather than a judgement
+call: mana empties at end of step, so tapping without spending never holds up a
+trick — the way to represent holding removal is to leave the lands untapped.
+
+**`phase_problems` deliberately does not cover a missing declaration.** Its
+docstring says so: *"Returns [] when nothing was declared — silence is 'not
+stated', not 'agreed'."* That was correct while the grammar merely *allowed* the
+line. 21.60 made it required, so silence became a contract violation and the
+check was never revisited. Third instance of 21.61's shape — *when a prompt
+starts asking for new output, audit every consumer of that output* — and this
+time the consumer that needed changing was one that had been deliberately
+written to abstain.
+
+A PASS-only answer is exempt from the phase check: it makes no play, entry 1
+already describes it, and charging it here would double-charge 21.58's
+do-nothing case, which is already the most over-charged answer in the set.
+
+#### Still diagnostics, and the cost of promoting has gone up
+
+All three are stored per-answer and printed per-run. None is a `PROTOCOL_ERRORS`
+entry, for the reason 21.80 gave and more so: appending now costs **34** v4
+verdicts rather than 15, since `verdict_is_current` invalidates on `n_shown`.
+
+The stored runs were backfilled with all three fields, which is safe precisely
+because they are pure functions of (answer, board) — the same property that lets
+`protocol_truth` arbitrate between judges (21.76). The backfill asserts that no
+pre-existing field changed on any of 228 arm-answers, and none did.
+
+Fourth section ending in a stated decision rather than a taken one. That is the
+shape: **the instrument measures and reports; the person whose time it costs
+decides.** What is now measured is that ~35% of answers commit at least one
+error the rubric cannot name — which is a better argument for a rubric revision
+than any of the individual classes.

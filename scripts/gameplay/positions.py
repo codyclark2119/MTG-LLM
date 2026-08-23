@@ -29,7 +29,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from actions import Action, PHASE_NAMES, parse_line  # noqa: E402
+from actions import (Action, DECLARATIONS, PHASE_NAMES,  # noqa: E402
+                     parse_line)
 from common import (  # noqa: E402
     parse_permanent_line,
     position_from_form,  # noqa: E402,F401  (lint_common_errors re-exported for webui)
@@ -531,6 +532,61 @@ def battlefield_cast_problems(pos: dict, actions) -> list[str]:
         if low in mine and low not in hand:
             out.append(f"CAST {name}: it is already on your battlefield, not in hand")
     return out
+
+
+def wasted_tap_problems(pos: dict, actions) -> list[str]:
+    """Mana declared and then not spent on anything.
+
+    From four reviewer notes: *"Taps lands for no reason, declares no
+    blockers"*, *"it pointlessly taps the forests on the field before passing
+    wasting the mana"*, *"Taps mana unnecessarily"*. Measured at **11 of 78**
+    answers (14%), stable at 15% on the pre-protocol run (Section 21.83).
+
+    `PROTOCOL_ERRORS` entry 6 is over-tapping and does **not** cover this. Its
+    wording — *"add up to MORE than the spells it casts require"* — presumes
+    there are spells, and `payment_problems` is silent when nothing is cast, so
+    entry 6 fires on **0 of the 11**. Three of them have no entry firing at all.
+
+    The mana empties at end of step, so tapping without spending is never a way
+    to hold up a trick: the correct way to represent holding removal is to leave
+    the lands untapped. That makes this unambiguous rather than a judgement call,
+    which is why a parser can decide it.
+
+    Needs no card data — the answer's own lines are the whole evidence.
+    """
+    taps = [a for a in actions if a.verb == "TAP"]
+    if not taps:
+        return []
+    if any(a.verb in ("CAST", "PLAY") for a in actions):
+        return []
+    named = ", ".join(a.args[0] for a in taps if a.args)
+    return [f"TAP {named}: mana declared and never spent — it empties at end of "
+            "step, so nothing is held up by it"]
+
+
+def missing_phase_problems(pos: dict, actions) -> list[str]:
+    """Plays made without ever declaring which step they are made in.
+
+    `phase_problems` checks a declaration against the board and deliberately
+    returns [] when none was made — *"silence is 'not stated', not 'agreed'"*.
+    That was right while the grammar merely allowed a PHASE line. Since 21.60 the
+    prompt *requires* one ("Open with PHASE"), so silence is now a contract
+    violation rather than an abstention, and the reviewer flagged it three times:
+    *"doesnt declare the change to the declare attackers phase"*.
+
+    Measured at **10 of 78** (13%), and 14% on the pre-protocol run.
+
+    An answer whose only action is PASS is exempt: it makes no play, entry 1
+    already describes it, and demanding a phase declaration from a player who
+    does nothing would double-charge 21.58's do-nothing case.
+    """
+    if any(a.verb == "PHASE" for a in actions):
+        return []
+    plays = [a for a in actions if a.verb not in DECLARATIONS and a.verb != "PASS"]
+    if not plays:
+        return []
+    return [f"{len(plays)} play(s) made with no PHASE line: the answer never says "
+            "which step it is acting in"]
 
 
 def targeting_problems(pos: dict, actions, card_index=None) -> list[str]:
