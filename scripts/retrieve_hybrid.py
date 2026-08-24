@@ -1,4 +1,4 @@
-"""Routed retrieval: named cards by lookup, rules by embedding.
+"""Routed retrieval: named cards and rulings by lookup, rules by embedding.
 
 Section 9.5 showed both RAG arms scoring *worse* on card-referencing
 questions than on pure-rules ones. The cause is structural rather than a
@@ -22,8 +22,14 @@ Card chunks already carry the rule IDs for their own keywords (see
 chunk_cards.py), so a retrieved card also points back into the rules
 corpus.
 
+Official rulings are an opt-in third source. They are keyed by the same exact
+card name as the Oracle index and are returned separately, so enabling them is
+an explicit experiment rather than a silent change to existing evaluation
+prompts or arm outputs.
+
 Usage:
     python scripts/retrieve_hybrid.py "Does [[Chatterfang]] double tokens?" [--k 3]
+    python scripts/retrieve_hybrid.py "Does [[Chatterfang]] double tokens?" --rulings
 """
 
 import argparse
@@ -33,7 +39,32 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from card_lookup import CARD_CHUNKS, CardIndex
+from common import RULING_CHUNKS_PATH, iter_jsonl, verify_card_pin
 from rag import CHUNKS_PATH, INDEX_PATH, retrieve
+
+
+class RulingIndex:
+    """Resolve official rulings for cards named in a question.
+
+    Rulings are grouped by card, so exact and normalized card-name resolution
+    is safer than embedding a 19k-record corpus into the rules index.
+    """
+
+    def __init__(self, chunks_path: Path = RULING_CHUNKS_PATH):
+        verify_card_pin(chunks_path, ruling_chunks_path=chunks_path)
+        self.by_name: dict[str, dict] = {}
+        for ruling in iter_jsonl(chunks_path):
+            name = ruling["name"]
+            self.by_name[name] = ruling
+
+    def find_for_cards(self, cards: list[dict]) -> list[dict]:
+        """Return rulings for resolved cards, preserving card order."""
+        found = []
+        for card in cards:
+            ruling = self.by_name.get(card["name"])
+            if ruling:
+                found.append(ruling)
+        return found
 
 
 def build_context(
@@ -42,10 +73,12 @@ def build_context(
     embed_model=None,
     k_rules: int = 3,
     max_cards: int = 3,
+    ruling_index: RulingIndex | None = None,
     chunks_path: Path = CHUNKS_PATH,
     index_path: Path = INDEX_PATH,
 ) -> dict:
     cards = card_index.find_in_text(question, max_cards=max_cards)
+    rulings = ruling_index.find_for_cards(cards) if ruling_index else []
     rules_hits = retrieve(
         question, k=k_rules, chunks_path=chunks_path, index_path=index_path,
         model_and_tokenizer=embed_model,
@@ -54,6 +87,8 @@ def build_context(
     parts = []
     if cards:
         parts.append("Cards referenced:\n" + "\n\n".join(c["text"] for c in cards))
+    if rulings:
+        parts.append("Official rulings:\n" + "\n\n".join(r["text"] for r in rulings))
     parts.append("Rules text:\n" + "\n\n".join(h["text"] for h in rules_hits))
 
     # Returned as METADATA ONLY — these ids are not injected into `context`.
@@ -73,6 +108,7 @@ def build_context(
         "context": "\n\n".join(parts),
         "card_names": [c["name"] for c in cards],
         "card_match_types": [c["match_type"] for c in cards],
+        "ruling_card_names": [r["name"] for r in rulings],
         "card_keyword_rule_ids": card_rule_ids,
         "rules_chunk_ids": [h["chunk_id"] for h in rules_hits],
     }
@@ -84,12 +120,19 @@ def main() -> None:
     parser.add_argument("--k", type=int, default=3)
     parser.add_argument("--max-cards", type=int, default=3)
     parser.add_argument("--card-chunks", type=Path, default=CARD_CHUNKS)
+    parser.add_argument("--ruling-chunks", type=Path, default=RULING_CHUNKS_PATH)
+    parser.add_argument("--rulings", action="store_true",
+                        help="include official rulings for resolved cards")
     args = parser.parse_args()
 
-    result = build_context(args.question, CardIndex(args.card_chunks), k_rules=args.k, max_cards=args.max_cards)
+    card_index = CardIndex(args.card_chunks)
+    ruling_index = RulingIndex(args.ruling_chunks) if args.rulings else None
+    result = build_context(args.question, card_index, k_rules=args.k,
+                           max_cards=args.max_cards, ruling_index=ruling_index)
     print(result["context"])
     print("\n---")
     print("cards:", result["card_names"], result["card_match_types"])
+    print("ruling cards:", result["ruling_card_names"])
     print("card keyword rules:", result["card_keyword_rule_ids"])
     print("rules chunks:", result["rules_chunk_ids"])
 

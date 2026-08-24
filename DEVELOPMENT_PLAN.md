@@ -7736,3 +7736,74 @@ shape: **the instrument measures and reports; the person whose time it costs
 decides.** What is now measured is that ~35% of answers commit at least one
 error the rubric cannot name — which is a better argument for a rubric revision
 than any of the individual classes.
+
+### 21.84 Entries 8-10 promoted, and regenerating the arms would produce identical bytes
+
+The reviewer authorised both halves of 21.83's stated decision: promote the
+three measured classes, and regenerate the arms. The first is done. The second
+turns out to buy nothing, and finding that out cost one GPU minute rather than
+a run.
+
+#### The promotion
+
+`PROTOCOL_ERRORS` goes 7 → 10, appended, so 1-7 keep their meaning and every
+verdict ever collected still says what it said:
+
+| # | entry | invalidating? |
+| --- | --- | --- |
+| 8 | a CREATURE spell cast with a TARGET | **yes** |
+| 9 | TAP lines declared and nothing cast | no |
+| 10 | a play made with no PHASE line | no |
+
+`PROTOCOL_INVALIDATING` follows the line the reviewer drew for 5 versus 6 —
+*"one is a truly invalid play while over tapping is a player blunder"*:
+
+- **8 invalidates.** Casting a creature with a target is not a legal action.
+- **9 does not.** Wasting mana is legal and merely bad, exactly like 6.
+- **10 does not**, and this is the interesting one. Entry 4 (a *wrong* phase)
+  invalidates because the play provably happened at the wrong time. Silence
+  proves nothing: a turn cannot be called invalid because the player failed to
+  narrate it. An unverifiable claim is not a false one.
+
+**Gate 1 did not move.** Adding an invalidating entry should be expected to cost
+some arm its `valid_turn` score, and it cost none — `base_open` 23%,
+`base_closed` 58%, `base_cards_open` 19%, with **0 of 78** answers flipping.
+Every answer entry 8 convicts was already convicted by entry 3, which also
+invalidates. So the promotion buys a *reason* rather than a *conviction*: the
+answer the reviewer marked `not_covered` now fires `[3, 8]` where it fired `[3]`,
+and 8 is the one that says what actually went wrong.
+
+`protocol_findings` decides all ten. 8 needs the card index and is `None`
+without one, like 5 and 6; 9 and 10 read only the answer's own lines and are
+always decidable. `test_eval` now asserts **every entry has a checker**, because
+an entry a parser cannot decide is one the judge can be charged against with
+nothing to confirm or refute it — and that loss is indistinguishable from the
+class never firing. Confirmed by mutation: an eleventh entry with no checker
+fails two assertions.
+
+Cost, as stated and accepted: `n_shown` 11 → 14, so **36 verdicts** need
+re-reading and coverage returns to 0/60. The answers themselves are untouched,
+so this is a re-read with three more boxes, not fresh work.
+
+#### Regenerating the arms would produce byte-identical answers
+
+`eval_positions.generate` passes no sampler to `mlx_lm.generate`, which means
+greedy decoding. Verified by running rather than by reading the signature: two
+successive calls on `pos-trigger-ordering-0001` were identical to each other
+**and identical to the stored answer**.
+
+So "regenerate the arms to get a new set" is a no-op with the same model, prompt
+and adapter. It would invalidate 36 verdicts a second time and hand back the
+same 78 answers. Something has to actually change:
+
+| change | gives | costs |
+| --- | --- | --- |
+| a fourth `ft_cards_open` arm | 26 genuinely new answers, and the first test of whether fine-tuning helps *gameplay* | not comparable to any 3-arm run on blunder rate (21.5) |
+| a stronger base model | a different question, not a new sample of this one | |
+| temperature > 0 | variance | forfeits "the harness is deterministic, so a number that moved means something changed" |
+
+Worth recording that the determinism check took under a minute and removed a
+several-hour run from the plan. The stored `gameplay_fingerprint` is
+`d094e3934d2d` on all three current runs and matches the live prompt, so the
+warning in CLAUDE.md about stored positions being stale refers to the older
+`positions_n22` family and not to these.

@@ -1619,9 +1619,24 @@ def test_protocol_findings() -> int:
     from positions import protocol_findings
 
     failed = 0
-    failed += not check("seven classes are defined", len(PROTOCOL_ERRORS), 7)
-    failed += not check("over-tapping is the only non-invalidating one",
-                        sorted(set(range(1, 8)) - set(PROTOCOL_INVALIDATING)), [6])
+    # The count is asserted so growth is deliberate — appending an entry costs
+    # every collected verdict, since `verdict_is_current` invalidates on
+    # `n_shown` (21.78). 7 -> 10 in Section 21.83.
+    failed += not check("ten classes are defined", len(PROTOCOL_ERRORS), 10)
+    failed += not check("legal-but-wasteful and unverifiable ones do not invalidate",
+                        sorted(set(range(1, 11)) - set(PROTOCOL_INVALIDATING)),
+                        [6, 9, 10])
+
+    # EVERY entry must have a checker. An entry the parser cannot decide is one
+    # the judge can be charged against with nothing to confirm or refute it —
+    # the whole per-error precision measurement silently loses a class, and the
+    # loss looks like the class simply never firing (21.83).
+    probe = protocol_findings(
+        {"phase": "precombat main", "legal_actions": ["PASS"],
+         "battlefield": [], "players": {"you": {"hand": []}}},
+        parse_output("PASS"))
+    failed += not check("every rubric entry has a checker",
+                        sorted(probe), list(range(1, len(PROTOCOL_ERRORS) + 1)))
 
     board = {"phase": "precombat main",
              "legal_actions": ["CAST Shock TARGET Bear", "PASS"],

@@ -37,7 +37,15 @@ The derived card corpus is committed too, so card lookup works immediately:
 
 ```bash
 python scripts/retrieve_hybrid.py "Does [[Chatterfang]] double token creation?"
+
+# Include pinned official WotC rulings for the named cards (opt-in experiment)
+python scripts/retrieve_hybrid.py "Does [[Chatterfang]] double token creation?" --rulings
 ```
+
+The `--rulings` route joins exact card-name matches to the separately pinned
+official ruling corpus. It is disabled by default so existing evaluation arms
+and prompt fingerprints remain comparable; use it for card-interaction
+experiments before integrating ruling text into a training or evaluation arm.
 
 Rebuilding it from source needs the raw Oracle dump (~200MB, not committed):
 
@@ -117,7 +125,7 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | `eval.py` | multi-arm evaluation and LLM-judge scoring |
 | `fetch_cards.py` / `chunk_cards.py` | Scryfall card pull → chunks linked to keyword rules |
 | `card_lookup.py` | resolve card names by dictionary (99% on eval) |
-| `retrieve_hybrid.py` | route cards and rules into separate retrieval budgets |
+| `retrieve_hybrid.py` | route cards, optional official rulings, and rules into separate retrieval budgets |
 | `ingest_rulings.py` | official WotC rulings → chunks |
 | `fetch_rulesguru.py` / `rulesguru_to_gold.py` | RulesGuru API → frozen snapshot → gold candidates |
 | `ingest_qa_pastes.py` / `validate_gold.py` | gold set ingestion and validation |

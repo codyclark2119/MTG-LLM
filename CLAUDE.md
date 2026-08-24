@@ -392,27 +392,22 @@ entry that exists because the parser could not see it. Take the mechanically
 decidable entries from the parser; leave the judge the strategy entries, where
 no check exists and 81% of adjudicated answers came back `not_covered`.
 
-**Three error classes are measured and none has an entry** (21.80, 21.83):
-a creature spell cast with a TARGET (**8%**), mana tapped and never spent
-(**14%** — entry 6's wording presumes spells were cast, so it fires on 0 of 11),
-and a play made with no PHASE line (**13%** — `phase_problems` treats silence as
-"not stated", which was right before 21.60 made the line required). All three
-are parser-decided, named in reviewer notes, and reported per-run. Promoting any
-of them costs every collected v4 verdict, since `verdict_is_current` invalidates
-on `n_shown` — so it is the reviewer's call with the cost stated.
+**`PROTOCOL_ERRORS` has ten entries.** 8-10 were promoted in 21.84 after being
+measured as diagnostics first: a creature spell cast with a TARGET (**8%**),
+mana tapped and never spent (**14%** — entry 6's wording presumes spells were
+cast, so it fired on 0 of 11), and a play made with no PHASE line (**13%** —
+`phase_problems` treats silence as "not stated", which was right before 21.60
+made the line required). Together they name the **35%** of answers that
+previously committed an error no entry could describe. The promotion cost 36
+human verdicts, authorised explicitly.
+
+`protocol_findings` decides all ten, and `test_eval` asserts **every entry has a
+checker** — an entry a parser cannot decide is one the judge can be charged
+against with nothing to confirm or refute it, and the loss looks exactly like
+the class never firing.
 
 **The form was most of the coverage gap, and that is now measured**: `not_covered`
 ran **69%** (v2, strategy entries only) and **24%** (v4, strategy + protocol).
-
-**One error class is measured and has no entry** (21.80). A creature spell cast
-with a TARGET — `CAST Ambush Viper TARGET Centaur Courser` — fires on **8%** of
-answers and is named in four reviewer notes. It is convicted today only as entry
-3 (*names an unavailable play*), which fires because the string does not match
-`legal_actions`, not because anything was unavailable; the reviewer who met it
-ticked `not_covered`. `positions.targeting_problems` measures it judge-free.
-It is **not** entry 8 yet: appending one moves `n_shown` 11 → 12 and marks every
-collected v4 verdict for re-reading (21.78), so the promotion is the reviewer's
-call with the cost stated.
 
 `PROTOCOL_ERRORS` is **append-only**. The judge returns error NUMBERS, so
 strategy errors must keep `1..n` or every verdict already collected silently

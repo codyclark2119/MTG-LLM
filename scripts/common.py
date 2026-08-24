@@ -158,6 +158,18 @@ PROTOCOL_ERRORS = (
     "floating mana for nothing. Only charge this when it actually casts something.",
     "The answer casts a permanent that is already on the battlefield rather than "
     "one in hand.",
+    # 8-10 appended in Section 21.83, after each was measured on stored answers
+    # and found in reviewer notes. Appended, never inserted: the judge returns
+    # error NUMBERS, so 1-7 must keep their meaning or every verdict ever
+    # collected silently changes what it says.
+    "The answer casts a CREATURE spell with a TARGET. Creature spells do not "
+    "target on cast. Do not charge this for a spell whose text says \"target\", "
+    "nor for an Aura.",
+    "The answer declares TAP lines and then casts nothing at all, so the mana is "
+    "wasted. This is not entry 6, which is about over-paying for a spell that "
+    "WAS cast; charge this only when no spell is cast.",
+    "The answer makes a play without any PHASE line, so it never says which step "
+    "it is acting in. Do not charge this when the only action is PASS.",
 )
 
 # Which of the above make a turn INVALID versus merely bad. A reviewer drew the
@@ -171,7 +183,15 @@ PROTOCOL_ERRORS = (
 # turn that is completely VALID, not a turn that is optimal. Gate 1 is about
 # validity and these are its vocabulary; strategy errors are about optimality
 # and stay where they are (Section 21.70).
-PROTOCOL_INVALIDATING = (1, 2, 3, 4, 5, 7)   # 6 (over-tapping) is legal but wasteful
+#
+# 8-10 follow the same line (Section 21.83):
+#   8  a creature spell cast with a target is not a legal action at all -> INVALID
+#   9  wasted mana is legal and merely bad, exactly like 6            -> not invalid
+#  10  a missing PHASE line is an unverifiable claim, not an illegal one. Entry 4
+#      (a WRONG phase) invalidates because the play provably happened at the
+#      wrong time; silence proves nothing, and a turn cannot be called invalid
+#      because the player failed to narrate it                        -> not invalid
+PROTOCOL_INVALIDATING = (1, 2, 3, 4, 5, 7, 8)  # 6, 9 legal but wasteful; 10 unverifiable
 
 # --- Rule-id patterns -------------------------------------------------------
 

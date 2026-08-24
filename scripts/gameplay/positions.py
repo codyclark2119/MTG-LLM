@@ -284,8 +284,8 @@ def protocol_findings(pos: dict, parsed, card_index=None) -> dict[int, bool]:
     say whether N is true — per-error precision with no human and no second
     judge (Section 21.70).
 
-    `None` for an entry means "not decidable here": index 5 needs the card index
-    for costs and index 4 needs the position to state a phase. A check that
+    `None` for an entry means "not decidable here": indices 5, 6 and 8 need the
+    card index and index 4 needs the position to state a phase. A check that
     cannot run must not be reported as "the judge was wrong", which is the
     one-sided-control mistake of 21.43 in a new place.
     """
@@ -302,6 +302,19 @@ def protocol_findings(pos: dict, parsed, card_index=None) -> dict[int, bool]:
     out[5] = None if kind == "undecidable" else (kind == "short")
     out[6] = None if kind == "undecidable" else (kind == "excess")
     out[7] = bool(battlefield_cast_problems(pos, parsed.actions))
+    # 8-10, appended with the rubric entries in Section 21.83. Each was measured
+    # as a diagnostic first and promoted only once it had a frequency and a
+    # reviewer note behind it.
+    #
+    # 8 needs the card index to know whether the spell is a creature that does
+    # not say "target", so it is undecidable without one — the same treatment 5
+    # and 6 get, and for the same reason: a check that cannot run must not be
+    # reported as the judge being wrong (21.43).
+    out[8] = (bool(targeting_problems(pos, parsed.actions, card_index))
+              if card_index is not None else None)
+    # 9 and 10 read only the answer's own lines, so they are always decidable.
+    out[9] = bool(wasted_tap_problems(pos, parsed.actions))
+    out[10] = bool(missing_phase_problems(pos, parsed.actions))
     return out
 
 
