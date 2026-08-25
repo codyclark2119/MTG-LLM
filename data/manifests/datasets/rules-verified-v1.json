@@ -9,6 +9,13 @@
     "cr-2026-08-07"
   ],
   "split_policy": "stratified within category; eval records excluded by id, source id, and question overlap",
+  "prompt_fingerprint": "30badae986965235ec5f82761eda0e3fe2c801dcd20ae3d709e2218daacea3fb",
+  "dataset_prompt_counts": {
+    "SYSTEM_PROMPT": 1112,
+    "RAG_SYSTEM_PROMPT": 0,
+    "CARDS_RAG_SYSTEM_PROMPT": 0
+  },
+  "unknown_prompt_count": 0,
   "splits": {
     "train": {
       "path": "data/datasets/verified/train.jsonl",

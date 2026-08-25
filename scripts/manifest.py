@@ -26,7 +26,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import REPO_ROOT, file_sha256  # noqa: E402
+from common import (CARDS_RAG_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT, REPO_ROOT,
+                    SYSTEM_PROMPT, file_sha256, prompt_fingerprint)  # noqa: E402
 
 
 def record_count(path: Path) -> int:
@@ -74,10 +75,31 @@ def build_dataset_manifest(dataset_dir: Path, dataset_id: str,
                            split_policy: str) -> dict:
     """Describe a train/valid JSONL dataset view without changing its files."""
     splits = {}
+    prompt_counts = {name: 0 for name in
+                     ("SYSTEM_PROMPT", "RAG_SYSTEM_PROMPT", "CARDS_RAG_SYSTEM_PROMPT")}
+    known_prompts = {
+        SYSTEM_PROMPT: "SYSTEM_PROMPT",
+        RAG_SYSTEM_PROMPT: "RAG_SYSTEM_PROMPT",
+        CARDS_RAG_SYSTEM_PROMPT: "CARDS_RAG_SYSTEM_PROMPT",
+    }
+    unknown_prompts = 0
     for split in ("train", "valid"):
         path = dataset_dir / f"{split}.jsonl"
         if not path.exists():
             raise FileNotFoundError(path)
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                for message in record.get("messages") or []:
+                    if message.get("role") != "system":
+                        continue
+                    prompt_name = known_prompts.get(message.get("content"))
+                    if prompt_name:
+                        prompt_counts[prompt_name] += 1
+                    else:
+                        unknown_prompts += 1
         splits[split] = {
             "path": relative_path(path),
             "record_count": record_count(path),
@@ -91,6 +113,9 @@ def build_dataset_manifest(dataset_dir: Path, dataset_id: str,
         "quality_tier": quality_tier,
         "source_ids": source_ids,
         "split_policy": split_policy,
+        "prompt_fingerprint": prompt_fingerprint()["prompt_fingerprint"],
+        "dataset_prompt_counts": prompt_counts,
+        "unknown_prompt_count": unknown_prompts,
         "splits": splits,
     }
 

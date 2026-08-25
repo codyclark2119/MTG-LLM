@@ -108,7 +108,8 @@ The current pinned corpora are all represented under `data/manifests/`; verify
 them with `python scripts/test_manifests.py`.
 
 Dataset views use the same tool and record train/valid hashes, quality tier,
-source IDs, and split policy. The verified SFT view is recorded in
+source IDs, split policy, prompt fingerprint, and observed system-prompt counts.
+The verified SFT view is recorded in
 [data/manifests/datasets/rules-verified-v1.json](data/manifests/datasets/rules-verified-v1.json).
 Pass that manifest to `stamp_adapter.py` after training to verify and record
 the exact dataset view used by an adapter.
