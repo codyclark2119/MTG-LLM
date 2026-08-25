@@ -1,6 +1,8 @@
 """Record which prompt an adapter was trained under, and check it at eval time.
 
     python scripts/stamp_adapter.py models/mtg-rules-adapter-v4 --dataset data/datasets/verified
+    python scripts/stamp_adapter.py models/mtg-rules-adapter-v4 \
+        --dataset-manifest data/manifests/datasets/rules-verified-v1.json
     python scripts/stamp_adapter.py models/mtg-rules-adapter-v2-best --verify
 
 WHY
@@ -14,7 +16,8 @@ documented failure mode (Section 8.7) and it cost a full re-run.
 
 This makes the invariant checkable: a stamp beside the weights, compared at eval
 time, turning the most expensive failure this project has had into an error
-message.
+message. A dataset manifest can also be verified and recorded, tying the
+adapter to exact train/valid files rather than only to a directory name.
 
 STAMPING IS EVIDENCE, NOT ASSERTION
 
@@ -41,10 +44,12 @@ from common import (  # noqa: E402
     CARDS_RAG_SYSTEM_PROMPT,
     PROMPT_STAMP_FILE,
     RAG_SYSTEM_PROMPT,
+    REPO_ROOT,
     SYSTEM_PROMPT,
     prompt_fingerprint,
     read_jsonl,
 )
+from manifest import relative_path, verify_dataset_manifest  # noqa: E402
 
 KNOWN = {"SYSTEM_PROMPT": SYSTEM_PROMPT,
          "RAG_SYSTEM_PROMPT": RAG_SYSTEM_PROMPT,
@@ -141,6 +146,8 @@ def main() -> None:
     ap.add_argument("adapter_dir", type=Path)
     ap.add_argument("--dataset", type=Path, default=None,
                     help="training set to verify the prompts against before stamping")
+    ap.add_argument("--dataset-manifest", type=Path, default=None,
+                    help="dataset manifest to verify and record beside the stamp")
     ap.add_argument("--verify", action="store_true", help="check only, write nothing")
     args = ap.parse_args()
 
@@ -152,8 +159,23 @@ def main() -> None:
         print(msg)
         raise SystemExit(0 if ok else 1)
 
+    dataset_manifest = None
+    if args.dataset_manifest:
+        try:
+            dataset_manifest = verify_dataset_manifest(args.dataset_manifest)
+        except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"dataset manifest verification failed: {exc}") from exc
+        manifest_dir = (REPO_ROOT / dataset_manifest["path"]).resolve()
+        if args.dataset and args.dataset.resolve() != manifest_dir:
+            raise SystemExit(
+                f"--dataset {args.dataset} does not match --dataset-manifest "
+                f"{args.dataset_manifest} ({manifest_dir})")
+
     fp = prompt_fingerprint()
     stamp = {**fp, "verified_against": None}
+    if dataset_manifest:
+        stamp["dataset_manifest"] = relative_path(args.dataset_manifest)
+        stamp["dataset_id"] = dataset_manifest["dataset_id"]
 
     if args.dataset:
         seen, unknown = dataset_prompts(args.dataset)

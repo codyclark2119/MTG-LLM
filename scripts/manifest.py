@@ -95,6 +95,20 @@ def build_dataset_manifest(dataset_dir: Path, dataset_id: str,
     }
 
 
+def verify_dataset_manifest(manifest_path: Path) -> dict:
+    """Verify a dataset manifest against its current train/valid files."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    dataset_dir = REPO_ROOT / manifest["path"]
+    actual = build_dataset_manifest(
+        dataset_dir, manifest["dataset_id"], manifest["quality_tier"],
+        manifest.get("source_ids", []), manifest["split_policy"])
+    if actual["splits"] != manifest.get("splits"):
+        raise ValueError(
+            f"dataset manifest is stale: {manifest_path} does not match "
+            f"the train/valid files under {dataset_dir}")
+    return manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
