@@ -45,6 +45,7 @@ judgement call.
 """
 
 import argparse
+import json
 import re
 import statistics
 import sys
@@ -60,6 +61,7 @@ from common import (  # noqa: E402
     RULE_ID_RE,
     read_jsonl,
 )
+from manifest import verify_dataset_manifest  # noqa: E402
 
 EVAL_SETS_DIR = REPO_ROOT / "eval/sets"
 
@@ -191,11 +193,24 @@ def main() -> None:
     ap.add_argument("--near-threshold", type=float, default=0.75,
                     help="token overlap at which a pair is reported for review")
     ap.add_argument("--report-out", type=Path, default=None)
+    ap.add_argument("--manifest", type=Path, default=None,
+                    help="verify this dataset manifest before auditing its splits")
     ap.add_argument("--allow-contamination", action="store_true",
                     help="report contamination without exiting non-zero. For "
                          "inspecting a set you already know is dirty — never "
                          "for one you intend to train on.")
     args = ap.parse_args()
+
+    if args.manifest:
+        try:
+            manifest = verify_dataset_manifest(args.manifest)
+        except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"dataset manifest verification failed: {exc}") from exc
+        expected_dir = Path(manifest["path"])
+        if args.dataset_dir.resolve() != expected_dir.resolve():
+            raise SystemExit(
+                f"dataset {args.dataset_dir} does not match manifest path {expected_dir}")
+        print(f"manifest verified: {args.manifest} ({manifest['dataset_id']})")
 
     splits = {}
     for name in ("train", "valid"):
