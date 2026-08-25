@@ -24,6 +24,12 @@ rubric into the gold set is a **local, reviewed step** — which is what keeps
 "gold" meaning *a person looked at this*, rather than *someone typed it into a
 box on the internet*.
 
+The server validates inputs independently of the browser: authors are required
+for attribution, rubric fields have bounded item and text sizes, adjudication
+error numbers must be integers within the task rubric, boolean controls must be
+JSON booleans, and a note is required when errors or `not_covered` are selected.
+Invalid submissions are rejected before they reach the append-only log.
+
 ## Deploy
 
 ```bash

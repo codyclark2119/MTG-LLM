@@ -61,6 +61,85 @@ from common import (lint_common_errors, stray_names, templatize, untemplatize,
 # question in the same instant would otherwise interleave a line.
 _WRITE_LOCK = threading.Lock()
 
+MAX_AUTHOR_LENGTH = 60
+MAX_RUBRIC_ITEMS = 20
+MAX_RUBRIC_ITEM_LENGTH = 1000
+MAX_NOTE_LENGTH = 2000
+
+
+def _text_list(value, field: str) -> tuple[list[str], list[str]]:
+  """Normalize a submitted text list and report malformed or oversized input."""
+  if not isinstance(value, list):
+    return [], [f"{field} must be a list"]
+  if len(value) > MAX_RUBRIC_ITEMS:
+    return [], [f"{field} must contain at most {MAX_RUBRIC_ITEMS} items"]
+  out, problems = [], []
+  for i, item in enumerate(value, 1):
+    if not isinstance(item, str):
+      problems.append(f"{field}[{i}] must be text")
+      continue
+    item = item.strip()
+    if len(item) > MAX_RUBRIC_ITEM_LENGTH:
+      problems.append(f"{field}[{i}] exceeds {MAX_RUBRIC_ITEM_LENGTH} characters")
+    elif item:
+      out.append(item)
+  return out, problems
+
+
+def validate_rubric_input(body: dict, task_ids: set[str]) -> list[str]:
+  """Validate the public rubric submission contract before persistence."""
+  problems = []
+  if body.get("id") not in task_ids:
+    problems.append("unknown id")
+  author = body.get("author")
+  if not isinstance(author, str) or not author.strip():
+    problems.append("author is required for attribution")
+  elif len(author.strip()) > MAX_AUTHOR_LENGTH:
+    problems.append(f"author exceeds {MAX_AUTHOR_LENGTH} characters")
+  key_points, kp_problems = _text_list(body.get("key_points"), "key_points")
+  common_errors, ce_problems = _text_list(body.get("common_errors"), "common_errors")
+  problems.extend(kp_problems + ce_problems)
+  if len(key_points) < 2:
+    problems.append("at least 2 key points are needed")
+  return problems
+
+
+def validate_adjudication_input(body: dict, task: dict) -> list[str]:
+  """Validate a blind adjudication submission before persistence."""
+  problems = []
+  if body.get("key") != task.get("key"):
+    problems.append("unknown key")
+  author = body.get("author")
+  if not isinstance(author, str) or not author.strip():
+    problems.append("author is required for attribution")
+  elif len(author.strip()) > MAX_AUTHOR_LENGTH:
+    problems.append(f"author exceeds {MAX_AUTHOR_LENGTH} characters")
+  present = body.get("errors_present")
+  if not isinstance(present, list):
+    problems.append("errors_present must be a list")
+  else:
+    if len(present) > len(task.get("common_errors") or []):
+      problems.append("errors_present contains too many entries")
+    for n in present:
+      if not isinstance(n, int) or isinstance(n, bool):
+        problems.append("errors_present must contain integers")
+        break
+    if all(isinstance(n, int) and not isinstance(n, bool) for n in present):
+      n_errors = len(task.get("common_errors") or [])
+      if any(n < 1 or n > n_errors for n in present):
+        problems.append(f"error numbers must be 1..{n_errors}")
+  note = body.get("note", "")
+  if not isinstance(note, str):
+    problems.append("note must be text")
+  elif len(note.strip()) > MAX_NOTE_LENGTH:
+    problems.append(f"note exceeds {MAX_NOTE_LENGTH} characters")
+  elif (body.get("errors_present") or body.get("not_covered")) and not note.strip():
+    problems.append("a note is required when errors are selected or the answer is not covered")
+  for field in ("unsure", "not_covered"):
+    if field in body and not isinstance(body[field], bool):
+      problems.append(f"{field} must be boolean")
+  return problems
+
 # Bumped whenever the adjudication form's WORDING changes in a way that could
 # move a verdict. The first eight verdicts were collected under v1, which asked
 # "which of these does it commit?" and did not say to judge the play rather than
@@ -535,11 +614,11 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
     async def api_submit(request: Request):
         body = await request.json()
         tid = body.get("id")
-        if tid not in by_id:
-            return JSONResponse({"error": "unknown id"}, 404)
-        kp = [s.strip() for s in body.get("key_points") or [] if s.strip()]
-        if len(kp) < 2:
-            return JSONResponse({"error": "at least 2 key points are needed"}, 400)
+        problems = validate_rubric_input(body, set(by_id))
+        if problems:
+            code = 404 if problems == ["unknown id"] else 400
+            return JSONResponse({"error": "; ".join(problems)}, code)
+        kp = [s.strip() for s in body["key_points"] if s.strip()]
         author = (body.get("author") or "").strip()[:60]
         ce = [s.strip() for s in body.get("common_errors") or [] if s.strip()]
         # Card names go in as slots. The author wrote "Castle Locthwain"; what
@@ -568,18 +647,16 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         """
         body = await request.json()
         tid = body.get("key")
-        if tid not in by_key:
-            return JSONResponse({"error": "unknown key"}, 404)
+        task = by_key.get(tid)
+        if not task:
+          return JSONResponse({"error": "unknown key"}, 404)
+        problems = validate_adjudication_input(body, task)
+        if problems:
+          code = 404 if problems == ["unknown key"] else 400
+          return JSONResponse({"error": "; ".join(problems)}, code)
         present = body.get("errors_present")
-        if not isinstance(present, list):
-            return JSONResponse({"error": "errors_present must be a list"}, 400)
         n_errors = len(by_key[tid].get("common_errors") or [])
-        try:
-            nums = sorted({int(n) for n in present})
-        except (TypeError, ValueError):
-            return JSONResponse({"error": "errors_present must be numbers"}, 400)
-        if any(n < 1 or n > n_errors for n in nums):
-            return JSONResponse({"error": f"error numbers must be 1..{n_errors}"}, 400)
+        nums = sorted(set(present))
         append_submission(submissions_path, {
             "key": tid,
             "record_id": by_key[tid].get("record_id"),
