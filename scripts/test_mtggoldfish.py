@@ -1,6 +1,7 @@
 """Test MTGGoldfish Arena export parsing and provenance preservation."""
 
 import sys
+import hashlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -44,6 +45,7 @@ def main() -> None:
     assert deck["deck_id"] == "mono-green-landfall"
     assert deck["format_snapshot"] == "data/manifests/formats/standard-2026-08-10.json"
     assert deck["source"] == "mtggoldfish"
+    assert deck["source_text_sha256"] == hashlib.sha256(EXPORT.encode()).hexdigest()
     assert deck["meta_percent"] == 11.8
     assert deck["metagame_sample_size"] == 86
     assert deck["metagame_observed_at"] == "2026-08-24"

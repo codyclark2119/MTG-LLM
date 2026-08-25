@@ -155,7 +155,8 @@ python scripts/mtggoldfish.py import deck.txt \
 The importer aggregates repeated card lines, then applies the deterministic
 decklist validator. Invalid or incomplete exports must be repaired before they
 can enter training data; a metagame page is a source reference, not ground
-truth by itself.
+truth by itself. Each imported record also stores a SHA-256 hash of the exact
+export text that was parsed.
 
 ### Gold set
 

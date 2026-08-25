@@ -12,7 +12,9 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -82,6 +84,7 @@ def import_deck(text: str, snapshot_path: Path, source_url: str,
         "format": snapshot["format"],
         "format_snapshot": relative_path(snapshot_path),
         "source": "mtggoldfish",
+        "source_text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "source_url": source_url,
         "export_url": export_url,
         "archetype_url": archetype_url,
@@ -128,8 +131,10 @@ def main() -> None:
             print(f"- {problem}")
         raise SystemExit(f"{len(problems)} decklist problem(s)")
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(deck, ensure_ascii=False, indent=2) + "\n",
-                        encoding="utf-8")
+    temp = args.out.with_suffix(args.out.suffix + ".tmp")
+    temp.write_text(json.dumps(deck, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    os.replace(temp, args.out)
     print(f"imported {deck['name']}: {sum(x['count'] for x in deck['mainboard'])} main / "
           f"{sum(x['count'] for x in deck['sideboard'])} side -> {args.out}")
 
