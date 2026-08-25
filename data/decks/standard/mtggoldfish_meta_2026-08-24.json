@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "source": "mtggoldfish",
+  "source_url": "https://www.mtggoldfish.com/metagame/standard#paper",
+  "observed_at": "2026-08-24",
+  "format": "standard",
+  "format_snapshot": "data/manifests/formats/standard-2026-08-10.json",
+  "note": "Metagame observations are reference metadata, not legality or deck-quality labels. Validate every imported deck against the referenced format snapshot.",
+  "archetypes": [
+    {
+      "name": "Mono-Green Landfall",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-mono-green-landfall-woe#paper",
+      "meta_percent": 11.8,
+      "sample_size": 86
+    },
+    {
+      "name": "4c Control",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-4c-control-woe#paper",
+      "meta_percent": 10.5,
+      "sample_size": 77
+    },
+    {
+      "name": "Izzet Spellementals",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-izzet-spellementals-woe#paper",
+      "meta_percent": 10.1,
+      "sample_size": 74
+    },
+    {
+      "name": "Dimir Midrange",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-dimir-midrange-woe#paper",
+      "meta_percent": 9.6,
+      "sample_size": 70
+    },
+    {
+      "name": "Dimir Excruciator",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-dimir-excruciator-woe#paper",
+      "meta_percent": 9.4,
+      "sample_size": 69
+    },
+    {
+      "name": "Lifegain",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-lifegain-woe#paper",
+      "meta_percent": 7.5,
+      "sample_size": 55
+    },
+    {
+      "name": "Mardu Discard",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-mardu-discard-woe#paper",
+      "meta_percent": 5.7,
+      "sample_size": 42
+    },
+    {
+      "name": "Azorius Tempo",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-azorius-tempo-woe#paper",
+      "meta_percent": 4.5,
+      "sample_size": 33
+    },
+    {
+      "name": "Sultai Reanimator",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-sultai-reanimator-woe#paper",
+      "meta_percent": 4.1,
+      "sample_size": 30
+    },
+    {
+      "name": "Mono-Red Aggro",
+      "archetype_url": "https://www.mtggoldfish.com/archetype/standard-mono-red-aggro-woe#paper",
+      "meta_percent": 2.6,
+      "sample_size": 19
+    }
+  ]
+}

@@ -125,6 +125,11 @@ python scripts/test_format_snapshot.py
 Future decklists must reference a format snapshot rather than an unqualified
 `standard` label, because rotation and bans change the legal pool.
 
+The current reference index is
+[data/decks/standard/mtggoldfish_meta_2026-08-24.json](data/decks/standard/mtggoldfish_meta_2026-08-24.json).
+It records observed archetype shares and source links only; it is not a deck
+legality or strategic-quality label.
+
 Validate a decklist before using it as training or evaluation data:
 
 ```bash
