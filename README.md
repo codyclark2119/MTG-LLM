@@ -114,6 +114,17 @@ The verified SFT view is recorded in
 Pass that manifest to `stamp_adapter.py` after training to verify and record
 the exact dataset view used by an adapter.
 
+Standard legality is tracked separately from the full Oracle pool. The current
+point-in-time pool is [standard-2026-08-10.json](data/manifests/formats/standard-2026-08-10.json)
+and can be verified with:
+
+```bash
+python scripts/test_format_snapshot.py
+```
+
+Future decklists must reference a format snapshot rather than an unqualified
+`standard` label, because rotation and bans change the legal pool.
+
 ### Gold set
 
 Human-reviewed questions with rubric-based answers — the highest-trust data here, and the basis for deciding which automated judge to believe.
