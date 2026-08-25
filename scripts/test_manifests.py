@@ -9,10 +9,12 @@ hash and JSONL record count for each checked-in knowledge artifact.
 
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from manifest import build_dataset_manifest, record_count  # noqa: E402
+from manifest import (build_dataset_manifest, record_count,
+                      verify_dataset_manifest)  # noqa: E402
 from common import REPO_ROOT, file_sha256  # noqa: E402
 
 ARTIFACTS = {
@@ -57,6 +59,17 @@ def main() -> None:
         assert stored["split_policy"] == actual["split_policy"]
         assert stored["splits"] == actual["splits"]
         datasets_checked += 1
+        tampered = dict(stored)
+        tampered["prompt_fingerprint"] = "0" * 64
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bad_path = Path(temp_dir) / manifest_name
+            bad_path.write_text(json.dumps(tampered), encoding="utf-8")
+            try:
+                verify_dataset_manifest(bad_path)
+            except ValueError as exc:
+                assert "stale" in str(exc)
+            else:
+                raise AssertionError("stale prompt metadata was accepted")
     print(f"all {checked} corpus manifests and {datasets_checked} dataset manifests match")
 
 

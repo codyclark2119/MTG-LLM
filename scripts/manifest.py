@@ -127,10 +127,12 @@ def verify_dataset_manifest(manifest_path: Path) -> dict:
     actual = build_dataset_manifest(
         dataset_dir, manifest["dataset_id"], manifest["quality_tier"],
         manifest.get("source_ids", []), manifest["split_policy"])
-    if actual["splits"] != manifest.get("splits"):
+    checked_fields = ("splits", "prompt_fingerprint", "dataset_prompt_counts",
+                      "unknown_prompt_count")
+    if any(actual[field] != manifest.get(field) for field in checked_fields):
         raise ValueError(
             f"dataset manifest is stale: {manifest_path} does not match "
-            f"the train/valid files under {dataset_dir}")
+            f"the train/valid files or current prompt definition under {dataset_dir}")
     return manifest
 
 
