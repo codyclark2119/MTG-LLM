@@ -125,6 +125,34 @@ python scripts/test_format_snapshot.py
 Future decklists must reference a format snapshot rather than an unqualified
 `standard` label, because rotation and bans change the legal pool.
 
+Validate a decklist before using it as training or evaluation data:
+
+```bash
+python scripts/decklist.py validate path/to/deck.json
+```
+
+The validator checks exact card names, the 60-card mainboard, the 15-card
+sideboard limit, banned cards, and the four-copy limit against the referenced
+snapshot.
+
+### Standard metagame deck intake
+
+MTGGoldfish Standard metagame entries can be imported from their Arena export
+text while retaining the metagame, archetype, and export URLs:
+
+```bash
+python scripts/mtggoldfish.py import deck.txt \
+    --archetype-url https://www.mtggoldfish.com/archetype/<slug>#paper \
+    --export-url https://www.mtggoldfish.com/deck/arena_download/<id> \
+    --snapshot data/manifests/formats/standard-2026-08-10.json \
+    --out data/decks/standard/<deck>.json
+```
+
+The importer aggregates repeated card lines, then applies the deterministic
+decklist validator. Invalid or incomplete exports must be repaired before they
+can enter training data; a metagame page is a source reference, not ground
+truth by itself.
+
 ### Gold set
 
 Human-reviewed questions with rubric-based answers — the highest-trust data here, and the basis for deciding which automated judge to believe.
