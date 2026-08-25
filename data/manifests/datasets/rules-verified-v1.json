@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "dataset_id": "rules-verified-v1",
+  "path": "data/datasets/verified",
+  "format": "jsonl",
+  "quality_tier": "human-verified",
+  "source_ids": [
+    "rulesguru-snapshot-2026-08-24",
+    "cr-2026-08-07"
+  ],
+  "split_policy": "stratified within category; eval records excluded by id, source id, and question overlap",
+  "splits": {
+    "train": {
+      "path": "data/datasets/verified/train.jsonl",
+      "record_count": 1001,
+      "content_sha256": "0fc5175343c11f3dfa5ebd893eebe0ea639151ed40ada5068e9c5012ac0f6791"
+    },
+    "valid": {
+      "path": "data/datasets/verified/valid.jsonl",
+      "record_count": 111,
+      "content_sha256": "0c07f9e89a82eb510bea46c75f53d1e78cecb76677c941925d61a99138052478"
+    }
+  }
+}

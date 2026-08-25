@@ -99,6 +99,10 @@ source. The first repository manifest is [data/manifests/ruling_chunks.json](dat
 The current pinned corpora are all represented under `data/manifests/`; verify
 them with `python scripts/test_manifests.py`.
 
+Dataset views use the same tool and record train/valid hashes, quality tier,
+source IDs, and split policy. The verified SFT view is recorded in
+[data/manifests/datasets/rules-verified-v1.json](data/manifests/datasets/rules-verified-v1.json).
+
 ### Gold set
 
 Human-reviewed questions with rubric-based answers — the highest-trust data here, and the basis for deciding which automated judge to believe.
