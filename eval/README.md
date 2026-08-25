@@ -38,6 +38,7 @@ anything, and it is what `--rescore-from` exists to do.
 | `cards_n60` | 13.5 | card-augmented arms, with a no-card control subset |
 | `cards_n60_superseded_headerbug` | 13.5 | the run whose control read −0.34 — impossible with identical contexts, and the reason the control exists. Duplicated `"Rules text:"` header |
 | `cards_n100`, `cards_n100_judge2` | 13.5 | the +0.69 card effect failing to replicate at n=100 |
+| `*_cards_rulings` | new experiment | card lookup plus pinned official WotC rulings and rules retrieval |
 | `pilot_v3`, `pilot_v3_judge2` | 14.5–14.6 | the rubric judge, and hand vs machine rubrics |
 | `positions_seed*` | 16.11–16.12 | gameplay gates; the judge swap reverses two of three |
 
@@ -49,3 +50,20 @@ identical answers. A single-judge report is a statement about that judge —
 every report now names its base model, adapter and judge in the body, because
 the most important variable of a two-judge study used to live only in the
 filename.
+
+## Official ruling experiment
+
+Add the ruling-augmented arms explicitly:
+
+```bash
+python scripts/eval.py --with-cards --with-rulings \
+	--gold-only --gold data/gold/gold_questions.jsonl \
+	--out eval/runs/cards_rulings_n99.jsonl \
+	--report-out eval/reports/cards_rulings_n99.md
+```
+
+This creates `base_rag_cards_rulings` and `finetuned_rag_cards_rulings` in
+addition to the existing arms. It is a new six-arm experiment, not a result
+that can be compared directly with a four-arm run: the batched judge scores
+all candidates together, so use the same arm count for follow-up rescoring.
+The option is disabled by default and does not change existing evaluations.

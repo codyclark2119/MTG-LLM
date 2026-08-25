@@ -670,9 +670,11 @@ def stratified_sample(rows: list[dict], limit: int, key: str = "category") -> li
 
 
 def load_gold_questions(path: Path, limit: int | None = None, stratify: bool = True) -> list[dict]:
-    """Load rubric-bearing eval rows (gold set or RulesGuru candidates).
+    """Load rubric-bearing eval rows from flat or chat-format JSONL.
 
-    These carry `key_points`, which routes them to the V3 rubric judge.
+    The canonical gold set stores `question`/`answer` fields, while derived
+    eval sets store the same content in chat `messages`. Both carry
+    `key_points`, which routes them to the V3 rubric judge.
     Never truncated: the files are ordered by id, which correlates with
     topic, so the first N is not a cross-section.
     """
@@ -687,16 +689,24 @@ def load_gold_questions(path: Path, limit: int | None = None, stratify: bool = T
 
     questions = []
     for r in rows:
+        messages = r.get("messages") or []
+        if messages:
+            user = next((m["content"] for m in messages if m.get("role") == "user"), "")
+            reference = next((m["content"] for m in reversed(messages)
+                              if m.get("role") == "assistant"), "")
+        else:
+            user = r.get("question", "")
+            reference = r.get("answer", "")
         questions.append(
             {
                 "source": r.get("source", "gold"),
                 "category": r.get("category"),
-                "question": r["messages"][1]["content"],
-                "reference": r["messages"][2]["content"],
+                "question": user,
+                "reference": reference,
                 "supporting_rule_ids": r.get("supporting_rule_ids", []),
                 "key_points": r.get("key_points", []),
                 "common_errors": r.get("common_errors", []),
-                "gold_id": r.get("gold_id"),
+                "gold_id": r.get("gold_id") or r.get("id"),
                 "difficulty": r.get("difficulty"),
             }
         )
@@ -733,7 +743,8 @@ def retrieve_context(question: str, embed_model, k: int = 3) -> str:
 
 def generate_all_answers(
     questions: list[dict], embed_model, max_tokens: int, adapter_path_under_test: str,
-    with_cards: bool = False, base_model_id: str = BASE_MODEL_ID,
+    with_cards: bool = False, with_rulings: bool = False,
+    base_model_id: str = BASE_MODEL_ID,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
@@ -747,16 +758,21 @@ def generate_all_answers(
         # question actually names, resolved by lookup rather than embedding
         # (see scripts/retrieve_hybrid.py for why they aren't merged).
         from card_lookup import CardIndex
-        from retrieve_hybrid import build_context
+        from retrieve_hybrid import RulingIndex, build_context
 
         print("loading card index for card-augmented arms ...")
         card_index = CardIndex()
+        ruling_index = RulingIndex() if with_rulings else None
         card_contexts = [
-            build_context(q["question"], card_index, embed_model=embed_model)["context"]
+            build_context(q["question"], card_index, embed_model=embed_model,
+                          ruling_index=ruling_index)["context"]
             for q in questions
         ]
         named = sum(1 for c in card_contexts if c.startswith("Cards referenced:"))
         print(f"  {named}/{len(questions)} questions had at least one card resolved")
+        if with_rulings:
+            with_official = sum(1 for c in card_contexts if "Official rulings:" in c)
+            print(f"  {with_official}/{len(questions)} questions had official rulings")
 
     # An adapter is only valid for the prompt format it saw. Checked HERE,
     # before generating hundreds of answers, because the failure it guards
@@ -772,7 +788,10 @@ def generate_all_answers(
         # The fingerprint asks whether the prompts were EDITED since training.
         # This asks whether the adapter ever saw the one an arm is about to use,
         # which a matching fingerprint cannot tell you (Section 8.7, 21.50).
-        planned = ["finetuned", "finetuned_rag"] + (["finetuned_rag_cards"] if with_cards else [])
+        planned = ["finetuned", "finetuned_rag"]
+        if with_cards:
+            planned.append("finetuned_rag_cards_rulings" if with_rulings
+                           else "finetuned_rag_cards")
         for arm in unseen_arms(Path(adapter_path_under_test), planned):
             print(f"  WARNING: arm `{arm}` uses a system prompt this adapter's "
                   f"training set contains ZERO times.")
@@ -784,7 +803,8 @@ def generate_all_answers(
         # (contexts, arm name, whether that context is already section-labeled)
         variants = [(contexts, f"{arm_name}_rag", False), (None, arm_name, False)]
         if with_cards:
-            variants.append((card_contexts, f"{arm_name}_rag_cards", True))
+            suffix = "_rag_cards_rulings" if with_rulings else "_rag_cards"
+            variants.append((card_contexts, f"{arm_name}{suffix}", True))
 
         for ctxs, out_key, preformatted in variants:
             print(f"generating arm: {out_key}")
@@ -1302,6 +1322,8 @@ def main() -> None:
     parser.add_argument("--candidates", type=Path, default=GOLD_CANDIDATES_PATH)
     parser.add_argument("--with-cards", action="store_true",
                         help="add {base,finetuned}_rag_cards arms using card-name lookup + rules retrieval")
+    parser.add_argument("--with-rulings", action="store_true",
+                        help="with --with-cards, add official WotC rulings to the card context")
     parser.add_argument("--judge-model", default=None,
                         help="model used as judge. Defaults to --base-model — which is ALSO the "
                              "'base' arm under test, so an independent judge is needed to rule out "
@@ -1313,6 +1335,9 @@ def main() -> None:
     parser.add_argument("--rescore-from", type=Path, default=None,
                         help="re-judge stored answers from a previous results file instead of regenerating")
     args = parser.parse_args()
+
+    if args.with_rulings and not args.with_cards:
+        raise SystemExit("--with-rulings requires --with-cards")
 
     # --judge-model defaults to whatever base model is under test rather than to
     # a hardcoded id, so pointing --base-model at something else doesn't leave
@@ -1358,7 +1383,8 @@ def main() -> None:
     embed_model = load_embedder(EMBED_MODEL_ID)
 
     answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path,
-                                   args.with_cards, base_model_id=args.base_model)
+                                   args.with_cards, args.with_rulings,
+                                   base_model_id=args.base_model)
     arm_names = list(answers.keys())
 
     # Consistency check: rerun a subset of finetuned_rag questions and see

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source_id": "scryfall-rulings-2026-08-24",
+  "path": "data/cards/processed/ruling_chunks.jsonl",
+  "format": "jsonl",
+  "record_count": 19726,
+  "content_sha256": "1e3e0fd4b57d4e10796e6adaf7fd0fdbe3a3899c0fd10aec7b71745e2ee24c17",
+  "authority": "official-wotc-rulings",
+  "license": "scryfall-data",
+  "retrieved_at": "2026-08-24",
+  "notes": "Derived from the pinned WotC ruling snapshot and grouped by Oracle card."
+}

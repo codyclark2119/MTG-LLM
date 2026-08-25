@@ -81,6 +81,24 @@ python scripts/ingest_rulings.py                       # 77,918 official WotC ru
 
 Use the **full Oracle pool**, not a format subset: the Standard-only pool covered just 4% of the cards players actually ask about. `fetch_cards.py --format standard` still exists for format-scoped experiments, but `chunk_cards.py` refuses to overwrite the full corpus with a subset unless you pass `--force`.
 
+### Source manifests
+
+Immutable JSONL artifacts can be described with a content and provenance
+manifest:
+
+```bash
+python scripts/manifest.py data/cards/processed/ruling_chunks.jsonl \
+    --source-id scryfall-rulings-YYYY-MM-DD \
+    --authority official-wotc-rulings \
+    --license scryfall-data \
+    --out data/manifests/ruling_chunks.json
+```
+
+The manifest records the artifact hash and record count without rewriting the
+source. The first repository manifest is [data/manifests/ruling_chunks.json](data/manifests/ruling_chunks.json).
+The current pinned corpora are all represented under `data/manifests/`; verify
+them with `python scripts/test_manifests.py`.
+
 ### Gold set
 
 Human-reviewed questions with rubric-based answers — the highest-trust data here, and the basis for deciding which automated judge to believe.

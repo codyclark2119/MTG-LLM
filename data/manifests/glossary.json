@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "source_id": "wotc-rules-glossary-2026-08-07",
+  "path": "data/processed/glossary.jsonl",
+  "format": "jsonl",
+  "record_count": 739,
+  "content_sha256": "78cff7d85e6a26ae1ac89587fbf0c3f9c292f3608f7358ee24118419d598d75c",
+  "authority": "wotc-comprehensive-rules",
+  "retrieved_at": "2026-08-07"
+}

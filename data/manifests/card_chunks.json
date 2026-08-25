@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "source_id": "scryfall-oracle-chunks-2026-08-24",
+  "path": "data/cards/processed/card_chunks.jsonl",
+  "format": "jsonl",
+  "record_count": 34933,
+  "content_sha256": "407903e2d42442dbdb8c598d4269fe4f8c2349c07a2164c7d9b7cf438df240f7",
+  "authority": "scryfall-oracle-data",
+  "license": "scryfall-data",
+  "retrieved_at": "2026-08-24"
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "source_id": "wotc-comprehensive-rules-2026-08-07",
+  "path": "data/processed/rules.jsonl",
+  "format": "jsonl",
+  "record_count": 3162,
+  "content_sha256": "bbb5ef03db73e51b8092046e79412cf11ca0b8e4510df02ed823049a97a29ead",
+  "authority": "wotc-comprehensive-rules",
+  "retrieved_at": "2026-08-07"
+}
