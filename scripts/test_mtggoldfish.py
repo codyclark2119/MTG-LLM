@@ -36,10 +36,17 @@ def main() -> None:
         "https://www.mtggoldfish.com/metagame/standard#paper",
         "https://www.mtggoldfish.com/deck/arena_download/7922863",
         "https://www.mtggoldfish.com/archetype/standard-mono-green-landfall-woe#paper",
+        archetype="Mono-Green Landfall",
+        meta_percent=11.8,
+        sample_size=86,
+        observed_at="2026-08-24",
     )
     assert deck["deck_id"] == "mono-green-landfall"
     assert deck["format_snapshot"] == "data/manifests/formats/standard-2026-08-10.json"
     assert deck["source"] == "mtggoldfish"
+    assert deck["meta_percent"] == 11.8
+    assert deck["metagame_sample_size"] == 86
+    assert deck["metagame_observed_at"] == "2026-08-24"
     print("MTGGoldfish parser and provenance test passed")
 
 

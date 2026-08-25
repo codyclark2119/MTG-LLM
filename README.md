@@ -143,6 +143,10 @@ text while retaining the metagame, archetype, and export URLs:
 ```bash
 python scripts/mtggoldfish.py import deck.txt \
     --archetype-url https://www.mtggoldfish.com/archetype/<slug>#paper \
+    --archetype "Mono-Green Landfall" \
+    --meta-percent 11.8 \
+    --sample-size 86 \
+    --observed-at 2026-08-24 \
     --export-url https://www.mtggoldfish.com/deck/arena_download/<id> \
     --snapshot data/manifests/formats/standard-2026-08-10.json \
     --out data/decks/standard/<deck>.json

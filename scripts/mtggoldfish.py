@@ -67,12 +67,16 @@ def _aggregate(entries: list[dict]) -> list[dict]:
 
 
 def import_deck(text: str, snapshot_path: Path, source_url: str,
-                export_url: str, archetype_url: str | None = None) -> dict:
+                export_url: str, archetype_url: str | None = None,
+                archetype: str | None = None,
+                meta_percent: float | None = None,
+                sample_size: int | None = None,
+                observed_at: str | None = None) -> dict:
     """Build a canonical deck record and validate it against a snapshot."""
     snapshot = verify_snapshot(snapshot_path)
     name, main, side = parse_arena_export(text)
     deck_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "mtggoldfish-deck"
-    return {
+    deck = {
         "deck_id": deck_id,
         "name": name or deck_id,
         "format": snapshot["format"],
@@ -84,6 +88,15 @@ def import_deck(text: str, snapshot_path: Path, source_url: str,
         "mainboard": main,
         "sideboard": side,
     }
+    if archetype:
+        deck["archetype"] = archetype
+    if meta_percent is not None:
+        deck["meta_percent"] = meta_percent
+    if sample_size is not None:
+        deck["metagame_sample_size"] = sample_size
+    if observed_at:
+        deck["metagame_observed_at"] = observed_at
+    return deck
 
 
 def main() -> None:
@@ -96,12 +109,18 @@ def main() -> None:
     imp.add_argument("--source-url", default="https://www.mtggoldfish.com/metagame/standard#paper")
     imp.add_argument("--export-url", required=True)
     imp.add_argument("--archetype-url")
+    imp.add_argument("--archetype")
+    imp.add_argument("--meta-percent", type=float)
+    imp.add_argument("--sample-size", type=int)
+    imp.add_argument("--observed-at")
     imp.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
     snapshot_path = args.snapshot if args.snapshot.is_absolute() else Path.cwd() / args.snapshot
     deck = import_deck(args.source.read_text(encoding="utf-8"), snapshot_path,
-                       args.source_url, args.export_url, args.archetype_url)
+                       args.source_url, args.export_url, args.archetype_url,
+                       args.archetype, args.meta_percent, args.sample_size,
+                       args.observed_at)
     snapshot = verify_snapshot(snapshot_path)
     problems = validate_decklist(deck, snapshot, relative_path(snapshot_path))
     if problems:
