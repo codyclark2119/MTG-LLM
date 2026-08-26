@@ -835,6 +835,16 @@ def check_reference(pos: dict, lines: list[str], card_index=None) -> list[str]:
         return ["reference is empty"]
     parsed = parse_output("\n".join(lines))
     problems = [f"unparseable: {f.line!r}" for f in parsed.failures]
+    # A line the parser did not recognise goes to `ignored`, which is deliberate
+    # prose tolerance for ARM answers — a model that reasons aloud must not have
+    # its explanation parsed as plays (21.61). A reference is not prose: every
+    # line is a claim about the correct play, so an ignored line is a line the
+    # reviewer believed they had written and the grammar never saw.
+    #
+    # First real use produced exactly this: `END PHASE Declare Attackers` twice,
+    # a verb that does not exist, accepted in silence because nothing outside
+    # `test_actions` reads `ignored` (Section 21.86).
+    problems.extend(f"not in the action grammar: {ln!r}" for ln in parsed.ignored)
 
     legal = pos.get("legal_actions") or []
     if legal:

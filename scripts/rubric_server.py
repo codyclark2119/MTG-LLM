@@ -54,8 +54,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 # The only project imports, all pure python — see the module docstring.
-from common import (lint_common_errors, stray_names, templatize, untemplatize,
-                    verdict_is_current)
+from common import (ACTION_GRAMMAR, lint_common_errors, stray_names,  # noqa: E402
+                    templatize, untemplatize, verdict_is_current)
 
 # One writer at a time. Submissions append, and two contributors finishing a
 # question in the same instant would otherwise interleave a line.
@@ -441,6 +441,19 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
     # against the same served tasks rather than trusting the client's string.
     by_record = {t.get("record_id") or (t.get("key") or "").split("::")[0]
                  for t in adj_tasks}
+
+    @app.get("/api/grammar")
+    def api_grammar():
+        """The action grammar, for the reference-authoring box.
+
+        The MODEL is shown this in every gameplay prompt; the reviewer authoring
+        the correct line was not, and the first reference submitted invented
+        `END PHASE <step>` and used `BLOCK`'s arrow on `ATTACK` — both
+        reasonable guesses, neither in the grammar (Section 21.86). Served from
+        `common.ACTION_GRAMMAR` so the form cannot drift from what the model is
+        told, which is the same one-definition rule `build_rag_messages` follows.
+        """
+        return {"grammar": ACTION_GRAMMAR}
     tasks = rubric_tasks or adj_tasks
     categories = sorted({t.get("category") or "" for t in rubric_tasks})
 
@@ -1176,6 +1189,10 @@ input[type=text],.note{width:100%;padding:.55rem .6rem;font:inherit;font-size:.9
 details.legal{margin:.4rem 0 .6rem;font-size:.86rem;color:var(--soft)}
 details.legal summary{cursor:pointer;color:var(--accent)}
 details.legal ul{margin:.4rem 0 0;padding-left:1.2rem}
+pre.gram{margin:.4rem 0 0;padding:.5rem .6rem;background:var(--panel);
+ border:1px solid var(--rule);border-radius:4px;overflow-x:auto;
+ font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+ line-height:1.45;white-space:pre}
 h3.grp{margin:1.1rem 0 .35rem;font-size:.74rem;text-transform:uppercase;
  letter-spacing:.07em;color:var(--faint);font-weight:650;
  border-top:1px solid var(--rule);padding-top:.7rem}
@@ -1223,7 +1240,9 @@ function renderArm(arm){
     '</div>';
 }
 
+let GRAMMAR='';
 async function load(){
+  try{GRAMMAR=(await (await fetch('/api/grammar')).json()).grammar||''}catch(e){}
   const r=await fetch('/api/tasks?kind=adjudication'+(who()?'&author='+encodeURIComponent(who()):''));
   const d=await r.json();T=(d.tasks||[]).slice().sort((a,b)=>(a.done===b.done?0:(a.done?1:-1)));
   const first=T.findIndex(t=>!t.done);i=first===-1?0:first;render();
@@ -1254,6 +1273,8 @@ function referenceBlock(t){
     'reference for this board \u2014 it is checked by the parser on import and '+
     'refused if any line is not legal here, so it can serve as a known-good '+
     'answer to measure against later.</p>'+
+    '<details class="legal"><summary>Show the action grammar</summary>'+
+    '<pre class="gram">'+esc(GRAMMAR||'(loading)')+'</pre></details>'+
     '<details class="legal"><summary>Show the legal plays on this board ('+
       (t.legal_actions||[]).length+')</summary>'+
     '<ul>'+((t.legal_actions||[]).map(a=>'<li><code>'+esc(a)+'</code></li>').join('')

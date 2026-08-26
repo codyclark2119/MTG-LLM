@@ -1043,6 +1043,18 @@ def test_reference_answer() -> int:
     failed += not check("a line with no PHASE is refused",
                         any("entry 10" in n for n in nophase), True)
 
+    # A line the grammar does not recognise goes to `ignored`, which is prose
+    # tolerance for ARM answers (21.61) and wrong for a reference, where every
+    # line is a claim. The first reference submitted invented `END PHASE <step>`
+    # twice and was accepted in silence (Section 21.86).
+    invented = check_reference(board, ["PHASE precombat main",
+                                       "CAST Shock TARGET Bear",
+                                       "END PHASE precombat main", "PASS"])
+    failed += not check("a line outside the grammar is refused",
+                        any("not in the action grammar" in i for i in invented), True)
+    failed += not check("...and it names the line",
+                        any("END PHASE" in i for i in invented), True)
+
     # A board that intentionally enumerates no play: PASS alone is the whole
     # correct answer, and a reference that plays something contradicts it.
     nolegal = {"id": "t2", "phase": "precombat main", "legal_actions": [],

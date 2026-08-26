@@ -521,6 +521,13 @@ Two invariants worth keeping:
 - **Attribution rides on each submission**, not on the import command, so one
   file holds several authors and `eval.py --compare` can break agreement down
   per author.
+- **A play-shaped line can parse as prose.** `parse_output` routes anything it
+  does not recognise to `ParsedOutput.ignored`, which nothing outside
+  `test_actions` reads. That is deliberate for arm answers (21.61: prose about a
+  play must not parse AS that play) and wrong for a reference line, where there
+  is no prose — the first one submitted invented `END PHASE <step>` twice and
+  was accepted in silence. `check_reference` refuses ignored lines by name. The
+  inverse of 21.61, from the same bucket (21.86).
 - **`reference_actions` is the 100%-correct line**, authored in the form and
   promoted by `positions.py --ingest-references` (21.85). It is **refused
   unless the parser agrees**: it must parse, every play must be in

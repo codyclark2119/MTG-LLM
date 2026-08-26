@@ -7905,3 +7905,93 @@ disagree with the checker, with an assertion that no field other than
 `valid_turn` and `protocol_truth` moved on any of 170 arm-answers. A stored run
 whose numbers disagree with the code that produced them is a trap for whoever
 reads it next.
+
+### 21.86 The first reference line, and three things it found
+
+One reference submitted through the deployed form, for `pos-combat-math-0005`:
+
+```
+PHASE Pre-Combat Main Phase
+CAST Shock TARGET Grizzly Bears
+PASS
+END PHASE Pre-Combat Main Phase
+PHASE Declare Attackers
+ATTACK Centaur Courser -> Opponent
+PASS
+END PHASE Declare Attackers
+```
+
+Every one of the three problems it exposed is about the *instrument*, not the
+reviewer, which is what asking a person for the perfect answer is for.
+
+#### 1. A line outside the grammar was accepted in silence
+
+`END PHASE <step>` is not a verb. `parse_output` did not fail on it — it routed
+both lines to `ParsedOutput.ignored`, and **nothing outside `test_actions.py`
+reads `ignored`**. So `check_reference` accepted two invented lines without
+comment and complained only about the ATTACK.
+
+That bucket is deliberate and right for **arm answers**: a model that reasons
+aloud must not have its explanation parsed as plays, which is 21.61's whole
+subject. It is wrong for a **reference**, where there is no prose — every line
+is a claim about the correct play, so a line the grammar never saw is a line the
+reviewer believed they had written. `check_reference` now refuses them by name.
+
+The general shape is worth naming, because it is the inverse of a trap already
+in this file. 21.61 was *prose parsing AS a play*; this is *a play-shaped line
+parsing as prose*. The same `ignored` bucket produces both, and which one is the
+bug depends entirely on whether the text was supposed to contain prose.
+
+#### 2. The form asked for a grammar it never showed
+
+The **model** is given `ACTION_GRAMMAR` in every gameplay prompt. The reviewer
+authoring the correct line was not. Both mistakes in the submission are what a
+careful person guesses without it:
+
+- `END PHASE <step>` — reasonable, since `PHASE <step>` exists and a turn has to
+  advance somehow;
+- `ATTACK Centaur Courser -> Opponent` — reasonable, since `BLOCK <blocker> ->
+  <attacker>` uses exactly that arrow. The grammar is `ATTACK <creature>,
+  <creature>`.
+
+**Models make the same arrow guess**: 6 of 418 stored answers write `ATTACK … ->
+…`. So this is a real confusion in the grammar's design rather than one
+person's slip, and the arrow means "assign X to Y" in one verb and nothing in
+the other.
+
+The form now serves `common.ACTION_GRAMMAR` from `/api/grammar` and shows it
+collapsed beside the legal plays. Served from the constant rather than copied,
+so the form cannot drift from what the model is told — the same one-definition
+rule `build_rag_messages` follows for prompts.
+
+#### 3. A position whose correct line spans two phases
+
+The remaining charge is entry 4, *the PHASE line names a step other than the one
+the position is in*. It is correct on its own terms: `pos-combat-math-0005` has
+`phase: "precombat main"`, and the answer declares `Declare Attackers`.
+
+But the position's own `legal_actions` are:
+
+```
+CAST Shock TARGET Grizzly Bears     <- main phase
+CAST Shock TARGET opponent          <- main phase
+ATTACK Centaur Courser              <- combat
+```
+
+So the board enumerates plays from two steps while recording one, and **any
+correct line that both casts and attacks must trip entry 4**. The reviewer's
+answer is right about the game and wrong about the rubric.
+
+Not resolved here, because the three available fixes are different claims about
+what a position *is*:
+
+- drop `ATTACK` from the legal list, making it a single-decision position;
+- let entry 4 accept a *later* step in the same turn, so a line may advance;
+- treat it as a turn scenario — which is what `turns.py` exists for, and what
+  stage 6 (full-turn validity) is about.
+
+The third is the principled one: a position whose correct answer spans phases is
+a sequence, and 21.71 built the harness for sequences precisely so that a
+multi-step line is scored step by step rather than crammed into one board. But
+it is a decision about the gold set's shape, so it is stated with its options
+rather than taken.
