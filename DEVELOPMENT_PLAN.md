@@ -8712,3 +8712,70 @@ allow one person to drive both sides, which turns recording from *mining* into
 *authoring by playing*: both decks chosen, the board played toward deliberately,
 and none of the opponent-variance or selection-bias problems that passive log
 mining has. XMage additionally enforces the rules, so it is the initial platform.
+
+### 21.99 XMage can be asked, and the export found the phase vocabulary was never one
+
+Two results from starting on XMage as the platform, and the second arrived
+before any Java was compiled.
+
+#### The blocker is answered: the engine can be queried
+
+`PLAN_NEXT` recorded the open question as whether XMage can be *asked* what is
+legal, or only asserted against outcomes — the difference between a two-sided
+check and a one-sided one that cannot find a MISSING action (21.43). From
+`Mage/src/main/java/mage/players/Player.java`:
+
+```java
+List<ActivatedAbility> getPlayable(Game game, boolean hidden);
+PlayableObjectsList    getPlayableObjects(Game game, Zone zone);
+Map<UUID, ActivatedAbility> getPlayableActivatedAbilities(MageObject, Zone, Game);
+```
+
+So it can be asked. `scripts/gameplay/xmage_export.py` emits one
+`CardTestPlayerBase` test per position — life, battlefield grouped by card,
+hand, a library of the stated size, `setStopAt(turn, PhaseStep.X)` — and prints
+`getPlayable(...)` beside the position's own `legal_actions`.
+
+Two mappings this repo cannot verify are isolated at the top of that file rather
+than spread through the templates: `PHASE_STEP` and `TAPPED_CALL`. They are the
+parts most likely to be wrong, and a silently wrong tap state makes a mana check
+pass that should fail. One fix each against a real checkout and everything
+re-exports.
+
+**The emitted Java has never been compiled** — there is no JVM here, and a
+generated test that has never run is a draft, not a result. The tool says so in
+its own output.
+
+#### The phase vocabulary was never a vocabulary
+
+Exporting all 32 positions failed to map a phase on **10 of them**, and the
+reason is the finding:
+
+| written as | count | intended |
+| --- | --- | --- |
+| `precombat main` | 13 | — |
+| `pre-combat main phase` | **4** | `precombat main` |
+| `post-combat main phase` | **2** | `postcombat main` |
+| `opening hand, on the play` | **2** | `opening hand` |
+| `opponent's declare attackers step` | 1 | `declare attackers` |
+| `opponent's declare blockers step` | 1 | `declare blockers` |
+
+Nine spellings for what `PHASE_NAMES` defines as fourteen closed steps.
+
+It passed every existing check because `phase_problems` matches by SUBSTRING, on
+purpose — 21.61 made it loose so that "opponent's declare attackers" and
+"declare attackers" would agree, which is right. But `'pre-combat main phase'`
+satisfies it via `'main'` and **never via `'precombat main'`**, because of the
+hyphen. The check has been passing by accident on 4 boards, and would keep
+passing if the phase were changed to something else containing "main".
+
+This is 21.98 arriving as a concrete artifact rather than a caveat. A person
+authoring fourteen boards does not spell one step four ways; a generator does.
+And the looseness that makes the check humane is exactly what stopped it being
+noticed — the same shape as every check in this file that is right about its
+own question and silent about a neighbouring one.
+
+Not enforced here. Making `validate_position` reject a non-canonical phase
+would fail 10 of 32 positions immediately, which is a decision about the gold
+set rather than about the checker, and the set is about to be replaced from
+played games anyway. The export reports it, which is enough to act on.
