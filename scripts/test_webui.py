@@ -131,6 +131,7 @@ def main() -> None:
     # Every page the server can return. Added with /reference (21.90) — a page
     # without a line here is a page whose JavaScript nothing parses.
     check_page("rubric_server/reference", rubric_server.REFERENCE_HTML)
+    check_page("rubric_server/scenario", rubric_server.SCENARIO_HTML)
 
     # Grouped adjudication must not re-submit already-saved arms when revisiting
     # a record. The guard is in-page JavaScript so keep a string-level check.
@@ -173,6 +174,7 @@ def main() -> None:
     # Checked in the dead-rule direction only. A page with markup and no CSS is
     # ordinary; a page with CSS for a selector it never uses is a mistake.
     for name, page in (("reference", rubric_server.REFERENCE_HTML),
+                       ("scenario", rubric_server.SCENARIO_HTML),
                        ("rubric", rubric_server.INDEX_HTML),
                        ("adjudicate", rubric_server.ADJUDICATE_HTML),
                        ("position", rubric_server.POSITION_HTML),
@@ -197,6 +199,7 @@ def main() -> None:
     # Scoped to helpers this repo defines somewhere, so browser builtins and
     # library calls are not flagged.
     pages = {"reference": rubric_server.REFERENCE_HTML,
+             "scenario": rubric_server.SCENARIO_HTML,
              "rubric": rubric_server.INDEX_HTML,
              "adjudicate": rubric_server.ADJUDICATE_HTML,
              "position": rubric_server.POSITION_HTML,

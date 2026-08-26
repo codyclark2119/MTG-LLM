@@ -565,6 +565,18 @@ Two invariants worth keeping:
   whether the lines agree with EACH OTHER, which is what makes them usable as
   one standard. It reports and never enforces — a mulligan line correctly has no
   `END PHASE` and a combat one probably should (21.91).
+- **`/scenario` authors a turn as a sequence of boards** (21.96) — the only way
+  to write a line that crosses an opponent's window, since the grammar has one
+  player in it (21.89). Each step is authored WHOLE because that is what a
+  person can check, and stored as a DIFF (`STEP_OVERRIDES`) so one board is not
+  restated per step; `turns.scenario_from_submission` does that server-side.
+  Adding a step clones the previous one. A scenario is refused **whole** —
+  `expand_steps` teacher-forces along the reference line, so one bad step
+  silently changes every board after it.
+- **Entry 1 is also decidable from the REFERENCE line** (21.96). If a board's
+  100%-correct answer only passes, an answer that only passes is not "makes no
+  play" — the gold answer makes none either. That covers *declining an available
+  play* (holding removal), which 21.85's empty-`legal_actions` rule cannot reach.
 - **`/reference` is where correct lines are authored**, separate from grading:
   grading walks a sample once, authoring revisits a board until the line is
   right (21.90). It covers scenario steps too — `expand_steps` returns them

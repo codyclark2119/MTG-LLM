@@ -297,6 +297,16 @@ DATASETS_DIR = REPO_ROOT / "data/datasets"
 # turned a correct play into an illegal one and would have been read as the
 # model naming actions that do not exist. Optional forms get their own line
 # instead, so there is no meta-syntax left to copy.
+# The position categories, for the deployed authoring form. `gameplay.positions`
+# owns the list and cannot be imported by `rubric_server` — `common.py` must
+# stay pure stdlib — so this mirrors it and `test_eval` asserts the two agree.
+# Same arrangement, and same risk, as `PHASE_VOCABULARY` (Section 21.96).
+POSITION_CATEGORIES = (
+    "mulligan", "land sequencing", "combat math", "blocking",
+    "removal timing", "trigger ordering", "race vs stabilize",
+    "payment", "closing the turn",
+)
+
 # Why a position is flagged for editing. A closed vocabulary, like
 # `PHASE_VOCABULARY`, so the reason is countable rather than prose — the whole
 # point is that a later author can see the PATTERN, and "needs work" in a free

@@ -55,7 +55,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 # The only project imports, all pure python — see the module docstring.
 from common import (ACTION_GRAMMAR, PHASE_VOCABULARY,  # noqa: E402
-                    POSITION_REVIEW_KINDS,
+                    POSITION_CATEGORIES, POSITION_REVIEW_KINDS,
                     lint_common_errors, stray_names,
                     templatize, untemplatize, verdict_is_current)
 
@@ -64,6 +64,10 @@ from common import (ACTION_GRAMMAR, PHASE_VOCABULARY,  # noqa: E402
 _WRITE_LOCK = threading.Lock()
 
 MAX_AUTHOR_LENGTH = 60
+
+# A scenario id becomes a record id and then a file key, so it is
+# constrained at the door rather than sanitised later.
+_SCENARIO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{2,63}$")
 MAX_RUBRIC_ITEMS = 20
 MAX_RUBRIC_ITEM_LENGTH = 1000
 MAX_NOTE_LENGTH = 2000
@@ -371,6 +375,7 @@ CHOOSE_HTML = """<meta name=viewport content="width=device-width,initial-scale=1
 <span>Read an answer and say which of the listed errors it commits.</span></a>
 <a class=card href="/rubric"><b>Rubric authoring</b>
 <span>Write the key points and common errors for a question.</span></a>
+<a class=card href="/scenario"><b>Author a scenario</b><span>A turn as a sequence of boards. Each step is a whole board and adding one copies the last, so you edit what changed. The only way to write a line that crosses an opponent's window.</span></a>
 <a class=card href="/reference"><b>Correct lines</b><span>Write the 100%-correct answer for a board, in the action grammar. Separate from grading so a line can be revisited until it is right.</span></a>
 <a class=card href="/position"><b>Author a position</b>
 <span>Build a board and the decision it tests. Previews what the model sees.</span></a>
@@ -528,6 +533,16 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
     def reference_page():
         """Authoring the correct line, separate from grading it (21.90)."""
         return REFERENCE_HTML
+
+    @app.get("/scenario", response_class=HTMLResponse)
+    def scenario_page():
+        """Authoring a turn as a sequence of boards (21.96)."""
+        return SCENARIO_HTML
+
+    @app.get("/api/categories")
+    def api_categories():
+        """The position category vocabulary, for the authoring dropdown."""
+        return {"categories": list(POSITION_CATEGORIES)}
 
     @app.get("/api/reference-boards")
     def api_reference_boards():
@@ -946,6 +961,59 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
             "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         })
         return {"ok": True, "record_id": rid, "review_kind": kind}
+
+    @app.post("/api/scenario")
+    async def api_scenario(request: Request):
+        """A whole multi-step scenario, authored as one submission.
+
+        A scenario is the only way to write a line that crosses an opponent's
+        window: the next step's board STATES what happened in it, rather than
+        the answer assuming it (21.89, 21.92). The form authors each step as a
+        complete board because that is what a person can check; the stored
+        record keeps only what CHANGES between steps, and that diff is done at
+        ingest by `turns.scenario_from_submission` — the browser never builds
+        the schema (Section 21.96).
+
+        Stored raw here. `positions.py --ingest-scenarios` builds it, runs
+        `validate_scenario` and `check_reference` on every step, and refuses the
+        whole thing if any step fails. The server never writes the gold set.
+        """
+        body = await request.json()
+        problems = []
+        sid = (body.get("scenario_id") or "").strip()
+        if not sid:
+            problems.append("scenario_id is required")
+        elif not _SCENARIO_ID_RE.match(sid):
+            problems.append("scenario_id may use letters, digits and hyphens only")
+        author = body.get("author")
+        if not isinstance(author, str) or not author.strip():
+            problems.append("author is required for attribution")
+        elif len(author.strip()) > MAX_AUTHOR_LENGTH:
+            problems.append(f"author exceeds {MAX_AUTHOR_LENGTH} characters")
+        steps = body.get("steps")
+        if not isinstance(steps, list):
+            problems.append("steps must be a list")
+        elif len(steps) < 2:
+            # The same rule `validate_scenario` enforces, said here so the
+            # author hears it before typing a second board rather than after.
+            problems.append("a scenario needs at least 2 steps — one step is a position")
+        elif len(steps) > 12:
+            problems.append("at most 12 steps")
+        elif not all(isinstance(x, dict) for x in steps):
+            problems.append("each step must be an object")
+        if problems:
+            return JSONResponse({"error": "; ".join(problems)}, 400)
+        append_submission(submissions_path, {
+            "kind": "scenario",
+            "scenario_id": sid,
+            "category": (body.get("category") or "").strip(),
+            "difficulty": (body.get("difficulty") or "").strip(),
+            "steps": steps,
+            "author": author.strip()[:MAX_AUTHOR_LENGTH],
+            "form_version": ADJUDICATION_FORM_VERSION,
+            "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        })
+        return {"ok": True, "scenario_id": sid, "steps": len(steps)}
 
     @app.get("/api/export")
     def api_export():
@@ -1713,6 +1781,182 @@ async function load(){
   R=d.boards||[];
   const first=R.findIndex(x=>!done(x));i=first===-1?0:first;
   draw();
+}
+load();
+</script>
+"""
+
+
+# Authoring a whole scenario: a turn written as a sequence of boards.
+#
+# 21.89 found the grammar has one player in it, so an opponent's action cannot
+# be written inside an answer. A scenario is where it goes instead — the next
+# step's BOARD states what happened, and the answer to that step is one
+# checkable decision (Section 21.96).
+#
+# Each step is authored as a complete board because that is what a person can
+# read and check. Adding a step CLONES the previous one, so authoring a turn is
+# editing what changed rather than retyping a battlefield per step; the stored
+# record keeps only the diff, computed server-side by
+# `turns.scenario_from_submission`.
+SCENARIO_HTML = r"""<!doctype html>
+<meta charset="utf-8"><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Author a scenario</title>
+<style>
+:root{--paper:#F5F6F8;--panel:#fff;--ink:#131820;--soft:#59636F;--faint:#8A939E;
+ --accent:#1C5A8C;--accent-bg:#EAF1F7;--ok:#1E7A4B;--bad:#A32B2B;--rule:#D9DEE4;
+ --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+ --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --paper:#0F1319;--panel:#161B22;--ink:#E6EAF0;--soft:#9BA5B2;--faint:#6B7683;
+ --accent:#6FA8D6;--accent-bg:#16232E;--ok:#5BB98B;--bad:#E0736D;--rule:#2A313A}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+ font-size:16px;line-height:1.5;padding:0 0 5rem}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+ border-bottom:1px solid var(--rule);padding:.6rem .9rem;display:flex;gap:.7rem;
+ align-items:center;flex-wrap:wrap}
+main{max-width:54rem;margin:0 auto;padding:1rem .9rem}
+h2{font-size:.8rem;margin:1.3rem 0 .4rem;text-transform:uppercase;
+ letter-spacing:.06em;color:var(--faint)}
+label{display:block;font-size:.82rem;color:var(--soft);margin:.5rem 0 .15rem}
+input,textarea,select{width:100%;font:inherit;font-size:15px;padding:.4rem .55rem;
+ background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:4px}
+textarea{min-height:3.6rem;resize:vertical;font-family:var(--mono);font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.5rem}
+.step{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+ padding:.8rem .9rem;margin:.9rem 0}
+.step h3{margin:0 0 .3rem;font-size:.95rem}
+.step .drop{float:right;font:inherit;font-size:.78rem;padding:.15rem .5rem;
+ border:1px solid var(--rule);border-radius:3px;background:var(--paper);
+ color:var(--soft);cursor:pointer}
+.hint{font-size:.83rem;color:var(--faint);margin:.3rem 0}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);
+ border-top:1px solid var(--rule);padding:.6rem .9rem;display:flex;gap:.6rem;
+ align-items:center}
+button.go{font:inherit;font-size:.92rem;padding:.5rem 1.1rem;border-radius:4px;
+ border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{font:inherit;font-size:.92rem;padding:.5rem .9rem;border-radius:4px;
+ border:1px solid var(--rule);background:var(--panel);color:inherit;cursor:pointer}
+.msg{font-size:.87rem;color:var(--soft)}
+.msg.bad{color:var(--bad)}
+pre.gram{background:var(--panel);border:1px solid var(--rule);border-radius:4px;
+ padding:.5rem .6rem;overflow-x:auto;font-family:var(--mono);font-size:12.5px;
+ white-space:pre;margin:.4rem 0 0}
+details{margin:.5rem 0;font-size:.86rem;color:var(--soft)}
+summary{cursor:pointer;color:var(--accent)}
+</style>
+<header><b>Author a scenario</b>
+<span class="hint">a turn as a sequence of boards</span>
+<span style="margin-left:auto">author <input type="text" id="author"
+ style="width:11rem" placeholder="your name"></span></header>
+<main>
+<h2>The scenario</h2>
+<div class="grid">
+<div><label for="scenario_id">id</label><input type="text" id="scenario_id"
+ placeholder="turn-hold-removal-0001"></div>
+<div><label for="category">category</label><select id="category"></select></div>
+<div><label for="difficulty">difficulty</label><select id="difficulty">
+<option>basic</option><option selected>intermediate</option><option>advanced</option>
+</select></div>
+</div>
+<details><summary>Action grammar and step names</summary>
+<pre class="gram" id="gram">(loading)</pre>
+<pre class="gram" id="phases"></pre></details>
+<p class="hint">Every step is a whole board so you can read it. Adding a step
+copies the one before it &mdash; edit only what changed. Only the differences
+are stored.</p>
+<div id="steps"></div>
+</main>
+<div class="bar"><button class="ghost" id="add">Add a step</button>
+<button class="go" id="save">Submit scenario</button>
+<span class="msg" id="msg"></span></div>
+<script>
+""" + AUTHOR_JS + r"""
+const $=s=>document.querySelector(s);
+const esc=s=>{const d=document.createElement('div');d.textContent=s??'';return d.innerHTML};
+const FIELDS=['turn','phase','active_player','priority','you_life','you_hand',
+ 'you_library','opp_life','opp_hand_count','opp_library','you_battlefield',
+ 'opp_battlefield','mana_available','known_information','legal_actions',
+ 'key_points','common_errors','reference_actions'];
+let STEPS=[{}],KINDS={};
+$('#author').value=mlAuthorGet();
+$('#author').oninput=()=>mlAuthorSet($('#author').value.trim());
+
+function field(n,key,label,area,ph){
+  const id='s'+n+'_'+key;
+  return '<label for="'+id+'">'+esc(label)+'</label>'+
+    (area?'<textarea id="'+id+'" placeholder="'+esc(ph||'')+'"></textarea>'
+         :'<input type="text" id="'+id+'" placeholder="'+esc(ph||'')+'">');
+}
+function drawSteps(){
+  $('#steps').innerHTML=STEPS.map((st,n)=>
+    '<div class="step"><h3>Step '+(n+1)+
+    (n?'<button type="button" class="drop" data-n="'+n+'">remove</button>':'')+'</h3>'+
+    (n?'<p class="hint">Copied from step '+n+'. Change only what the previous '+
+       'step\'s line and the opponent made different.</p>':'')+
+    '<div class="grid">'+
+      field(n,'turn','turn')+field(n,'phase','phase','','declare attackers')+
+      field(n,'active_player','active player (you/opp)')+
+      field(n,'priority','priority (you/opp)')+
+      field(n,'you_life','your life')+field(n,'opp_life','opponent life')+
+      field(n,'you_library','your library')+field(n,'opp_hand_count','opp hand count')+
+      field(n,'opp_library','opp library')+
+      field(n,'mana_available','mana available','','{R}{U}')+
+    '</div>'+
+    field(n,'you_battlefield','your battlefield',1,'Mountain\nIsland')+
+    field(n,'opp_battlefield',"opponent's battlefield",1,'Goblin Guide 2/2 attacking')+
+    field(n,'you_hand','your hand',1,'Lightning Strike\nShock')+
+    field(n,'known_information','known information',1)+
+    field(n,'legal_actions','legal plays (one per line)',1,
+          'CAST Shock TARGET Goblin Guide')+
+    field(n,'key_points','key points (two or more)',1)+
+    field(n,'common_errors','common errors',1)+
+    field(n,'reference_actions','the 100% correct line for THIS step',1,
+          'PHASE declare attackers\nTAP Mountain FOR {R}\nCAST Shock TARGET Goblin Guide\nPASS')+
+    '</div>').join('');
+  STEPS.forEach((st,n)=>FIELDS.forEach(k=>{
+    const el=document.getElementById('s'+n+'_'+k);
+    if(el){el.value=st[k]||'';el.oninput=()=>{STEPS[n][k]=el.value};}
+  }));
+  [...document.querySelectorAll('.drop')].forEach(b=>{
+    b.onclick=()=>{STEPS.splice(+b.dataset.n,1);drawSteps()};
+  });
+}
+$('#add').onclick=()=>{
+  // Clone, do not blank: consecutive steps of one turn differ in a few fields,
+  // and retyping a battlefield per step is both work and a place to drift.
+  const prev=STEPS[STEPS.length-1]||{};
+  const next=Object.assign({},prev);
+  next.reference_actions='';       // the line is what each step is asking for
+  next.key_points='';
+  next.common_errors='';
+  STEPS.push(next);drawSteps();
+  window.scrollTo(0,document.body.scrollHeight);
+};
+$('#save').onclick=async()=>{
+  const msg=$('#msg');msg.className='msg';msg.textContent='submitting…';
+  let d;
+  try{
+    d=await (await fetch('/api/scenario',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({scenario_id:$('#scenario_id').value.trim(),
+        category:$('#category').value,difficulty:$('#difficulty').value,
+        author:$('#author').value.trim(),steps:STEPS})})).json();
+  }catch(e){d={error:String(e)}}
+  if(!d.ok){msg.className='msg bad';msg.textContent=d.error||'submit failed';return}
+  msg.textContent='submitted '+d.scenario_id+' ('+d.steps+' steps) — validated on import';
+};
+async function load(){
+  try{const g=await (await fetch('/api/grammar')).json();
+    $('#gram').textContent=g.grammar||'';
+    $('#phases').textContent='steps: '+(g.phases||[]).join(' · ');
+    KINDS=g.review_kinds||{};
+  }catch(e){}
+  try{const c=await (await fetch('/api/categories')).json();
+    $('#category').innerHTML=(c.categories||[]).map(x=>'<option>'+esc(x)+'</option>').join('');
+  }catch(e){}
+  drawSteps();
 }
 load();
 </script>

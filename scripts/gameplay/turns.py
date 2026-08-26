@@ -64,6 +64,68 @@ STEP_OVERRIDES = ("phase", "battlefield", "players", "turn", "active_player",
 STEP_REQUIRED = ("phase", "legal_actions", "key_points")
 
 
+def scenario_from_submission(sub: dict) -> dict:
+    """Build a scenario record from the authoring form's flat fields.
+
+    The form authors each step as a whole board, because that is what a person
+    can see and check. A scenario STORES only what changes between steps
+    (`STEP_OVERRIDES`), because that is what keeps one board from being restated
+    five times and drifting on the fourth.
+
+    So the diff happens here rather than in the browser: step 1's board becomes
+    the scenario's base, and each later step keeps only the fields that actually
+    differ from it. A step that changes nothing carries no override, which is
+    correct and common — the phase moves and the board does not.
+
+    Server-side for the same reason `position_from_form` is: the browser never
+    constructs the stored schema, so the form can change shape without the
+    records changing shape (Section 21.96).
+    """
+    from common import position_from_form
+
+    steps_in = sub.get("steps") or []
+    if not steps_in:
+        raise ValueError("a scenario needs at least one step")
+
+    boards = [position_from_form(st) for st in steps_in]
+    base = copy.deepcopy(boards[0])
+    base["id"] = (sub.get("scenario_id") or "").strip()
+    for key in ("category", "difficulty", "source", "rubric_source"):
+        if sub.get(key):
+            base[key] = sub[key]
+    base.setdefault("source", "hand-authored")
+
+    def rows(st, key):
+        return [x.strip() for x in (st.get(key) or "").splitlines() if x.strip()]
+
+    steps = []
+    for i, (st, board) in enumerate(zip(steps_in, boards)):
+        step = {
+            "phase": board.get("phase") or "",
+            "legal_actions": rows(st, "legal_actions"),
+            "key_points": rows(st, "key_points"),
+            "common_errors": rows(st, "common_errors"),
+            "reference_actions": rows(st, "reference_actions"),
+        }
+        # Step 1 IS the base, so it never carries overrides. Later steps carry
+        # only what differs — compared on the built structure, not on the form
+        # text, so re-typing the same board in a different order is not a change.
+        if i:
+            for key in STEP_OVERRIDES:
+                if key == "phase":
+                    continue          # already on the step
+                if board.get(key) != base.get(key):
+                    step[key] = copy.deepcopy(board[key])
+        steps.append(step)
+
+    base["steps"] = steps
+    # The base's own rubric fields describe step 1; the steps carry their own.
+    base.pop("legal_actions", None)
+    base["key_points"] = steps[0]["key_points"]
+    base["common_errors"] = steps[0]["common_errors"]
+    return base
+
+
 def expand_steps(scenario: dict) -> list[dict]:
     """A scenario -> one position-shaped dict per step.
 

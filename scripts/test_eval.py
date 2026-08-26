@@ -1057,6 +1057,56 @@ def test_reference_answer() -> int:
     failed += not check("...and it names the line",
                         any("UNTAP EVERYTHING" in i for i in invented), True)
 
+    # A board whose REFERENCE line only passes cannot charge an answer that only
+    # passes with "makes no play" — the gold answer makes none either. Declining
+    # an available play is a real skill (holding removal for the attack), and
+    # `legal_actions` is not empty there, so 21.85's empty-list rule does not
+    # reach it. Decidable only once references exist (Section 21.96).
+    from actions import parse_output as _po2
+    from positions import protocol_findings as _pf
+    _hold = {"id": "h", "phase": "precombat main",
+             "legal_actions": ["CAST Shock TARGET Goblin Guide"],
+             "battlefield": [], "players": {"you": {"hand": ["Shock"]}},
+             "reference_actions": ["PHASE precombat main", "PASS",
+                                   "END PHASE precombat main"]}
+    _pass = _po2("PHASE precombat main\nPASS")
+    failed += not check("passing is not entry 1 when the reference passes too",
+                        _pf(_hold, _pass)[1], False)
+    _noref = {k: v for k, v in _hold.items() if k != "reference_actions"}
+    failed += not check("...and the old behaviour holds with no reference",
+                        _pf(_noref, _pass)[1], True)
+    # A reference that PLAYS still charges an answer that does not.
+    _plays = dict(_hold, reference_actions=["PHASE precombat main",
+                                            "CAST Shock TARGET Goblin Guide", "PASS"])
+    failed += not check("a reference that plays still charges a passing answer",
+                        _pf(_plays, _pass)[1], True)
+
+    # Building a scenario from the authoring form keeps only what CHANGES
+    # between steps, so one board is not restated per step (Section 21.96).
+    from turns import scenario_from_submission
+    _sub = {"scenario_id": "s9", "category": "removal timing",
+            "difficulty": "basic", "source": "t",
+            "steps": [
+                {"turn": "3", "phase": "precombat main", "you_life": "20",
+                 "you_hand": "Shock", "opp_battlefield": "Goblin Guide 2/2",
+                 "legal_actions": "CAST Shock TARGET Goblin Guide",
+                 "key_points": "hold it\nit only matters attacking",
+                 "reference_actions": "PHASE precombat main\nPASS"},
+                {"turn": "3", "phase": "declare attackers", "you_life": "20",
+                 "you_hand": "Shock", "opp_battlefield": "Goblin Guide 2/2 attacking",
+                 "legal_actions": "CAST Shock TARGET Goblin Guide",
+                 "key_points": "now kill it\nit is attacking",
+                 "reference_actions": "PHASE declare attackers\nPASS"}]}
+    _sc = scenario_from_submission(_sub)
+    failed += not check("step 1 carries no overrides — it IS the base",
+                        [k for k in _sc["steps"][0]
+                         if k not in ("phase", "legal_actions", "key_points",
+                                      "common_errors", "reference_actions")], [])
+    failed += not check("step 2 overrides only what differs",
+                        "battlefield" in _sc["steps"][1], True)
+    failed += not check("...and not what does not",
+                        "players" in _sc["steps"][1], False)
+
     # A review flag is METADATA. It must never make a position invalid, because
     # a flagged board is still generated for, judged and counted — excluding it
     # would quietly move every number (Section 21.94).
@@ -1150,10 +1200,13 @@ def test_reference_answer() -> int:
     # The form shows the accepted step names; the parser owns them. Two copies
     # exist because `common.py` must stay pure stdlib for the deployed server,
     # so the only thing keeping them honest is this assertion (Section 21.89).
-    from common import PHASE_VOCABULARY
+    from common import PHASE_VOCABULARY, POSITION_CATEGORIES as _PC_MIRROR
     from actions import PHASE_NAMES as _PN
+    from positions import POSITION_CATEGORIES as _PC
     failed += not check("the form's step vocabulary matches the parser's",
                         tuple(PHASE_VOCABULARY), tuple(_PN))
+    failed += not check("the form's category list matches the validator's",
+                        tuple(_PC_MIRROR), tuple(_PC))
 
     # Every POSITION must reach the form, not only those the adjudication sample
     # drew: authoring the correct line is a per-board job over the whole gold

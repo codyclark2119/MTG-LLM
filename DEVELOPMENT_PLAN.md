@@ -8534,3 +8534,69 @@ flag the submit loop reads and re-enables the inputs, and it does **not**
 re-render. The last one is the interesting assertion — it is not about
 correctness in isolation but about not destroying work in the panels next to
 it, which no test of the endpoint could see.
+
+### 21.96 Authoring a scenario, and the reference line making entry 1 decidable
+
+21.89 established that the grammar has one player in it: an opponent's action
+cannot be written inside an answer, so a line that crosses an opponent's window
+belongs in a **scenario**, where the next step's board states what happened.
+The harness for scenarios has existed since 21.71 and the way to author one had
+not.
+
+#### Steps are authored whole and stored as a diff
+
+A step is authored as a **complete board**, because that is what a person can
+read and check. A scenario **stores** only what changes between steps
+(`STEP_OVERRIDES`), because that is what keeps one board from being restated
+five times and drifting on the fourth.
+
+Both are true at once, so the diff happens in `turns.scenario_from_submission`:
+step 1's board becomes the scenario's base, and each later step keeps only the
+fields that actually differ. Server-side for the reason `position_from_form` is
+— the browser never constructs the stored schema, so the form can change shape
+without the records changing shape.
+
+Measured on the turn cycle 21.89 could not express — hold the burn, then kill
+the attacker:
+
+```
+step 2 overrides stored: ['active_player', 'battlefield', 'known_information']
+```
+
+Three fields, from a board with nineteen. The hands, lands, life totals and
+libraries are inherited because they did not change, and nothing had to be
+retyped to say so. In the form, **adding a step clones the previous one** and
+blanks only the three fields that are per-step by definition — the rubric and
+the reference line.
+
+A scenario is **refused whole**. A half-written turn is worse than none:
+`expand_steps` teacher-forces the board along the reference line, so one bad
+step silently changes every board after it.
+
+#### The reference line settled entry 1
+
+Authoring that cycle exposed something the earlier fix could not reach. 21.85
+stopped entry 1 (*"makes no play: it only passes"*) firing on a board whose
+`legal_actions` is empty. But there is a second way passing is correct, and it
+is the harder one: **declining an available play**. Holding removal for the
+attack is a real skill, `legal_actions` is not empty there, and the correct
+answer fired entry 1 as a blunder.
+
+The board's own reference line settles it. If the 100%-correct answer only
+passes, an answer that only passes cannot be committing *makes no play* — the
+gold answer makes none either.
+
+That check did not exist until references did, which is what the authoring work
+buys. Entry 1 was previously decidable only from the **shape of the board**; it
+is now decidable from **the answer the board is known to have**. Re-scoring 248
+stored answers changed 0 verdicts, because no stored board yet has a
+passing reference — purely additive, and waiting for the boards that need it.
+
+#### A third mirrored constant
+
+`POSITION_CATEGORIES` now exists in `common.py` as well as `gameplay.positions`,
+because the deployed form needs the dropdown and `common.py` must stay pure
+stdlib. That is the same arrangement `PHASE_VOCABULARY` has, and the same risk:
+two copies of a list, kept honest only by `test_eval` asserting they are equal.
+Three such pairs now exist. Worth watching — the fourth is the point at which
+the boundary needs a better answer than "mirror it and assert".

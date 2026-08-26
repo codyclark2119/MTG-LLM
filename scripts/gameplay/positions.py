@@ -328,8 +328,24 @@ def protocol_findings(pos: dict, parsed, card_index=None) -> dict[int, bool]:
     # this is a question about the board. An ABSENT list is left alone — that is
     # "not stated", not "nothing is legal", the same distinction `phase_problems`
     # draws (Section 21.85).
+    # There is a second way passing is correct, and it is the harder one:
+    # DECLINING an available play. Holding removal for the attack is a real
+    # skill, and on such a board `legal_actions` is not empty — so the
+    # empty-list rule above does not reach it and the right answer fires
+    # entry 1.
+    #
+    # The board's own REFERENCE line settles it. If the 100%-correct answer
+    # only passes, then an answer that only passes cannot be committing "makes
+    # no play" — the gold answer makes none either. That check did not exist
+    # until references did (21.85), which is what the authoring work buys:
+    # entry 1 was previously decidable only from the shape of the board, and is
+    # now decidable from the answer the board is known to have (Section 21.96).
+    ref = pos.get("reference_actions") or []
+    ref_only_pass = bool(ref) and not [
+        a for a in ref
+        if not a.strip().upper().startswith(("PHASE", "END PHASE", "PASS"))]
     no_play_board = "legal_actions" in pos and not (pos.get("legal_actions") or [])
-    out[1] = False if no_play_board else parsed.only_pass
+    out[1] = False if (no_play_board or ref_only_pass) else parsed.only_pass
     out[2] = parsed.degenerate
     out[3] = not legality(parsed, pos.get("legal_actions") or []).get("all_legal")
     out[4] = bool(phase_problems(pos, parsed.actions)) if pos.get("phase") else None
@@ -1047,6 +1063,10 @@ def main() -> None:
                         help="print the rendered board (and prompt) for one position id")
     parser.add_argument("--closed", action="store_true",
                         help="with --render, show the closed-arm prompt instead of the open one")
+    parser.add_argument("--ingest-scenarios", type=Path, default=None,
+                        metavar="FILE",
+                        help="promote whole scenarios from a submissions log "
+                             "(every step parser-validated, refused whole)")
     parser.add_argument("--check-references", action="store_true",
                         help="validate every stored reference line at once")
     parser.add_argument("--ingest-references", type=Path, default=None,
@@ -1115,6 +1135,59 @@ def main() -> None:
         print("\nall reference lines are consistent with their boards")
         print()
         print("\n".join(reference_consistency(boards)))
+        return
+
+    if args.ingest_scenarios:
+        # A scenario is refused whole. A half-written turn is worse than none:
+        # `expand_steps` teacher-forces the board along the reference line, so
+        # one bad step silently changes every board after it (21.71).
+        from turns import (SCENARIOS_PATH, expand_steps, scenario_from_submission,
+                           validate_scenario)
+        subs = [r for r in read_jsonl(args.ingest_scenarios, missing_ok=True)
+                if r.get("kind") == "scenario"]
+        newest: dict[str, dict] = {}
+        for r in sorted(subs, key=lambda r: r.get("submitted") or ""):
+            newest[r.get("scenario_id")] = r
+        existing = read_jsonl(SCENARIOS_PATH, missing_ok=True)
+        by_id = {sc.get("id"): sc for sc in existing}
+        accepted, refused = [], []
+        for sid, sub in sorted(newest.items()):
+            try:
+                sc = scenario_from_submission(sub)
+            except Exception as exc:
+                refused.append((sid, [f"could not build: {exc}"]))
+                continue
+            if args.author and not (sub.get("author") or "").strip():
+                sc["rubric_source"] = f"hand-authored ({args.author})"
+            problems = list(validate_scenario(sc))
+            for step in expand_steps(sc):
+                ref = step.get("reference_actions") or []
+                if not ref:
+                    continue
+                problems.extend(f"{step['id']}: {pr}"
+                                for pr in check_reference(step, ref, card_index))
+            (refused if problems else accepted).append(
+                (sid, problems) if problems else (sid, sc))
+        print(f"{len(subs)} scenario submissions, {len(newest)} after dedup")
+        print(f"  {len(accepted)} accepted, {len(refused)} REFUSED")
+        for sid, problems in refused:
+            print(f"  refused {sid}:")
+            for pr in problems:
+                print(f"      {pr}")
+        if not accepted:
+            return
+        if args.dry_run:
+            for sid, sc in accepted:
+                print(f"  would write {sid} <- {len(sc['steps'])} steps")
+            print("\nDRY RUN — re-run without --dry-run to write")
+            return
+        for sid, sc in accepted:
+            if sid in by_id:
+                existing[existing.index(by_id[sid])] = sc
+            else:
+                existing.append(sc)
+        write_jsonl_atomic(SCENARIOS_PATH, existing)
+        print(f"wrote {len(accepted)} scenario(s) -> {SCENARIOS_PATH}")
         return
 
     if args.ingest_references:
