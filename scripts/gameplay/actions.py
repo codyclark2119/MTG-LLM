@@ -38,7 +38,17 @@ means a parse failure always means "malformed", never "unknown card".
 """
 
 import re
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Re-exported so `from actions import PHASE_NAMES` keeps working while the list
+# itself has one home (Section 21.97). Imported at the TOP because the old
+# definition sat below its own uses — legal at module scope, and a trap for
+# anyone moving it.
+from common import PHASE_NAMES  # noqa: E402,F401
 
 VERBS = ("END PHASE", "PLAY", "CAST", "ACTIVATE", "ATTACK", "BLOCK", "ORDER TRIGGERS",
          "MULLIGAN", "KEEP", "PASS", "TAP", "PHASE")
@@ -582,11 +592,7 @@ REPEAT_IS_MEANINGFUL = ONCE_PER_TURN + ("TAP",)
 # plan" opens with the verb and is prose; see parse_line.
 DECLARATIONS = ("PHASE", "TAP", "END PHASE")
 
-PHASE_NAMES = (
-    "untap", "upkeep", "draw", "precombat main", "postcombat main", "main",
-    "beginning of combat", "declare attackers", "declare blockers",
-    "combat damage", "end of combat", "end step", "cleanup", "opening hand",
-)
+# PHASE_NAMES is re-exported from common (Section 21.97).
 
 
 def rule_illegalities(parsed: ParsedOutput) -> list[str]:

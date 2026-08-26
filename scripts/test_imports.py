@@ -64,10 +64,57 @@ def unresolved(path: Path) -> list[str]:
     return sorted(used - bound_names(tree))
 
 
+def duplicated_vocabularies(files) -> dict[str, list[str]]:
+    """Collection constants DEFINED at module level in more than one file.
+
+    Consolidating the four that existed does not stop a fifth appearing, and a
+    duplicate is invisible until the copies drift — at which point the symptom
+    is a value that is valid in one half of the program and rejected by the
+    other (Section 21.97).
+
+    Only ASSIGNMENTS count, so a re-export (`from common import CATEGORIES`) is
+    correctly not a definition. That is the point of the pattern: one home, any
+    number of doors.
+
+    Names are compared, not contents. Two lists that happen to agree today are
+    exactly the case worth failing on, because agreeing today is what all four
+    of these did. `_STOP` is allowed: those two are genuinely different lists
+    for different jobs — contamination overlap and rubric lint — and the right
+    fix there is distinct names, not a merge.
+    """
+    from collections import defaultdict
+
+    allowed = {"_STOP"}
+    seen = defaultdict(list)
+    # Tests are excluded: a fixture named after the thing it stands in for is a
+    # fixture, not a second home. `test_eval_positions` defines its own `ARMS`
+    # precisely so it does not depend on the real one.
+    for path in [p for p in files if not p.name.startswith("test_")]:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not isinstance(node.value, (ast.Tuple, ast.List, ast.Set, ast.Dict)):
+                continue
+            for target in node.targets:
+                if (isinstance(target, ast.Name) and target.id.isupper()
+                        and len(target.id) > 3 and target.id not in allowed):
+                    seen[target.id].append(path.name)
+    return {k: v for k, v in seen.items() if len(v) > 1}
+
+
 def main() -> None:
     files = sorted(p for p in [*SCRIPTS.glob("*.py"), *SCRIPTS.glob("gameplay/*.py")]
                    if p.name not in SKIP)
     failed = 0
+    dupes = duplicated_vocabularies(files)
+    for name, where in sorted(dupes.items()):
+        failed += 1
+        print(f"  FAIL {name} is defined in {len(where)} modules: "
+              f"{', '.join(where)} — give it one home and re-export")
     for path in files:
         missing = unresolved(path)
         if missing:
@@ -75,9 +122,11 @@ def main() -> None:
             rel = path.relative_to(SCRIPTS.parent)
             print(f"  FAIL {rel}: uses but never binds {missing}")
     if failed:
-        print(f"\n{failed} file(s) call a name they never import.")
+        print(f"\n{failed} problem(s): a name used but never bound, "
+              "or a vocabulary with more than one home.")
         raise SystemExit(1)
-    print(f"all {len(files)} scripts resolve every name they use")
+    print(f"all {len(files)} scripts resolve every name they use, "
+          f"and no vocabulary is defined twice")
 
 
 if __name__ == "__main__":

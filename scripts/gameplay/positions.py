@@ -35,7 +35,9 @@ from common import (  # noqa: E402
     parse_permanent_line,
     position_from_form,  # noqa: E402,F401  (lint_common_errors re-exported for webui)
     CR_VERSION,
+    DIFFICULTIES,
     POSITIONS_PATH,
+    POSITION_CATEGORIES,
     POSITION_REVIEW_KINDS,
     build_position_messages,
     lint_common_errors,
@@ -48,16 +50,7 @@ from common import (  # noqa: E402
 # stratified sampling and validation for the rules gold set, and an in-flight
 # n~100 comparison depends on that set's composition — adding gameplay
 # categories there would mix positions into it and corrupt the measurement.
-POSITION_CATEGORIES = [
-    "mulligan", "land sequencing", "combat math", "blocking",
-    "removal timing", "trigger ordering", "race vs stabilize",
-    # Stages 3 and 5 of the gameplay curriculum, which had no category and so
-    # could not be authored at all: "payment" is correct mana tapped and
-    # sorcery-speed timing, "closing the turn" is the postcombat main phase the
-    # set has never contained a position for (Section 21.71).
-    "payment", "closing the turn",
-]
-DIFFICULTIES = ["basic", "intermediate", "advanced"]
+# POSITION_CATEGORIES and DIFFICULTIES are re-exported from common (21.97).
 PLAYERS = ("you", "opp")
 
 

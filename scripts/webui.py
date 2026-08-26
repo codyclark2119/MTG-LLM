@@ -125,7 +125,9 @@ ACTIONS = [
         "cmd": "scripts/author_rubrics.py", "eta": "seconds", "writes": True,
         "args": [
             {"name": "--emit", "type": "int", "default": 20, "label": "questions"},
-            {"name": "--category", "type": "choice", "choices": [""] + CATEGORIES,
+            # list(), because the vocabularies are TUPLES now — immutable so no
+            # consumer can mutate the shared list for everyone (Section 21.97).
+            {"name": "--category", "type": "choice", "choices": [""] + list(CATEGORIES),
              "default": "", "label": "category (blank = auto)"},
         ],
     },
@@ -375,9 +377,9 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
 
     @app.get("/api/meta")
     def meta():
-        return {"categories": CATEGORIES, "difficulties": DIFFICULTIES,
+        return {"categories": list(CATEGORIES), "difficulties": list(DIFFICULTIES),
                 "actions": [{k: v for k, v in a.items()} for a in ACTIONS],
-                "position_categories": POSITION_CATEGORIES,
+                "position_categories": list(POSITION_CATEGORIES),
                 "action_grammar": ACTION_GRAMMAR}
 
     # -- positions --------------------------------------------------------

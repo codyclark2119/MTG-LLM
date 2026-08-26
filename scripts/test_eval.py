@@ -1200,13 +1200,17 @@ def test_reference_answer() -> int:
     # The form shows the accepted step names; the parser owns them. Two copies
     # exist because `common.py` must stay pure stdlib for the deployed server,
     # so the only thing keeping them honest is this assertion (Section 21.89).
-    from common import PHASE_VOCABULARY, POSITION_CATEGORIES as _PC_MIRROR
+    # One vocabulary, one home. These used to be mirrored copies kept honest by
+    # an equality assertion; they are now the SAME OBJECT, which is a stronger
+    # guarantee than any test (Section 21.97).
+    import common as _c
     from actions import PHASE_NAMES as _PN
-    from positions import POSITION_CATEGORIES as _PC
-    failed += not check("the form's step vocabulary matches the parser's",
-                        tuple(PHASE_VOCABULARY), tuple(_PN))
-    failed += not check("the form's category list matches the validator's",
-                        tuple(_PC_MIRROR), tuple(_PC))
+    from positions import POSITION_CATEGORIES as _PC, DIFFICULTIES as _PD
+    failed += not check("the parser's step names ARE common's",
+                        _PN is _c.PHASE_NAMES, True)
+    failed += not check("the validator's categories ARE common's",
+                        _PC is _c.POSITION_CATEGORIES, True)
+    failed += not check("difficulties are shared too", _PD is _c.DIFFICULTIES, True)
 
     # Every POSITION must reach the form, not only those the adjudication sample
     # drew: authoring the correct line is a per-board job over the whole gold

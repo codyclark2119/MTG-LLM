@@ -54,7 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 # The only project imports, all pure python — see the module docstring.
-from common import (ACTION_GRAMMAR, PHASE_VOCABULARY,  # noqa: E402
+from common import (ACTION_GRAMMAR, PHASE_NAMES,  # noqa: E402
                     POSITION_CATEGORIES, POSITION_REVIEW_KINDS,
                     lint_common_errors, stray_names,
                     templatize, untemplatize, verdict_is_current)
@@ -584,7 +584,7 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         `common.ACTION_GRAMMAR` so the form cannot drift from what the model is
         told, which is the same one-definition rule `build_rag_messages` follows.
         """
-        return {"grammar": ACTION_GRAMMAR, "phases": list(PHASE_VOCABULARY),
+        return {"grammar": ACTION_GRAMMAR, "phases": list(PHASE_NAMES),
                 "review_kinds": POSITION_REVIEW_KINDS}
     tasks = rubric_tasks or adj_tasks
     categories = sorted({t.get("category") or "" for t in rubric_tasks})

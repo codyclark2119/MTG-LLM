@@ -28,17 +28,9 @@ from common import (GOLD_PATH, REPO_ROOT, RULES_PATH, SLOT_RE, SYSTEM_PROMPT,
                     load_rule_ids, untemplatize)
 from common import RULE_ID_EXACT_RE as CROSS_REF_RE
 
-CATEGORIES = {
-    "definition recall",
-    "turn-structure walkthrough",
-    "priority reasoning",
-    "interaction puzzle",
-    "state-based actions",
-    "zone transition",
-    "layer-system question",
-    "templating/keyword meaning",
-}
-DIFFICULTIES = {"basic", "intermediate", "advanced"}
+# Re-exported, not redefined (Section 21.97). Previously a SET here and a LIST
+# in label_store — same members, two shapes, two places to edit.
+from common import CATEGORIES, DIFFICULTIES  # noqa: E402,F401
 REQUIRED = ["id", "question", "answer", "key_points", "rule_citations", "category", "difficulty", "source", "cr_version"]
 LIST_FIELDS = ["paraphrases", "key_points", "common_errors", "rule_citations", "cards"]
 

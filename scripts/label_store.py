@@ -24,12 +24,9 @@ from common import (CR_VERSION, GOLD_CANDIDATES_PATH, GOLD_PATH, RULES_PATH,
 CANDIDATES_PATH = GOLD_CANDIDATES_PATH
 REJECTED_PATH = Path("data/gold/rejected.jsonl")
 
-CATEGORIES = [
-    "definition recall", "turn-structure walkthrough", "priority reasoning",
-    "interaction puzzle", "state-based actions", "zone transition",
-    "layer-system question", "templating/keyword meaning",
-]
-DIFFICULTIES = ["basic", "intermediate", "advanced"]
+# Re-exported, not redefined: one vocabulary, in common.py (Section 21.97).
+# `webui` imports them from here and keeps working.
+from common import CATEGORIES, DIFFICULTIES  # noqa: E402,F401
 DIFFICULTY_RANK = {"advanced": 0, "intermediate": 1, "basic": 2}
 
 

@@ -297,14 +297,46 @@ DATASETS_DIR = REPO_ROOT / "data/datasets"
 # turned a correct play into an illegal one and would have been read as the
 # model naming actions that do not exist. Optional forms get their own line
 # instead, so there is no meta-syntax left to copy.
-# The position categories, for the deployed authoring form. `gameplay.positions`
-# owns the list and cannot be imported by `rubric_server` — `common.py` must
-# stay pure stdlib — so this mirrors it and `test_eval` asserts the two agree.
-# Same arrangement, and same risk, as `PHASE_VOCABULARY` (Section 21.96).
+# --- Closed vocabularies -----------------------------------------------------
+#
+# Every list of allowed values lives HERE and nowhere else. Four of them were
+# previously defined in two or three modules apiece — `DIFFICULTIES` in three,
+# `CATEGORIES` in two (as a list and as a set), and two more mirrored into this
+# file so the deployed form could reach them. All four happened to agree when
+# anyone last looked, which is the only reason none of them had bitten yet.
+#
+# `common.py` is the right home for a reason beyond tidiness: `rubric_server.py`
+# ships with only this module, so anything the public form validates against had
+# to be here regardless. Everything else re-exports from here (Section 21.97).
+#
+# These are DATA, so keeping them here costs the pure-stdlib rule nothing.
+
+# The rules gold set. `label_store` drives stratified sampling from this, and an
+# in-flight n~100 comparison depends on its composition — see the note in
+# `gameplay.positions` on why the gameplay categories are deliberately separate.
+CATEGORIES = (
+    "definition recall", "turn-structure walkthrough", "priority reasoning",
+    "interaction puzzle", "state-based actions", "zone transition",
+    "layer-system question", "templating/keyword meaning",
+)
+
+DIFFICULTIES = ("basic", "intermediate", "advanced")
+
+# Board positions. Kept apart from CATEGORIES above on purpose: mixing gameplay
+# categories into the rules set would change what stratified sampling draws.
 POSITION_CATEGORIES = (
     "mulligan", "land sequencing", "combat math", "blocking",
     "removal timing", "trigger ordering", "race vs stabilize",
     "payment", "closing the turn",
+)
+
+# The steps `PHASE` and `END PHASE` accept. A CLOSED vocabulary is what stops
+# prose becoming a declaration — "Phase two of my plan" opens with the exact
+# word and is narration (21.61).
+PHASE_NAMES = (
+    "untap", "upkeep", "draw", "precombat main", "postcombat main", "main",
+    "beginning of combat", "declare attackers", "declare blockers",
+    "combat damage", "end of combat", "end step", "cleanup", "opening hand",
 )
 
 # Why a position is flagged for editing. A closed vocabulary, like
@@ -326,16 +358,6 @@ POSITION_REVIEW_KINDS = {
               "common_errors need work",
     "retire": "superseded or redundant; drop it from the set",
 }
-
-# The step names `PHASE`/`END PHASE` accept, for the authoring form. The parser
-# owns the list (`gameplay.actions.PHASE_NAMES`) and cannot be imported here —
-# `common.py` must stay pure stdlib for the deployed server — so
-# `test_eval` asserts the two agree rather than trusting them to (21.89).
-PHASE_VOCABULARY = (
-    "untap", "upkeep", "draw", "precombat main", "postcombat main", "main",
-    "beginning of combat", "declare attackers", "declare blockers",
-    "combat damage", "end of combat", "end step", "cleanup", "opening hand",
-)
 
 ACTION_GRAMMAR = (
     "PHASE <step>                      state the step you are acting in\n"
