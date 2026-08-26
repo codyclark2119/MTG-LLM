@@ -259,6 +259,26 @@ def export_tasks(queue: list[dict], out: Path) -> int:
         leaked = set(t) & {"errors_made", "judge_model", "fired", "blundered", "run"}
         assert not leaked, f"judge output would leak to the public form: {leaked}"
         tasks.append(t)
+
+    # Every POSITION reaches the form, not only the ones the adjudication sample
+    # drew. The queue is a stratified sample of (record, arm) pairs sized for
+    # grading; authoring the correct line is a per-BOARD job over the whole gold
+    # set, and 6 of 32 positions were unreachable because no arm answer for them
+    # happened to be sampled (Section 21.88).
+    #
+    # These carry no arm and no answer, so they add nothing to grade and cannot
+    # disturb the sample — the form renders the board, the key points and the
+    # reference box, and the per-arm save loop finds no panels.
+    seen = {t["record_id"] for t in tasks}
+    for rid, rec in sorted(rubrics.items()):
+        if rid in seen or not rec.get("legal_actions"):
+            continue  # positions only: a rules question has no board to play
+        seen.add(rid)
+        t = task_for({"key": f"{rid}::-", "record_id": rid, "arm": None,
+                      "answer": ""}, rubrics)
+        if t:
+            t["reference_only"] = True
+            tasks.append(t)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"kind": "adjudication", "tasks": tasks},
                               ensure_ascii=False, indent=1), encoding="utf-8")

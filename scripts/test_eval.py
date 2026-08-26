@@ -1057,6 +1057,29 @@ def test_reference_answer() -> int:
     failed += not check("...and it names the line",
                         any("UNTAP EVERYTHING" in i for i in invented), True)
 
+    # Every POSITION must reach the form, not only those the adjudication sample
+    # drew: authoring the correct line is a per-board job over the whole gold
+    # set, and 6 of 32 were unreachable (Section 21.88).
+    import json as _j
+    import tempfile as _tf
+
+    import adjudicate as _adj
+    _rub = _adj._rubric_index()
+    _positions = {rid for rid, rec in _rub.items() if rec.get("legal_actions")}
+    _out = Path(_tf.mkdtemp()) / "tasks.json"
+    _adj.export_tasks([], _out)          # empty queue: only reference-only rows
+    _t = _j.loads(_out.read_text())["tasks"]
+    failed += not check("an empty queue still exports every position",
+                        {x["record_id"] for x in _t}, _positions)
+    failed += not check("...and every one is reference-only",
+                        all(x.get("reference_only") for x in _t), True)
+    failed += not check("...carrying the board and the legal plays",
+                        all(x["question"] and "legal_actions" in x for x in _t), True)
+    # They must never be gradeable: no answer means a verdict would be about
+    # nothing, and the blind-task assertion still has to hold.
+    failed += not check("reference-only rows carry no answer",
+                        any(x.get("answer") for x in _t), False)
+
     # A later PHASE line after END PHASE is the answer ADVANCING the turn, not
     # misreporting the board. Without this, every correct line on a position
     # whose legal_actions span two steps was charged entry 4 (Section 21.87).

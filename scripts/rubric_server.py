@@ -236,10 +236,20 @@ def group_adjudication_tasks(tasks: list[dict]) -> list[dict]:
                 "done": False,
                 "arms": [],
             }
-        grouped[rid]["arms"].append(task)
+        # A reference-only record carries no arm and no answer: it exists so the
+        # correct line can be authored for a board the adjudication sample never
+        # drew (21.88). Adding it to `arms` would render an empty grading panel
+        # and invite a verdict on nothing.
+        if not task.get("reference_only"):
+            grouped[rid]["arms"].append(task)
     out = []
     for item in grouped.values():
-        item["done"] = all(a.get("done") for a in item["arms"]) if item["arms"] else False
+        if item["arms"]:
+            item["done"] = all(a.get("done") for a in item["arms"])
+        else:
+            # Nothing to grade, so "done" can only mean the reference is written.
+            item["done"] = bool(item.get("reference_actions"))
+            item["reference_only"] = True
         out.append(item)
     return out
 
@@ -436,7 +446,9 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
     # adjudication task by `key`, and one dict would let a collision silently
     # serve the wrong form's task.
     by_id = {t["id"]: t for t in rubric_tasks}
-    by_key = {t["key"]: t for t in adj_tasks}
+    # Reference-only rows are excluded: they have no answer, so a verdict on one
+    # would be a verdict about nothing.
+    by_key = {t["key"]: t for t in adj_tasks if not t.get("reference_only")}
     # Reference lines are per-BOARD, so /api/reference validates the record id
     # against the same served tasks rather than trusting the client's string.
     by_record = {t.get("record_id") or (t.get("key") or "").split("::")[0]
@@ -1251,11 +1263,18 @@ function render(){
   const t=T[i];
   if(!t){$('#main').innerHTML='<p>Nothing queued.</p>';return}
   $('#prog').textContent=T.filter(x=>x.done).length+'/'+T.length;
-  $('#meta').innerHTML=esc(t.record_id)+' · '+esc((t.arms||[]).length)+' arms'+(t.done?' <span class="done">· saved</span>':'');
+  const nArms=(t.arms||[]).length;
+  $('#meta').innerHTML=esc(t.record_id)+' · '+
+    (nArms?esc(nArms)+' arms':'reference only')+
+    (t.done?' <span class="done">· saved</span>':'');
   $('#main').innerHTML=
     '<h2>The situation</h2><pre>'+esc(t.question)+'</pre>'+
     '<h2>The correct line</h2><ul>'+(t.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
-    '<div class="arm-grid">'+(t.arms||[]).map(renderArm).join('')+'</div>'+
+    ((t.arms||[]).length
+      ? '<div class="arm-grid">'+(t.arms||[]).map(renderArm).join('')+'</div>'
+      : '<p class="hint">No model answers were sampled for this board, so there '+
+        'is nothing to grade here — it is in the queue so the correct line can '+
+        'be written for it.</p>')+
     referenceBlock(t);
   bindReference();
 }
@@ -1300,7 +1319,9 @@ function bindReference(){
     const d=await r.json();
     if(!d.ok){msg.textContent=d.error||'save failed';return}
     t.reference_actions=lines;
+    if(!(t.arms||[]).length) t.done=lines.length>0;
     msg.textContent=lines.length?('saved '+lines.length+' actions'):'saved (cleared)';
+    $('#prog').textContent=T.filter(x=>x.done).length+'/'+T.length;
   };
 }
 $('#skip').onclick=()=>{i=Math.min(T.length-1,i+1);render();scrollTo(0,0)};
@@ -1325,7 +1346,11 @@ $('#go').onclick=async()=>{
     if(!d.ok){alert(d.error||'save failed');return}
     arm.done=true;
   }
-  group.done = (group.arms||[]).every(a => a.done);
+  // `every` on an empty list is true, which would mark a board with nothing to
+  // grade as done without a reference having been written.
+  group.done = (group.arms||[]).length
+    ? (group.arms||[]).every(a => a.done)
+    : ((group.reference_actions||[]).length > 0);
   const nxt=T.findIndex((x,n)=>n>i&&!x.done);
   i=nxt===-1?Math.min(T.length-1,i+1):nxt;render();scrollTo(0,0);
 };
