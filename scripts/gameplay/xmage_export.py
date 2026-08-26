@@ -1,3 +1,7 @@
+
+
+
+
 """Emit an XMage JUnit test per position, to check `legal_actions` against a real
 rules engine.
 
@@ -20,6 +24,22 @@ So a position can be set up and the engine ASKED what is playable, rather than
 only asserted against an outcome. That is the difference between checking that
 each enumerated action is legal (a one-sided control — it cannot find a MISSING
 action, and 21.43 says to say so) and checking the enumeration both ways.
+
+`legal_actions` IS TURN-SCOPED, AND THIS QUERY MUST BE TOO
+
+The single most important thing about the comparison, and it was wrong in the
+first version. A position states one `phase`, but `legal_actions` enumerates the
+plays available *over the turn* from that board, not the plays available in that
+step — which is why the grammar has `PHASE` and `END PHASE` at all, why a
+hand-authored reference on a `precombat main` board walks to declare attackers
+before it attacks, and why `check_reference` accepts that line only because the
+attack is in `legal_actions`.
+
+Asking `getAvailableAttackers` at the STATED step therefore returns nothing on
+every main-phase board, and the first run read that as eight positions being
+wrong (Section 21.101). Attacks are declared in exactly one step, so the query
+for them runs at `DECLARE_ATTACKERS` — a separate `@Test`, because `execute()`
+runs once per method and each method gets a fresh game.
 
 WHAT THIS DOES AND DOES NOT CLAIM
 
@@ -52,7 +72,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common import POSITIONS_PATH  # noqa: E402
+from common import (PHASE_ORDER, POSITIONS_PATH,  # noqa: E402
+                    canonical_phase, phase_index, phase_step)
 from positions import load_positions  # noqa: E402
 
 # --- The two mappings this repo cannot verify -------------------------------
@@ -61,28 +82,17 @@ from positions import load_positions  # noqa: E402
 # follows. They are here, together and named, so that "the export is wrong" has
 # one place to look rather than being distributed through string templates.
 
-# Our phase vocabulary -> XMage PhaseStep constants. XMage names steps, not
-# phases, so "precombat main" is PRECOMBAT_MAIN and the combat steps are their
-# own constants. `None` means "no confident mapping" and the emitter says so in
-# the file rather than guessing.
-PHASE_STEP = {
-    "untap": "UNTAP",
-    "upkeep": "UPKEEP",
-    "draw": "DRAW",
-    "precombat main": "PRECOMBAT_MAIN",
-    "main": "PRECOMBAT_MAIN",
-    "beginning of combat": "BEGIN_COMBAT",
-    "declare attackers": "DECLARE_ATTACKERS",
-    "declare blockers": "DECLARE_BLOCKERS",
-    "combat damage": "COMBAT_DAMAGE",
-    "end of combat": "END_COMBAT",
-    "postcombat main": "POSTCOMBAT_MAIN",
-    "end step": "END_TURN",
-    "cleanup": "CLEANUP",
-    # A mulligan happens before any step, so there is nothing to stop at. The
-    # emitter refuses these rather than inventing a step.
-    "opening hand": None,
-}
+# There is no phase mapping table here any more, and that is the point.
+# `common.PHASE_STEPS` mirrors `mage.constants.PhaseStep`, so a position's phase
+# resolves to an XMage constant by `common.phase_step()` — the same function the
+# grammar and the validator use (Section 21.102). The two hand-written tables
+# this file used to carry, one mapping our words to XMage's and one aliasing our
+# nine spellings onto our own fourteen, both described a vocabulary problem that
+# no longer exists.
+#
+# `phase_step` returns None for a mulligan (no step to stop at) and for `main`
+# (an ambiguous alias for one of two steps). The emitter says so in the file
+# rather than guessing.
 
 # Verified against a checkout: tapped is a FIFTH parameter to addCard, not a
 # separate call —
@@ -90,18 +100,6 @@ PHASE_STEP = {
 #             boolean tapped)
 # (`CardTestPlayerAPIImpl:742`). There is no `setTapped` helper, which is why
 # grepping the tests for one found nothing.
-
-# Our phase strings are not a vocabulary — 9 spellings for 14 closed steps,
-# because the set is generated (21.98, 21.99). Aliases let all 32 export while
-# `--report` still names every position that needed one, so the data problem
-# stays visible instead of being absorbed here.
-PHASE_ALIASES = {
-    "pre-combat main phase": "precombat main",
-    "post-combat main phase": "postcombat main",
-    "opening hand, on the play": "opening hand",
-    "opponent's declare attackers step": "declare attackers",
-    "opponent's declare blockers step": "declare blockers",
-}
 
 _SAFE = re.compile(r"[^A-Za-z0-9]+")
 
@@ -117,6 +115,35 @@ def _player(side: str) -> str:
     return "playerA" if side == "you" else "playerB"
 
 
+def combat_reachable(phase: str) -> bool:
+    """Is declare attackers still ahead of `phase` this turn?
+
+    False for a step past it and for a phase with no place in the turn order at
+    all — `main` (an alias for one of two steps) and `opening hand` (before the
+    turn starts). Both cases mean the same thing here: do not ask the engine
+    about attacks, because there is no honest step at which to ask.
+    """
+    here = phase_index(phase)
+    return here is not None and here <= PHASE_ORDER.index("DECLARE_ATTACKERS")
+
+
+def _stop_at(add, step: str | None, phase: str, pos: dict) -> None:
+    """Emit the `setStopAt` / `execute` pair shared by both query methods."""
+    if step:
+        # Turn 1, NOT the position's own turn number. `setStopAt` SIMULATES up to
+        # that turn rather than jumping to it, so `setStopAt(7, ...)` played six
+        # turns of draws on top of the board and asked about the result. The
+        # position's `turn` is descriptive — it says what turn the board
+        # represents, not how many turns to play first (Section 21.100).
+        add(f"        // position says turn {pos.get('turn')}; the board is placed"
+            " directly, so stop at 1")
+        add(f"        setStopAt(1, PhaseStep.{step});")
+    else:
+        add(f"        // no PhaseStep mapping for {phase!r} — set this by hand")
+    add("        execute();")
+    add("")
+
+
 def emit(pos: dict) -> tuple[str, list[str]]:
     """Return (java source, problems). A problem means the test cannot be trusted.
 
@@ -127,12 +154,14 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     """
     problems: list[str] = []
     raw_phase = (pos.get("phase") or "").strip().lower()
-    phase = PHASE_ALIASES.get(raw_phase, raw_phase)
+    phase = canonical_phase(raw_phase) or raw_phase
     if phase != raw_phase:
         problems.append(f"phase {raw_phase!r} is not canonical; read as {phase!r}")
-    step = PHASE_STEP.get(phase)
+    step = phase_step(phase)
     if step is None:
         problems.append(f"no PhaseStep for phase {raw_phase!r}")
+    # `None` means "there is no step this turn at which to ask about attacks".
+    combat_step = "DECLARE_ATTACKERS" if combat_reachable(phase) else None
 
     lines: list[str] = []
     add = lines.append
@@ -157,8 +186,12 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     add(" */")
     add(f"public class {class_name(pos['id'])} extends CardTestPlayerBase {{")
     add("")
-    add("    @Test")
-    add("    public void listPlayableActions() {")
+
+    # The board, built once and emitted into every test method. JUnit re-runs
+    # setUp per method, so each gets its own fresh game and must place the board
+    # itself; there is nothing to share by hoisting it.
+    board: list[str] = []
+    add = board.append
 
     for side in ("you", "opp"):
         who = _player(side)
@@ -221,38 +254,21 @@ def emit(pos: dict) -> tuple[str, list[str]]:
                 "  // filler: count is real, contents are not")
 
     add("")
-    if step:
-        # Turn 1, NOT the position's own turn number. `setStopAt` SIMULATES up to
-        # that turn rather than jumping to it, so `setStopAt(7, ...)` played six
-        # turns of draws on top of the board and asked about the result. The
-        # position's `turn` is descriptive — it says what turn the board
-        # represents, not how many turns to play first (Section 21.100).
-        add(f"        // position says turn {pos.get('turn')}; the board is placed"
-            " directly, so stop at 1")
-        add(f"        setStopAt(1, PhaseStep.{step});")
-    else:
-        add(f"        // no PhaseStep mapping for {phase!r} — set this by hand")
-    add("        execute();")
-    add("")
-    add("        // What the ENGINE says is playable, versus what the position claims.")
-    add("        // TestPlayer implements Player, so getPlayable is reachable directly.")
+
+    # --- the two query methods, each on its own copy of the board -----------
+    add = lines.append
+
+    add("    /** What is castable/activatable in the step the position states. */")
+    add("    @Test")
+    add("    public void listPlayableActions() {")
+    lines.extend(board)
+    _stop_at(add, step, phase, pos)
     add(f'        System.out.println("=== {pos["id"]} ===");')
-    # Three calls, not one. `getPlayable` returns List<ActivatedAbility>, and
-    # DECLARING AN ATTACK IS NOT AN ACTIVATED ABILITY — it is a turn-based
-    # action — so attacks and blocks structurally cannot appear there. The first
-    # clean run reported only `Cast Shock` for a board that also lists
-    # `ATTACK Centaur Courser`, and that read as the position being wrong. It was
-    # the query being one-sided: a control at DECLARE_ATTACKERS returned the same
-    # single line, which is what exposed it (Section 21.100).
-    #
-    # `getAvailableAttackers` / `getAvailableBlockers` cover the other half.
-    # Printed unconditionally and labelled: empty at the wrong step is itself
-    # informative, and suppressing them by phase would hide exactly the case
-    # where a position lists an ATTACK in a main phase.
-    add("        playerA.getAvailableAttackers(currentGame)")
-    add('                .forEach(p -> System.out.println("ATTACKER: " + p.getName()));')
-    add("        playerA.getAvailableBlockers(currentGame)")
-    add('                .forEach(p -> System.out.println("BLOCKER: " + p.getName()));')
+    # `getPlayable` returns List<ActivatedAbility>, and DECLARING AN ATTACK IS
+    # NOT AN ACTIVATED ABILITY — it is a turn-based action — so attacks cannot
+    # appear here at any step. The first clean run reported only `Cast Shock`
+    # for a board that also lists `ATTACK Centaur Courser`, and that read as the
+    # position being wrong; it was the query being one-sided (21.100).
     add("        playerA.getPlayable(currentGame, true).stream()")
     # Mana abilities are excluded: `legal_actions` enumerates PLAYS, and the
     # grammar handles mana separately through TAP lines. Leaving them in makes
@@ -261,7 +277,34 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     add('                .map(Object::toString)')
     add('                .filter(s -> !s.startsWith("{T}: Add"))')
     add('                .forEach(s -> System.out.println("PLAYABLE: " + s));')
+    # Not phase-sensitive — it returned the same creature at a main phase and at
+    # declare blockers — so it says "could block something", not "blocking is
+    # legal now". Printed for the record; `xmage_diff` does not compare it.
+    add("        playerA.getAvailableBlockers(currentGame)")
+    add('                .forEach(p -> System.out.println("BLOCKER: " + p.getName()));')
     add("    }")
+
+    if combat_step is None:
+        add("")
+        add(f"    // No attacker query: {phase!r} is past declare attackers, so an")
+        add("    // ATTACK in this position's legal_actions is genuinely unreachable")
+        add("    // and the empty engine answer is the honest one.")
+    else:
+        add("")
+        add("    /**")
+        add("     * Who may attack. Declared in exactly ONE step, so this runs at")
+        add("     * DECLARE_ATTACKERS regardless of the step the position states —")
+        add("     * `legal_actions` is turn-scoped and this query must be too (21.101).")
+        add("     */")
+        add("    @Test")
+        add("    public void listAvailableAttackers() {")
+        lines.extend(board)
+        _stop_at(add, combat_step, phase, pos)
+        add(f'        System.out.println("=== {pos["id"]} @DECLARE_ATTACKERS ===");')
+        add("        playerA.getAvailableAttackers(currentGame)")
+        add('                .forEach(p -> System.out.println("ATTACKER: " + p.getName()));')
+        add("    }")
+
     add("}")
     add("")
     add("/* The position's own legal_actions, for comparison:")
@@ -304,8 +347,9 @@ def main() -> None:
             n_problem += 1
             print(f"  {pos['id']}: " + "; ".join(problems))
     print(f"{len(positions)} tests -> {args.out}")
-    print(f"{n_problem} needed a phase alias — the position's own `phase` string is "
-          "not one of the fourteen steps (21.99)")
+    print(f"{n_problem} could not be mapped to an XMage PhaseStep. This was TEN "
+          "before 21.102 canonicalized\nthe stored phases; what is left is the "
+          "mulligan boards, which correctly have no step.")
 
 
 if __name__ == "__main__":

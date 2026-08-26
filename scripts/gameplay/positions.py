@@ -32,10 +32,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from actions import (Action, DECLARATIONS, PHASE_NAMES,  # noqa: E402
                      parse_line)
 from common import (  # noqa: E402
+    canonical_phase,
     parse_permanent_line,
+    phase_step,
     position_from_form,  # noqa: E402,F401  (lint_common_errors re-exported for webui)
     CR_VERSION,
     DIFFICULTIES,
+    PRE_TURN_PHASE,
     POSITIONS_PATH,
     POSITION_CATEGORIES,
     POSITION_REVIEW_KINDS,
@@ -214,17 +217,16 @@ def validate_position(pos: dict, card_index=None,
     return [f"[{rid}] {p}" for p in problems]
 
 
-# Steps in which only instant-speed spells may be cast. A sorcery-speed spell
-# needs your own main phase with an empty stack (307.1).
-# Steps where a sorcery-speed spell CANNOT be cast — i.e. every step that is not
-# a main phase. Named for what it means rather than for combat: it has always
-# included upkeep, draw, end step, cleanup and the opening hand, so a reader
-# checking "does this cover upkeep?" against the old combat-flavoured name would
-# have concluded it did not. One name, two meanings, in the direction that reads
-# as a coverage gap where there is none (Section 21.59).
-_NON_MAIN_STEPS = ("upkeep", "draw", "beginning of combat", "declare attackers",
-                   "declare blockers", "combat damage", "end of combat", "end step",
-                   "cleanup", "opening hand")
+# The two steps in which a sorcery-speed spell CAN be cast — it needs your own
+# main phase with an empty stack (307.1). Everywhere else is instant-speed only.
+#
+# Stated as the two rather than as the other eleven, which is how this was
+# written until 21.102. The complement had to list every non-main step by hand,
+# and a reader checking "does this cover upkeep?" had to read the whole list to
+# find out; worse, it silently stopped covering a step the moment the phase
+# vocabulary gained one (`first combat damage` arrived with XMage's enum). Two
+# named steps and a negation cannot drift.
+_MAIN_STEPS = ("PRECOMBAT_MAIN", "POSTCOMBAT_MAIN")
 
 
 def timing_problems(pos: dict, card_index=None) -> list[str]:
@@ -247,8 +249,16 @@ def timing_problems(pos: dict, card_index=None) -> list[str]:
     """
     if card_index is None:
         return []
-    phase = (pos.get("phase") or "").lower()
-    if not any(step in phase for step in _NON_MAIN_STEPS):
+    raw = (pos.get("phase") or "").lower()
+    step_name = phase_step(raw)
+    if step_name in _MAIN_STEPS:
+        return []
+    # `phase_step` returns None for two different things, and they need opposite
+    # answers here. A mulligan is a step we know casts nothing, so the check
+    # runs; an UNRECOGNISED phase is a step nobody identified, and charging a
+    # timing problem against it would be a finding about the vocabulary rather
+    # than about the position.
+    if step_name is None and PRE_TURN_PHASE not in raw:
         return []
     out = []
     for line in pos.get("legal_actions") or []:
@@ -848,6 +858,64 @@ def ingest(drafts: list[dict], existing: list[dict], author: str = "",
     return len(accepted)
 
 
+# Every file that stores a `phase`. Listed rather than globbed: a glob over
+# `data/gold/*.jsonl` would silently reach the gold-question backups, and a
+# rewrite of those is not something a phase migration should be able to do.
+_PHASE_FILES = ("positions.jsonl", "positions_seed.jsonl", "turn_scenarios.jsonl",
+                "position_samples_stage3_stage5.jsonl",
+                "position_samples_stage3_payment_batch2.jsonl")
+
+
+def canonicalize_phases(dry_run: bool = True) -> int:
+    """Rewrite every stored `phase` to XMage's spelling. Returns records changed.
+
+    The data half of Section 21.102. Nine spellings across 32 positions became
+    thirteen canonical steps, so `xmage_export`'s alias table could be deleted
+    rather than extended.
+
+    Only the `phase` FIELD is rewritten. Hand-authored `PHASE` lines inside
+    `reference_actions` are left exactly as their author wrote them: the parser
+    accepts XMage's spellings and the CR's both, so there is nothing to gain by
+    editing a person's text, and `check_reference` would then be validating a
+    line nobody submitted.
+
+    A phase this cannot resolve is REPORTED AND LEFT ALONE — `main` is a real
+    example, an alias for one of two steps that only a human can pick between.
+    Guessing would put a board in the wrong step, which is precisely the class
+    of defect 21.101 spent a section not finding.
+    """
+    changed = total = 0
+    for name in _PHASE_FILES:
+        path = POSITIONS_PATH.parent / name
+        rows = read_jsonl(path, missing_ok=True)
+        if not rows:
+            continue
+        n_file = 0
+        for row in rows:
+            for holder in (row, *(row.get("steps") or []),
+                           *((row.get("step_overrides") or {}).values()
+                             if isinstance(row.get("step_overrides"), dict) else ())):
+                if not isinstance(holder, dict) or "phase" not in holder:
+                    continue
+                total += 1
+                raw = holder["phase"]
+                canon = canonical_phase(raw or "")
+                if canon is None:
+                    print(f"  ? {row.get('id')}: cannot resolve {raw!r} — left alone")
+                    continue
+                if canon != raw:
+                    holder["phase"] = canon
+                    n_file += 1
+        if n_file:
+            changed += n_file
+            print(f"  {name}: {n_file} phase value(s) rewritten")
+            if not dry_run:
+                write_jsonl_atomic(path, rows)
+    print(f"\n{changed} of {total} stored phases rewritten"
+          + ("  (dry run — nothing written)" if dry_run else ""))
+    return changed
+
+
 def reference_consistency(boards: list[dict]) -> list[str]:
     """How the stored reference lines differ from each other in SHAPE.
 
@@ -1060,6 +1128,9 @@ def main() -> None:
                         metavar="FILE",
                         help="promote whole scenarios from a submissions log "
                              "(every step parser-validated, refused whole)")
+    parser.add_argument("--canonicalize-phases", action="store_true",
+                        help="rewrite every stored `phase` to XMage's spelling "
+                             "(Section 21.102); use with --dry-run first")
     parser.add_argument("--check-references", action="store_true",
                         help="validate every stored reference line at once")
     parser.add_argument("--ingest-references", type=Path, default=None,
@@ -1097,6 +1168,10 @@ def main() -> None:
         rule_ids = load_rule_ids()
     except Exception as exc:  # rules corpus not built yet — skip, don't fail
         print(f"(skipping citation checks: {exc})")
+
+    if args.canonicalize_phases:
+        canonicalize_phases(dry_run=args.dry_run)
+        return
 
     if args.check_references:
         # Every reference line in the repo, checked together. Positions and

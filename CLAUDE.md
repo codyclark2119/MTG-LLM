@@ -129,6 +129,48 @@ the arrow before the grammar allowed it. `match_to_legal` treats an undirected
 `legal_action` as not constraining the direction, so the 32 stored positions
 still match; re-scoring 248 answers changed 0 verdicts.
 
+**The step vocabulary is XMage's, mirrored from `mage.constants.PhaseStep` into
+`common.PHASE_STEPS`** (21.102). Ours had 14 entries for 12 steps, no ordering
+(with a first four *in* order, so it read as ordered), no first-strike damage,
+and `main` as an ambiguous alias — 9 spellings across 32 positions. Everything
+derives from the mirror now: `PHASE_NAMES`, `PHASE_ORDER`, `phase_step`,
+`phase_index`, `canonical_phase`. Two hand-written tables in `xmage_export.py`
+were deleted rather than extended. **Where our format and XMage's differ,
+XMage's wins** — it is a working engine and ours was invented here.
+
+Two vocabularies, because there are two questions. `PHASE_NAMES` asks *is this a
+step name at all, or narration?* and accepts `main`; `phase_step` asks *which
+step?* and returns `None` for it. A model writing `PHASE Main` is declaring a
+step and must not be scored as prose (21.61); a position may not *store* `main`,
+because a board sits in one step. `AMBIGUOUS_PHASE_WORDS` holds the difference.
+`LEGACY_PHASE_ALIASES` holds the other half — seven spellings XMage does not
+use, **three of them the CR's own** ("end step" 513, "beginning of combat" 507,
+"end of combat" 511). A model trained on the CR writes the CR's words: XMage
+wins on what is stored, the CR stays readable as input.
+
+**`legal_actions` is TURN-scoped; a position's `phase` is one step** (21.101). A
+board at `precombat main step` offering `ATTACK Serra Angel` is correct — the
+answer walks to declare attackers first, which is what `PHASE`/`END PHASE` exist
+for, and `check_reference` requires the attack to be listed anyway. Reading it as
+step-scoped made a rules engine report **8 of 8** main-phase combat boards as
+impossible; the honest number was 0. Eight of eight is not a defect rate, it is
+a constant, and a constant is the signature of a harness bug. Whether a board
+*should* span two steps is a separate question — that is the `shorten` flag, and
+impossible vs long-winded look identical in a diff.
+
+**A rules engine validates `legal_actions` both ways** (`gameplay/xmage_export.py`,
+`xmage_diff.py`, 21.100–21.101). 32 generated JUnit tests against a `magefree/mage`
+checkout; **30 of 32 agree**. Ask each question where it has an answer:
+`getPlayable` at the stated step, `getAvailableAttackers` at `DECLARE_ATTACKERS`
+in a second `@Test` — declaring an attack is a turn-based action, so it can
+never appear in `getPlayable` at any step. Clear the default `"RB Aggro.dck"`
+hand and library first, and `setStopAt(1, …)` always: it *simulates* turns
+rather than jumping, so the position's own `turn` number plays that many.
+
+The two survivors are real and have teeth: `pos-trigger-ordering-000{1,2}` omit
+a castable Doom Blade, so entry 3 scores a **correct** play as illegal — on the
+entry the judge grades best (80–85%).
+
 **The gameplay prompt has its own fingerprint.** `prompt_fingerprint` covers the
 rules track only, so until Section 21.60 an edit to `GAMEPLAY_SYSTEM_PROMPT` —
 the grammar block that *is* the output contract — left no trace in any run file.

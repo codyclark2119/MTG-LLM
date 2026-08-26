@@ -330,14 +330,155 @@ POSITION_CATEGORIES = (
     "payment", "closing the turn",
 )
 
+# --- Steps -----------------------------------------------------------------
+#
+# MIRRORS `mage.constants.PhaseStep`, read from a magefree/mage checkout rather
+# than invented here. The previous vocabulary was ours, and it showed: fourteen
+# entries for twelve steps, `main` as an ambiguous alias for one of two of them,
+# no ordering (and a first four in turn order, so it READ as ordered), no first
+# strike, and nine spellings across 32 positions needing a five-entry alias
+# table to export at all (21.99). XMage is a working engine with a fifteen-year
+# rules corpus behind it; where its shape and ours differ, its shape wins
+# (Section 21.102).
+#
+# Each row is XMage's own four renderings of one step:
+#     (enum name, index, text, stepText, stepShortText)
+# `index` is XMage's, and `isBefore`/`isAfter` there are integer comparisons on
+# it — which is what `phase_index` below reproduces.
+PHASE_STEPS = (
+    ("UNTAP", 0, "Untap", "untap step", "UN"),
+    ("UPKEEP", 1, "Upkeep", "upkeep", "UP"),
+    ("DRAW", 2, "Draw", "draw step", "DR"),
+    ("PRECOMBAT_MAIN", 3, "Precombat Main", "precombat main step", "M1"),
+    ("BEGIN_COMBAT", 4, "Begin Combat", "begin combat step", "BC"),
+    ("DECLARE_ATTACKERS", 5, "Declare Attackers", "declare attackers step", "DA"),
+    ("DECLARE_BLOCKERS", 6, "Declare Blockers", "declare blockers step", "DB"),
+    ("FIRST_COMBAT_DAMAGE", 7, "First Combat Damage", "first combat damage", "FCD"),
+    ("COMBAT_DAMAGE", 8, "Combat Damage", "combat damage step", "CD"),
+    ("END_COMBAT", 9, "End Combat", "end of combat step", "EC"),
+    ("POSTCOMBAT_MAIN", 10, "Postcombat Main", "postcombat main step", "M2"),
+    ("END_TURN", 11, "End Turn", "end turn step", "ET"),
+    ("CLEANUP", 12, "Cleanup", "cleanup step", "CL"),
+)
+
+# A mulligan happens BEFORE the turn begins, so XMage has no PhaseStep for it
+# and neither does the CR. Kept as an explicit non-step: positions ask mulligan
+# questions, and pretending it is a step would put it in the order, where every
+# before/after comparison against it would silently answer.
+PRE_TURN_PHASE = "opening hand"
+
+# Spellings XMage does NOT use, mapped to the step they mean. Accepted, never
+# canonical — `canonical_phase` converts them away.
+#
+# Two sources, and both have to be honoured. Four are ours, left over from the
+# vocabulary XMage's replaced. The other three are the COMPREHENSIVE RULES'
+# own wording: "end step" (513), "beginning of combat step" (507), "end of
+# combat step" (511) — where XMage says "end turn", "begin combat" and "end
+# combat". A model trained on the CR writes the CR's words, and refusing them
+# would score a correctly-named step as narration.
+#
+# So XMage wins on what is STORED and rendered, and the CR is still readable.
+# The two do not conflict: one is the canonical form, the other is an input.
+LEGACY_PHASE_ALIASES = {
+    "pre-combat main": "PRECOMBAT_MAIN",
+    "post-combat main": "POSTCOMBAT_MAIN",
+    "beginning of combat": "BEGIN_COMBAT",
+    "end of combat": "END_COMBAT",
+    "end step": "END_TURN",
+    "ending phase": "END_TURN",
+    "cleanup step": "CLEANUP",
+}
+
+# Words that NAME a step without identifying one. "main" is the whole list: a
+# turn has two main phases, so `PHASE Main` says which kind of step the answer
+# is in and not which of them.
+#
+# This is the distinction `PHASE_NAMES` and `phase_step` are separately for, and
+# collapsing them broke a test the moment "main" left the vocabulary. They ask
+# different questions:
+#
+#   PHASE_NAMES   is this a step name at all, or is it narration?   -> accept
+#   phase_step    WHICH step is it?                                 -> None
+#
+# So an answer writing `PHASE Main` still declares a step — refusing it would
+# turn a correct declaration into prose, which is 21.61's failure exactly — while
+# a POSITION may not store "main", because a board sits in one specific step and
+# `canonical_phase` has no way to pick. One is an input, the other is an
+# identity (Section 21.102).
+AMBIGUOUS_PHASE_WORDS = ("main",)
+
 # The steps `PHASE` and `END PHASE` accept. A CLOSED vocabulary is what stops
 # prose becoming a declaration — "Phase two of my plan" opens with the exact
 # word and is narration (21.61).
-PHASE_NAMES = (
-    "untap", "upkeep", "draw", "precombat main", "postcombat main", "main",
-    "beginning of combat", "declare attackers", "declare blockers",
-    "combat damage", "end of combat", "end step", "cleanup", "opening hand",
-)
+#
+# Both of XMage's prose renderings, because both are XMage's: `stepText`
+# ("declare attackers step") is what a position stores, `text` ("Declare
+# Attackers") is what its `toString` emits, and an answer writing either means
+# the same step. Callers match by SUBSTRING, so the short codes are excluded —
+# "UN" and "DA" lowercase into fragments of ordinary words and would turn most
+# prose into a declaration.
+#
+# Longest first, so a caller taking the first hit gets the most specific one.
+PHASE_NAMES = tuple(sorted(
+    {row[3].lower() for row in PHASE_STEPS}
+    | {row[2].lower() for row in PHASE_STEPS}
+    | set(LEGACY_PHASE_ALIASES)
+    | set(AMBIGUOUS_PHASE_WORDS)
+    | {PRE_TURN_PHASE},
+    key=lambda s: (-len(s), s),
+))
+
+# Enum names in XMage's index order. `PRE_TURN_PHASE` is deliberately absent —
+# a caller asking "is X before Y?" about a mulligan must handle "not in the
+# order" rather than receive an answer (Section 21.101).
+PHASE_ORDER = tuple(row[0] for row in PHASE_STEPS)
+
+
+def phase_step(text: str) -> str | None:
+    """Any spelling of a step -> its XMage enum name, or None.
+
+    Accepts all four of XMage's renderings plus the enum name, and tolerates the
+    possessives and turn ownership real data carries ("opponent's declare
+    attackers step"). Longest match wins, so "precombat main step" is never
+    resolved by the "main" inside it.
+    """
+    if not text:
+        return None
+    t = text.strip().lower()
+    best: tuple[int, str] | None = None
+    for name, _index, disp, step_text, short in PHASE_STEPS:
+        for form in (step_text.lower(), disp.lower(), name.lower(),
+                     name.lower().replace("_", " ")):
+            if form in t and (best is None or len(form) > best[0]):
+                best = (len(form), name)
+        if t == short.lower():
+            return name
+    for form, name in LEGACY_PHASE_ALIASES.items():
+        if form in t and (best is None or len(form) > best[0]):
+            best = (len(form), name)
+    return best[1] if best else None
+
+
+def phase_index(text: str) -> int | None:
+    """Where a step sits in the turn, or None if it is not one.
+
+    None for `opening hand` and for anything unrecognised — both mean "no
+    before/after answer exists", which is the honest return for a mulligan.
+    """
+    name = phase_step(text)
+    if name is None:
+        return None
+    return next(row[1] for row in PHASE_STEPS if row[0] == name)
+
+
+def canonical_phase(text: str) -> str | None:
+    """Any spelling -> the one this project stores: XMage's `stepText`."""
+    if text and text.strip().lower() == PRE_TURN_PHASE:
+        return PRE_TURN_PHASE
+    name = phase_step(text)
+    if name is None:
+        return PRE_TURN_PHASE if text and "opening hand" in text.lower() else None
+    return next(row[3] for row in PHASE_STEPS if row[0] == name)
 
 # Why a position is flagged for editing. A closed vocabulary, like
 # `PHASE_VOCABULARY`, so the reason is countable rather than prose — the whole

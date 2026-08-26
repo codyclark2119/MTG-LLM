@@ -8782,14 +8782,19 @@ played games anyway. The export reports it, which is enough to act on.
 
 ### 21.100 A rules engine checked the positions, and 10 of 32 are wrong
 
+> **PARTLY RETRACTED by 21.101.** The headline is wrong: **30 of 32 agree**, not
+> 22. Class 1 below — eight positions — was my query being step-scoped while
+> `legal_actions` is turn-scoped, not a defect in the data. Class 2 stands, and
+> everything under *"corrections to my own method"* stands. Read 21.101 first.
+
 The XMage track, end to end: JDK and Maven installed, `magefree/mage` cloned
 (291 MB shallow), built in 2:45, 32 generated tests compiled and run against a
 real rules engine. `xmage_export.py` emits them; `xmage_diff.py` compares the
 engine's answer to each position's `legal_actions`.
 
-**22 of 32 agree. 10 do not**, in exactly two classes.
+**22 of 32 agree. 10 do not**, in exactly two classes. ← wrong; see 21.101.
 
-#### Class 1 — an attack listed in a main phase (8 positions)
+#### Class 1 — an attack listed in a main phase (8 positions) — RETRACTED
 
 ```
 pos-combat-math-0001 …-0006, pos-race-vs-stabilize-0001, -0002
@@ -8809,6 +8814,11 @@ The engine settles the interpretation the hand analysis could not. A control at
 `DECLARE_ATTACKERS` returns `ATTACKER: Centaur Courser` where `PRECOMBAT_MAIN`
 returns none — so the creature *can* attack, just not then. Summoning sickness
 is ruled out, and the defect is the phase, not the creature.
+
+**That last paragraph is the error.** The control is right and the conclusion
+does not follow from it: *"the creature can attack, just not then"* is also what
+a correct position looks like, because `legal_actions` is turn-scoped. 21.101
+has the evidence.
 
 #### Class 2 — a castable spell omitted (2 positions)
 
@@ -8870,3 +8880,202 @@ Blocks are excluded. `getAvailableBlockers` returned the same creature at a main
 phase and at declare blockers, so it is not phase-sensitive — a `BLOCKER` line
 means *could block something*, not *blocking is legal now*. Comparing it would
 have marked every position as able to block and read as a finding.
+
+### 21.101 `legal_actions` is turn-scoped; the query was step-scoped. 30 of 32 agree
+
+21.100 reported ten defective positions. **Eight of them were the measurement.**
+The honest number is **30 of 32**, and the two survivors are the Doom Blade
+class, which stands unchanged.
+
+#### What the reference lines settled
+
+Two of the eight carry a *hand-authored* `reference_actions` — the 100%-correct
+line, written by a person in `#/reference` and refused unless the parser agrees
+(21.85). Both walk out of the main phase before attacking:
+
+```
+pos-combat-math-0003   PHASE precombat main / END PHASE precombat main /
+                       PHASE declare attackers / ATTACK Serra Angel -> Opponent / ...
+pos-combat-math-0005   PHASE precombat main / CAST Shock TARGET Grizzly Bears / PASS /
+                       END PHASE precombat main / PHASE declare attackers /
+                       ATTACK Centaur Courser -> Opponent / ...
+```
+
+`check_reference` accepts a line only if **every play in it is in
+`legal_actions`**. So the repo's own validator already required
+`ATTACK Serra Angel` to be listed on a board whose `phase` is `precombat main`.
+Three independent things say the same thing:
+
+1. the human reference walks the turn and then attacks;
+2. `check_reference` demands the attack be listed to accept that line;
+3. `PHASE` and `END PHASE` exist in the grammar *for* this — an answer is
+   expected to move between steps.
+
+`legal_actions` therefore enumerates the plays available **over the turn** from
+this board, not the plays available in the step it states. Asking
+`getAvailableAttackers` at the stated step returns nothing on every main-phase
+board — which is what "8 of 8 disagree" actually measured.
+
+#### The same shape a fourth time
+
+21.100 itself corrected a one-sided query (`getPlayable` cannot report attacks)
+and named it as 21.43's shape a third time. This is the fourth, and it survived
+that correction because fixing *which* engine call to make left *at which step*
+untouched. The control that exposed the third — attackers at `DECLARE_ATTACKERS`
+versus `PRECOMBAT_MAIN` — is the same control that would have exposed this one,
+and I read its output as evidence about the data instead of about the query.
+
+**A measurement that disagrees with the data on a whole class is a claim about
+the instrument until the instrument is checked at that class.** Eight of eight
+is not a defect rate; it is a constant, and a constant is the signature of a
+harness bug (21.5's family: a harness metric moving with the condition).
+
+#### The fix
+
+`getPlayable` at the stated step, `getAvailableAttackers` at
+`DECLARE_ATTACKERS`, as two `@Test` methods — `execute()` runs once per method
+and JUnit gives each a fresh game, so the board is emitted twice rather than
+hoisted. `combat_reachable()` suppresses the attacker query when the stated
+phase is past declare attackers, where an empty answer *is* the honest one; no
+position in the set is in that case, but a future one can be.
+
+The `getPlayable` half stays step-scoped and is therefore under-inclusive for a
+sorcery-speed play on a pre-main board. **No position does that** — checked, no
+non-main board lists a land drop — so it is a stated gap in the docstring, not a
+built one.
+
+`common.PHASE_ORDER` is new, and exists because `PHASE_NAMES` is a membership
+list whose first four entries are in turn order and whose fifth is
+`postcombat main`. It reads as ordered and is not; asking it "is combat still
+ahead?" answers that combat follows the postcombat main phase.
+
+```
+32 positions checked against the engine, 30 agree
+
+  pos-trigger-ordering-0001   the engine offers 'Doom Blade'; the position does not list it
+  pos-trigger-ordering-0002   the engine offers 'Doom Blade'; the position does not list it
+```
+
+#### What survives, and what it costs
+
+Class 2 stands: both boards are at upkeep with Doom Blade in
+`players.you.hand`, five untapped Swamps, and `legal_actions` listing only the
+two `ORDER TRIGGERS` orderings. Entry 3 charges *names a play that is not
+available* and `legality` matches against `legal_actions`, so a model that
+correctly casts Doom Blade is scored illegal for a correct play — on the entry
+the judge grades best (80–85%, 21.74).
+
+So the engine found a **6%** defect rate, not 31%. That is a much better result
+for the position set and a much worse one for the argument that it needs
+replacing wholesale — the generated boards are mechanically sound far more often
+than 21.100 claimed. 21.98's caveat is untouched: mechanically legal is not the
+same as *worth asking*, and every board and rubric is still machine-drafted.
+
+#### Turn-scoped `legal_actions` is a design cost, not a defect
+
+Worth separating from the retraction. A board that states `precombat main` and
+offers both a cast and an attack is asking the model to plan a turn, and 21.93
+measured that a position asks ONE question — median 4.5 actions but **1.5
+plays**. Six of the eight are `combat math`, where the decision is the attack and
+the main phase is scaffolding. That is exactly what `POSITION_REVIEW_KINDS`
+`shorten` is for (21.94), and it is B3's call, not a correctness fix.
+
+The distinction matters because the two look identical in a diff and are not:
+one is *this position is impossible*, the other is *this position is longer than
+its question*.
+
+### 21.102 The phase vocabulary was ours; it is XMage's now
+
+Direction from the user, and the right one: *"if the format is different from
+what we have vs what XMage does I would like to prefer the XMage usages as what
+we have was simply created by us and has no strong basis for patterns."*
+
+Applied to the one place the two formats actually collide. `PHASE_NAMES` was
+invented here, and every property it had was an accident of that:
+
+| | ours (before) | `mage.constants.PhaseStep` |
+| --- | --- | --- |
+| entries | 14 | 13 |
+| ordered | **no** — and the first four *were*, so it read as ordered | yes, by `index` |
+| `main` | present, ambiguous between two steps | absent |
+| first strike damage | **missing** | `FIRST_COMBAT_DAMAGE` |
+| spellings in 32 positions | **9**, needing a 5-entry alias table to export | n/a |
+
+`common.PHASE_STEPS` now mirrors the enum row for row, with XMage's own four
+renderings of each step, and `PHASE_NAMES` / `PHASE_ORDER` / `phase_step` /
+`phase_index` / `canonical_phase` all derive from it. Two hand-written tables in
+`xmage_export.py` — one mapping our words onto XMage's, one aliasing our nine
+spellings onto our own fourteen — were **deleted**, not extended: both described
+a problem that stopped existing.
+
+#### What the migration cost, and why it was free
+
+`--canonicalize-phases` rewrote **49 of 51** stored phases (the two left are
+`opening hand`, already canonical). Nine spellings became six values. Nothing
+was unresolvable; `main` would have been, and no stored board used it.
+
+Editing `phase` changes `render_position`, which invalidates every stored
+position answer for comparison (21.59). **That cost was already paid.** No
+stored position run is at the current `gameplay_fingerprint` — the newest are
+`4a0fee3c83ee` and `d094e3934d2d` against a current `f050d4aed707` — so the
+answers this could invalidate were already incomparable. Checking that first is
+what made this a cleanup rather than a decision.
+
+Only the `phase` FIELD moved. Hand-authored `PHASE` lines inside
+`reference_actions` are untouched: the parser accepts XMage's spellings and the
+CR's both, and rewriting a person's submitted text would leave
+`check_reference` validating a line nobody wrote. All 10 reference lines still
+pass unchanged.
+
+#### Two vocabularies, because there are two questions
+
+Removing `main` broke `test_actions` immediately, and the failure was right.
+`PHASE Main` is a fine thing for a MODEL to write — it names a kind of step —
+and refusing it turns a correct declaration into narration, which is 21.61's
+failure in the same file that documents 21.61. But a POSITION may not *store*
+`main`, because a board sits in one specific step.
+
+So the two questions are separated rather than merged:
+
+```
+PHASE_NAMES   is this a step name at all, or narration?   "main" -> accepted
+phase_step    WHICH step is it?                           "main" -> None
+```
+
+`AMBIGUOUS_PHASE_WORDS` holds the difference. This is the "one name, two
+meanings" trap caught *before* it shipped rather than after — the two readings
+agree on all twelve unambiguous steps and come apart on exactly one word, which
+is the shape every previous instance had (`PASS`, `CROSS_REF_RE`,
+`JUDGE_SYSTEM_PROMPT`).
+
+`LEGACY_PHASE_ALIASES` is the other half: seven spellings XMage does not use,
+four of them ours and **three of them the Comprehensive Rules' own** — "end
+step" (513), "beginning of combat step" (507), "end of combat step" (511),
+where XMage says end turn / begin combat / end combat. A model trained on the CR
+writes the CR's words. XMage wins on what is stored; the CR stays readable. The
+two do not conflict, because one is an identity and the other is an input.
+
+#### A negation replaced a list
+
+`timing_problems` selected on `_NON_MAIN_STEPS`, a hand-written list of the
+eleven steps that are *not* main phases. It is now `_MAIN_STEPS` — two entries
+and a negation. The old form had to be edited every time the vocabulary gained a
+step, and it silently stopped covering one the moment `FIRST_COMBAT_DAMAGE`
+arrived. A complement enumerated by hand is a list that decays.
+
+One behaviour needed care: `phase_step` returns `None` for two different things,
+and they want opposite answers. A mulligan is a step known to cast nothing, so
+the check runs; an *unrecognised* phase is a step nobody identified, and
+charging it would be a finding about the vocabulary rather than the position.
+
+#### Result
+
+```
+32 tests -> …/magicllm
+2 could not be mapped to an XMage PhaseStep.   (was 10)
+```
+
+The two are the mulligan boards, which correctly have no step: XMage has no
+`PhaseStep` for the opening hand because the CR does not either. The engine diff
+is byte-identical before and after — **30 of 32** — so the migration changed the
+vocabulary and not a single measurement.

@@ -151,6 +151,42 @@ battlefield permanent with the attacking status (506.3). The first draft of the
 seed fixtures modelled them as `stack` items and the Oracle name check caught it
 by rejecting "Serra Angel is attacking you" as a card that does not exist.
 
+### phase
+
+**XMage's spelling, from `mage.constants.PhaseStep`** — mirrored in
+`common.PHASE_STEPS`, which is the only list of steps in the project:
+
+```
+untap step            begin combat step        end of combat step
+upkeep                declare attackers step   postcombat main step
+draw step             declare blockers step    end turn step
+precombat main step   first combat damage      cleanup step
+                      combat damage step
+```
+
+Plus `opening hand`, which is not a step — a mulligan happens before the turn
+begins, so XMage has no constant for it and neither does the CR.
+
+The vocabulary was ours until Section 21.102 and had 9 spellings across 32
+positions. Use `python scripts/gameplay/positions.py --canonicalize-phases
+--dry-run` after any bulk import; it converts the CR's wording ("end step",
+"beginning of combat") and refuses `main`, which names two steps.
+
+**`legal_actions` is scoped to the TURN, not to this step.** A board at
+`precombat main step` that offers `ATTACK Serra Angel` is correct: the answer is
+expected to write `END PHASE precombat main step`, `PHASE declare attackers
+step`, and then attack. That is what `PHASE` and `END PHASE` are in the grammar
+for, and `check_reference` enforces it — a reference line's attack must appear
+in `legal_actions` even though it cannot be made in the step the board states.
+
+Reading the field the other way — one step, one list — made a rules engine
+report eight positions as impossible when none of them were (21.101).
+
+It is still worth asking whether a board *should* span two steps. A position
+asks one question (21.93), and a main phase that exists only to be left is
+scaffolding; that is what the `shorten` review flag is for. Impossible and
+long-winded look identical in a diff and are not the same problem.
+
 ### legal_actions
 
 One per line, in the action grammar (`scripts/gameplay/actions.py`). Every entry

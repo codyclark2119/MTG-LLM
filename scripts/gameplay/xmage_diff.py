@@ -15,6 +15,20 @@ CANNOT appear there. Querying only `getPlayable` reported one line for a board
 that also lists an attack, and that read as the position being wrong when it was
 the query being one-sided (Section 21.100) — 21.43's shape in a new place.
 
+EACH AT THE STEP WHERE THE QUESTION HAS AN ANSWER
+
+`legal_actions` enumerates the plays available over the TURN from a board, not
+the plays available in the step the board states — that is why the grammar has
+`PHASE`/`END PHASE`, and why a hand-authored reference on a `precombat main`
+board walks to declare attackers before it attacks. So the engine is asked each
+question where it can be answered: `getPlayable` at the stated step, and
+`getAvailableAttackers` at DECLARE_ATTACKERS, in a second `@Test`.
+
+Asking about attackers at the stated step instead returns nothing on every
+main-phase board, and the first run read that as EIGHT positions being wrong
+(Section 21.101). Both methods print into the same surefire report, so this
+reads their union.
+
 WHAT THE COMPARISON CAN AND CANNOT SAY
 
 The engine names a spell once (`Cast Shock`); a position names each targeting of
@@ -24,9 +38,14 @@ available at all, never whether its target is legal.
 
 `getAvailableBlockers` is NOT phase-sensitive: it returned the same creature at
 a main phase and at declare blockers. So a BLOCKER line means "this creature
-could block something", not "blocking is legal right now". Attack lines are
-phase-sensitive and blocks are not, which is why only the attack side is
-reported as a phase disagreement.
+could block something", not "blocking is legal right now" — printed for the
+record and deliberately not compared.
+
+The `getPlayable` side stays step-scoped, so it is under-inclusive for a
+sorcery-speed play listed on a pre-main board — castable later this turn, absent
+from the engine's answer now. No position in the set does that (checked: no
+non-main board lists a land drop), so it is a stated gap rather than a fixed
+one; a position that does would need a third query at PRECOMBAT_MAIN.
 
 Usage:
     python scripts/gameplay/xmage_diff.py --reports /path/to/Mage.Tests/target/surefire-reports
