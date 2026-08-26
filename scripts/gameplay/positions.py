@@ -36,6 +36,7 @@ from common import (  # noqa: E402
     position_from_form,  # noqa: E402,F401  (lint_common_errors re-exported for webui)
     CR_VERSION,
     POSITIONS_PATH,
+    POSITION_REVIEW_KINDS,
     build_position_messages,
     lint_common_errors,
     read_jsonl,
@@ -127,6 +128,20 @@ def validate_position(pos: dict, card_index=None,
                   "category", "difficulty", "source"):
         if not pos.get(field) and pos.get(field) != 0:
             problems.append(f"missing required field: {field}")
+
+    # A review flag is METADATA: it never makes a position invalid, because a
+    # flagged board is still evaluated and still counted (21.94). What is
+    # checked is that the reason is one of the known kinds, so the flags stay
+    # countable.
+    rv = pos.get("review")
+    if rv is not None:
+        if not isinstance(rv, dict):
+            problems.append("review must be an object")
+        elif rv.get("kind") not in POSITION_REVIEW_KINDS:
+            problems.append("review.kind must be one of: "
+                            + ", ".join(sorted(POSITION_REVIEW_KINDS)))
+        elif not (rv.get("note") or "").strip():
+            problems.append("review needs a note saying what to change")
 
     if pos.get("category") not in POSITION_CATEGORIES:
         problems.append(f"category must be one of: {', '.join(POSITION_CATEGORIES)}")
@@ -852,6 +867,12 @@ def reference_consistency(boards: list[dict]) -> list[str]:
         if minority and len(minority) != len(refs):
             out.append(f"      differs: {', '.join(sorted(minority))}")
 
+    flagged = [(b["id"], b["review"]) for b in boards if b.get("review")]
+    if flagged:
+        out.append(f"{len(flagged)} board(s) FLAGGED for editing:")
+        for rid, rv in sorted(flagged):
+            out.append(f"      [{rv.get('kind')}] {rid} — {rv.get('note','')[:78]}")
+        out.append("      (still evaluated and still counted — a flag is metadata)")
     out.append(f"{len(refs)} reference lines")
     split(lambda r: r and r[0].strip().upper().startswith("PHASE "), "open with PHASE")
     split(lambda r: any(a.strip().upper().startswith("END PHASE") for a in r),
@@ -1110,8 +1131,37 @@ def main() -> None:
         scenarios = read_jsonl(SCENARIOS_PATH, missing_ok=True)
         step_pos = {st["id"]: st for st in load_steps(None)}
         by_id.update(step_pos)
-        rows = [r for r in read_jsonl(args.ingest_references, missing_ok=True)
-                if r.get("kind") == "reference"]
+        raw = read_jsonl(args.ingest_references, missing_ok=True)
+        rows = [r for r in raw if r.get("kind") == "reference"]
+
+        # Review flags ride the same log and the same command. Newest per
+        # (record, author) wins, and an empty `review_kind` CLEARS the flag —
+        # so a board fixed after being flagged does not need the log edited
+        # (21.94).
+        flags: dict[str, dict] = {}
+        for r in sorted([r for r in raw if r.get("kind") == "review"],
+                        key=lambda r: r.get("submitted") or ""):
+            flags[r["record_id"]] = r
+        n_set = n_clear = 0
+        for rid, row in sorted(flags.items()):
+            target = by_id.get(rid)
+            if target is None:
+                print(f"  review flag for unknown record {rid}")
+                continue
+            kind = (row.get("review_kind") or "").strip()
+            if not kind:
+                if target.pop("review", None) is not None:
+                    n_clear += 1
+                continue
+            if kind not in POSITION_REVIEW_KINDS:
+                print(f"  review flag on {rid} has unknown kind {kind!r} — skipped")
+                continue
+            target["review"] = {"kind": kind, "note": row.get("note") or "",
+                                "by": row.get("author") or "",
+                                "at": row.get("submitted") or ""}
+            n_set += 1
+        if n_set or n_clear:
+            print(f"  {n_set} review flag(s) set, {n_clear} cleared")
         # Newest row per (record, author) wins, so a correction supersedes the
         # line it corrects without anyone editing the log.
         # `--author` attributes rows the form did not stamp. Attribution rides
@@ -1157,11 +1207,16 @@ def main() -> None:
             print(f"  refused {rid} ({author or '?'}):")
             for pr in problems:
                 print(f"      {pr}")
-        if not accepted:
+        # `n_set`/`n_clear` count too: a submission may carry only review flags,
+        # and returning on "no accepted references" would drop them silently —
+        # the same shape as an ingest that reports work and writes none (21.78).
+        if not accepted and not (n_set or n_clear):
             return
         if args.dry_run:
             for rid, author, lines in accepted:
                 print(f"  would set {rid} <- {len(lines)} actions ({author or '?'})")
+            if n_set or n_clear:
+                print(f"  would change {n_set + n_clear} review flag(s)")
             print("\nDRY RUN — re-run without --dry-run to write")
             return
         n_pos = n_step = 0
@@ -1180,9 +1235,10 @@ def main() -> None:
                 by_id[rid]["reference_actions"] = lines
                 by_id[rid]["reference_source"] = src
                 n_pos += 1
-        if n_pos:
+        if n_pos or n_set or n_clear:
             write_jsonl_atomic(args.positions, existing)
-            print(f"wrote {n_pos} reference lines -> {args.positions}")
+            print(f"wrote {n_pos} reference line(s) and {n_set + n_clear} "
+                  f"flag change(s) -> {args.positions}")
         if n_step:
             write_jsonl_atomic(SCENARIOS_PATH, scenarios)
             print(f"wrote {n_step} step reference lines -> {SCENARIOS_PATH}")

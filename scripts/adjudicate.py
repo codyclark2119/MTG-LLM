@@ -223,6 +223,9 @@ def task_for(item: dict, rubrics: dict) -> dict | None:
         # reads it before ticking boxes stops being independent evidence on the
         # one entry where the judge and the parser already agree (21.74).
         "legal_actions": rec.get("legal_actions") or [],
+        # An existing review flag, so the form shows what is already known to
+        # need work rather than asking for it twice (21.94).
+        "review": rec.get("review"),
         # A reference line already on file, so the form can show it for
         # correction rather than asking for it twice.
         "reference_actions": rec.get("reference_actions") or [],

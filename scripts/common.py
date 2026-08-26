@@ -297,6 +297,26 @@ DATASETS_DIR = REPO_ROOT / "data/datasets"
 # turned a correct play into an illegal one and would have been read as the
 # model naming actions that do not exist. Optional forms get their own line
 # instead, so there is no meta-syntax left to copy.
+# Why a position is flagged for editing. A closed vocabulary, like
+# `PHASE_VOCABULARY`, so the reason is countable rather than prose — the whole
+# point is that a later author can see the PATTERN, and "needs work" in a free
+# text field is not a pattern (Section 21.94).
+#
+# Deliberately NOT a filter. A flagged position is still generated for, still
+# judged, and still counted; `eval_positions` reports how many of a run carry a
+# flag so the caveat travels with the number instead of a quiet exclusion
+# changing it. Editing a board is what invalidates stored answers, and
+# `render_position` already carries that consequence (21.59).
+POSITION_REVIEW_KINDS = {
+    "shorten": "the reference does more than the board asks — trim it, often by "
+               "moving the position's own phase to where the decision is",
+    "split": "two decisions in one board — make two positions, or a scenario "
+             "whose second step states what came between",
+    "reword": "the board is right and the rubric is not — key_points or "
+              "common_errors need work",
+    "retire": "superseded or redundant; drop it from the set",
+}
+
 # The step names `PHASE`/`END PHASE` accept, for the authoring form. The parser
 # owns the list (`gameplay.actions.PHASE_NAMES`) and cannot be imported here —
 # `common.py` must stay pure stdlib for the deployed server — so

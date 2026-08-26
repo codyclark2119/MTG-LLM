@@ -1026,6 +1026,23 @@ def _write_report(results, positions, arm_names, closed_arms, args,
             "an eighth `PROTOCOL_ERRORS` entry, which would invalidate every collected "
             "v4 verdict (Section 21.80).\n")
 
+    # How many boards in THIS run are flagged for editing. Printed rather than
+    # excluded: dropping them would quietly change every number, and the reason
+    # the flags exist is that the set is small enough for its shape to matter
+    # (21.94). The caveat travels with the figure instead of the figure moving.
+    flagged = [p for p in positions if p.get("review")]
+    if flagged:
+        # Module-level Counter, not a local import: re-importing it inside a
+        # branch makes the name function-local, so an earlier use in the same
+        # function raises UnboundLocalError — which is what happened.
+        kinds = Counter(p["review"].get("kind") for p in flagged)
+        lines.append(
+            f"\n> **{len(flagged)}/{len(positions)} boards in this run are flagged "
+            f"for editing** ({', '.join(f'{k} x{n}' for k, n in kinds.most_common())}). "
+            "They are generated for, judged and counted like any other — a flag is "
+            "metadata, not a filter — so every number here includes boards their "
+            "author has already marked as needing work (Section 21.94).\n")
+
     # Two more measured-but-unentered classes, reported together with the
     # targeting one because the decision about all three is the same decision.
     for field, blurb in (

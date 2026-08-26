@@ -55,6 +55,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 # The only project imports, all pure python — see the module docstring.
 from common import (ACTION_GRAMMAR, PHASE_VOCABULARY,  # noqa: E402
+                    POSITION_REVIEW_KINDS,
                     lint_common_errors, stray_names,
                     templatize, untemplatize, verdict_is_current)
 
@@ -505,6 +506,7 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
                 "legal_actions": t.get("legal_actions") or [],
                 "reference_actions": t.get("reference_actions") or [],
                 "category": t.get("category"),
+                "review": t.get("review"),
             }
         rows = sorted(seen.values(),
                       key=lambda r: (bool(r["reference_actions"]), r["record_id"]))
@@ -521,7 +523,8 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         `common.ACTION_GRAMMAR` so the form cannot drift from what the model is
         told, which is the same one-definition rule `build_rag_messages` follows.
         """
-        return {"grammar": ACTION_GRAMMAR, "phases": list(PHASE_VOCABULARY)}
+        return {"grammar": ACTION_GRAMMAR, "phases": list(PHASE_VOCABULARY),
+                "review_kinds": POSITION_REVIEW_KINDS}
     tasks = rubric_tasks or adj_tasks
     categories = sorted({t.get("category") or "" for t in rubric_tasks})
 
@@ -868,6 +871,44 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
             "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         })
         return {"ok": True, "record_id": rid, "n": len(clean)}
+
+    @app.post("/api/review")
+    async def api_review(request: Request):
+        """Flag a board for editing, or clear the flag.
+
+        A separate claim from the reference line: one says what the correct
+        answer is, the other says the board itself needs work. Kept apart so
+        flagging does not require inventing a line for a board you are flagging
+        BECAUSE you cannot write one (Section 21.94).
+
+        Written to the submissions log like everything else — the server never
+        writes the gold set — and promoted by
+        `positions.py --ingest-references`, which validates the kind.
+        """
+        body = await request.json()
+        rid = (body.get("record_id") or "").strip()
+        if rid not in by_record:
+            return JSONResponse({"error": "unknown record"}, 404)
+        kind = (body.get("kind") or "").strip()
+        if kind and kind not in POSITION_REVIEW_KINDS:
+            return JSONResponse(
+                {"error": "kind must be one of: "
+                          + ", ".join(sorted(POSITION_REVIEW_KINDS))}, 400)
+        note = (body.get("note") or "").strip()[:1000]
+        if kind and not note:
+            return JSONResponse({"error": "say what needs changing"}, 400)
+        append_submission(submissions_path, {
+            "kind": "review",
+            "record_id": rid,
+            # Empty `review_kind` clears the flag, so a board can be unflagged
+            # once fixed without editing the log.
+            "review_kind": kind,
+            "note": note,
+            "author": (body.get("author") or "").strip()[:60],
+            "form_version": ADJUDICATION_FORM_VERSION,
+            "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        })
+        return {"ok": True, "record_id": rid, "review_kind": kind}
 
     @app.get("/api/export")
     def api_export():
@@ -1459,6 +1500,10 @@ nav button:hover{background:var(--accent-bg)}
 nav button.on{background:var(--accent-bg);box-shadow:inset 3px 0 0 var(--accent)}
 nav .tick{color:var(--ok);font-weight:700}
 nav .cat{color:var(--faint);font-size:.78rem}
+nav .flag{color:var(--bad);font-weight:700}
+select{font:inherit;font-size:.9rem;padding:.35rem .5rem;background:var(--panel);
+ color:var(--ink);border:1px solid var(--rule);border-radius:4px}
+#rnote{width:100%;margin-top:.5rem}
 section{overflow-y:auto;padding:1rem 1.1rem 4rem;max-width:52rem}
 h2{font-size:1rem;margin:1.2rem 0 .4rem;text-transform:uppercase;
  letter-spacing:.06em;color:var(--faint)}
@@ -1493,7 +1538,7 @@ button.ghost{font:inherit;font-size:.92rem;padding:.5rem .9rem;border-radius:4px
 """ + AUTHOR_JS + r"""
 const $=s=>document.querySelector(s);
 const esc=s=>{const d=document.createElement('div');d.textContent=s??'';return d.innerHTML};
-let R=[],i=0,GRAMMAR='',PHASES=[];
+let R=[],i=0,GRAMMAR='',PHASES=[],KINDS={};
 function who(){return $('#author').value.trim()}
 $('#author').value=mlAuthorGet();
 $('#author').oninput=()=>mlAuthorSet(who());
@@ -1531,10 +1576,25 @@ function draw(){
     '<textarea id="ref" spellcheck="false"></textarea>'+
     '<div class="row"><button class="go" id="save">Save</button>'+
     '<button class="ghost" id="next">Save and next</button>'+
-    '<span class="msg" id="msg"></span></div>';
+    '<span class="msg" id="msg"></span></div>'+
+    '<h2>Flag this board for editing</h2>'+
+    '<p class="hint">The reference says what the right answer is; this says the '+
+    'BOARD needs work. A flagged board is still evaluated and still counted \u2014 '+
+    'runs report how many carry a flag, so the caveat travels with the number.</p>'+
+    '<div class="row"><select id="rkind"><option value="">not flagged</option>'+
+    Object.keys(KINDS).map(k=>'<option value="'+esc(k)+'"'+
+      ((r.review&&r.review.kind===k)?' selected':'')+'>'+esc(k)+'</option>').join('')+
+    '</select><span class="hint" id="rwhy"></span></div>'+
+    '<input type="text" id="rnote" placeholder="what needs changing" value="'+
+      esc((r.review&&r.review.note)||'')+'">'+
+    '<div class="row"><button class="ghost" id="rsave">Save flag</button>'+
+    '<span class="msg" id="rmsg"></span></div>';
   $('#ref').value=(r.reference_actions||[]).join('\n');
   $('#save').onclick=()=>save(false);
   $('#next').onclick=()=>save(true);
+  const why=()=>{$('#rwhy').textContent=KINDS[$('#rkind').value]||''};
+  $('#rkind').onchange=why; why();
+  $('#rsave').onclick=saveReview;
   drawList();
 }
 async function save(advance){
@@ -1558,9 +1618,25 @@ async function save(advance){
     document.querySelector('section').scrollTop=0;
   }
 }
+async function saveReview(){
+  const r=R[i],msg=$('#rmsg');
+  const kind=$('#rkind').value,note=$('#rnote').value.trim();
+  msg.className='msg';msg.textContent='saving…';
+  let d;
+  try{
+    d=await (await fetch('/api/review',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({record_id:r.record_id,kind:kind,note:note,author:who()})
+    })).json();
+  }catch(e){d={error:String(e)}}
+  if(!d.ok){msg.className='msg bad';msg.textContent=d.error||'save failed';return}
+  r.review=kind?{kind:kind,note:note}:null;
+  msg.textContent=kind?('flagged: '+kind):'flag cleared';
+  drawList();
+}
 async function load(){
   try{const g=await (await fetch('/api/grammar')).json();
-      GRAMMAR=g.grammar||'';PHASES=g.phases||[]}catch(e){}
+      GRAMMAR=g.grammar||'';PHASES=g.phases||[];KINDS=g.review_kinds||{}}catch(e){}
   const d=await (await fetch('/api/reference-boards')).json();
   R=d.boards||[];
   const first=R.findIndex(x=>!done(x));i=first===-1?0:first;

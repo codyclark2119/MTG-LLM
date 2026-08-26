@@ -1057,6 +1057,29 @@ def test_reference_answer() -> int:
     failed += not check("...and it names the line",
                         any("UNTAP EVERYTHING" in i for i in invented), True)
 
+    # A review flag is METADATA. It must never make a position invalid, because
+    # a flagged board is still generated for, judged and counted — excluding it
+    # would quietly move every number (Section 21.94).
+    from common import POSITION_REVIEW_KINDS
+    from positions import validate_position as _vp
+    _b = {"id": "r1", "turn": 1, "phase": "precombat main", "category": "payment",
+          "difficulty": "basic", "source": "t", "answer": "a",
+          "players": {"you": {"hand": []}, "opp": {}}, "battlefield": [],
+          "key_points": ["a", "b"], "common_errors": ["e"], "legal_actions": ["PASS"]}
+    failed += not check("a flagged board is still valid",
+                        [x for x in _vp(dict(_b, review={"kind": "split",
+                                                         "note": "two decisions"}))
+                         if "review" in x], [])
+    failed += not check("an unknown kind is refused",
+                        any("review.kind" in x for x in
+                            _vp(dict(_b, review={"kind": "??", "note": "n"}))), True)
+    failed += not check("a flag with no note is refused",
+                        any("review needs a note" in x for x in
+                            _vp(dict(_b, review={"kind": "split", "note": " "}))), True)
+    failed += not check("the kinds are a closed vocabulary",
+                        sorted(POSITION_REVIEW_KINDS),
+                        ["retire", "reword", "shorten", "split"])
+
     # A PLAY after a PASS asserts the opponent did not use the window; a
     # DECLARATION after one asserts almost nothing. Separating them is what
     # makes "where does a reference line end" decidable (Section 21.92).
