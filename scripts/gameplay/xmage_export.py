@@ -193,6 +193,18 @@ def emit(pos: dict) -> tuple[str, list[str]]:
                     + (f", {n});" if n > 1 else ");"))
 
     add("")
+    # Every test player loads "RB Aggro.dck" by default (CardTestPlayerAPIImpl:215),
+    # so both start with a real hand and library that are not the position's. The
+    # first run showed it immediately: the engine offered `Play Mountain` three
+    # times from a hand this position never specified. Clear both first — a
+    # position states its hand exactly, and anything else is the harness leaking
+    # into the answer (Section 21.100).
+    for side in ("you", "opp"):
+        who = _player(side)
+        add(f"        removeAllCardsFromHand({who});")
+        add(f"        removeAllCardsFromLibrary({who});")
+
+    add("")
     for card in ((pos.get("players") or {}).get("you") or {}).get("hand") or []:
         add(f'        addCard(Zone.HAND, playerA, "{card}");')
 
@@ -210,7 +222,14 @@ def emit(pos: dict) -> tuple[str, list[str]]:
 
     add("")
     if step:
-        add(f"        setStopAt({pos.get('turn', 1)}, PhaseStep.{step});")
+        # Turn 1, NOT the position's own turn number. `setStopAt` SIMULATES up to
+        # that turn rather than jumping to it, so `setStopAt(7, ...)` played six
+        # turns of draws on top of the board and asked about the result. The
+        # position's `turn` is descriptive — it says what turn the board
+        # represents, not how many turns to play first (Section 21.100).
+        add(f"        // position says turn {pos.get('turn')}; the board is placed"
+            " directly, so stop at 1")
+        add(f"        setStopAt(1, PhaseStep.{step});")
     else:
         add(f"        // no PhaseStep mapping for {phase!r} — set this by hand")
     add("        execute();")
@@ -218,8 +237,30 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     add("        // What the ENGINE says is playable, versus what the position claims.")
     add("        // TestPlayer implements Player, so getPlayable is reachable directly.")
     add(f'        System.out.println("=== {pos["id"]} ===");')
-    add("        playerA.getPlayable(currentGame, true)")
-    add('                .forEach(a -> System.out.println("PLAYABLE: " + a));')
+    # Three calls, not one. `getPlayable` returns List<ActivatedAbility>, and
+    # DECLARING AN ATTACK IS NOT AN ACTIVATED ABILITY — it is a turn-based
+    # action — so attacks and blocks structurally cannot appear there. The first
+    # clean run reported only `Cast Shock` for a board that also lists
+    # `ATTACK Centaur Courser`, and that read as the position being wrong. It was
+    # the query being one-sided: a control at DECLARE_ATTACKERS returned the same
+    # single line, which is what exposed it (Section 21.100).
+    #
+    # `getAvailableAttackers` / `getAvailableBlockers` cover the other half.
+    # Printed unconditionally and labelled: empty at the wrong step is itself
+    # informative, and suppressing them by phase would hide exactly the case
+    # where a position lists an ATTACK in a main phase.
+    add("        playerA.getAvailableAttackers(currentGame)")
+    add('                .forEach(p -> System.out.println("ATTACKER: " + p.getName()));')
+    add("        playerA.getAvailableBlockers(currentGame)")
+    add('                .forEach(p -> System.out.println("BLOCKER: " + p.getName()));')
+    add("        playerA.getPlayable(currentGame, true).stream()")
+    # Mana abilities are excluded: `legal_actions` enumerates PLAYS, and the
+    # grammar handles mana separately through TAP lines. Leaving them in makes
+    # every land a false difference — the first run reported `{T}: Add {G}.`
+    # against a position that correctly does not list it.
+    add('                .map(Object::toString)')
+    add('                .filter(s -> !s.startsWith("{T}: Add"))')
+    add('                .forEach(s -> System.out.println("PLAYABLE: " + s));')
     add("    }")
     add("}")
     add("")

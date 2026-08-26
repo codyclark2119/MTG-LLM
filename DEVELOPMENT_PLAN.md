@@ -8779,3 +8779,94 @@ Not enforced here. Making `validate_position` reject a non-canonical phase
 would fail 10 of 32 positions immediately, which is a decision about the gold
 set rather than about the checker, and the set is about to be replaced from
 played games anyway. The export reports it, which is enough to act on.
+
+### 21.100 A rules engine checked the positions, and 10 of 32 are wrong
+
+The XMage track, end to end: JDK and Maven installed, `magefree/mage` cloned
+(291 MB shallow), built in 2:45, 32 generated tests compiled and run against a
+real rules engine. `xmage_export.py` emits them; `xmage_diff.py` compares the
+engine's answer to each position's `legal_actions`.
+
+**22 of 32 agree. 10 do not**, in exactly two classes.
+
+#### Class 1 — an attack listed in a main phase (8 positions)
+
+```
+pos-combat-math-0001 …-0006, pos-race-vs-stabilize-0001, -0002
+    claims 'Serra Angel' may attack; the engine does not — at phase 'precombat main'
+```
+
+Every one records `phase: "precombat main"` and lists an `ATTACK` in
+`legal_actions`. Attacking is declared in the declare attackers step, so the
+enumeration is impossible as written.
+
+21.86 found this by hand on **one** board and left it as a question about that
+position's design. It is not one board; it is a quarter of the set, and a
+generator putting combat actions on main-phase boards is the obvious
+explanation (21.98).
+
+The engine settles the interpretation the hand analysis could not. A control at
+`DECLARE_ATTACKERS` returns `ATTACKER: Centaur Courser` where `PRECOMBAT_MAIN`
+returns none — so the creature *can* attack, just not then. Summoning sickness
+is ruled out, and the defect is the phase, not the creature.
+
+#### Class 2 — a castable spell omitted (2 positions)
+
+```
+pos-trigger-ordering-0001, -0002
+    the engine offers 'Doom Blade'; the position does not list it
+```
+
+`pos-trigger-ordering-0001` is at upkeep with Doom Blade in hand and lists only
+its two `ORDER TRIGGERS` options. Doom Blade is an instant and genuinely
+castable; the closed arm is told *"these are the only legal actions available to
+you"*, which is false about the board.
+
+This one has teeth. `PROTOCOL_ERRORS` entry 3 charges *names a play that is not
+available*, and `legality` matches against `legal_actions` — so **a model that
+correctly casts Doom Blade is scored illegal for a correct play.** Entry 3 is
+also the entry the judge grades best (80–85%, 21.74), so the error is confident
+and consistent.
+
+And this class is only findable by a two-sided query. Asserting that each
+enumerated action is legal can never surface an action that is missing —
+21.43's rule, and the reason the export queries the engine rather than testing
+assertions.
+
+#### Three corrections to my own method, each caught by a control
+
+The first clean run reported one line, `Cast Shock`, for a board that also lists
+an attack. That read as the position being wrong. It was the query:
+`getPlayable` returns `List<ActivatedAbility>` and **declaring an attack is a
+turn-based action, not an activated ability**, so attacks and blocks cannot
+appear there at all. `getAvailableAttackers` and `getAvailableBlockers` are
+separate calls. A one-sided query reading as a finding about the data — 21.43's
+shape, a third time.
+
+Before that, three artifacts of my own setup polluted the first diff:
+
+- every test player silently loads `"RB Aggro.dck"`
+  (`CardTestPlayerAPIImpl:215`), so both had a real hand and library that were
+  not the position's — the engine offered `Play Mountain` three times from a
+  hand no position specified. `removeAllCardsFromHand` / `FromLibrary` first;
+- `setStopAt(7, …)` **simulates** seven turns rather than jumping to one, so the
+  board under test was the position plus six turns of draws. Turn 1 always: a
+  position's `turn` says what the board represents, not how long to play first;
+- mana abilities (`{T}: Add {G}.`) flooded the output, and `legal_actions`
+  enumerates plays while the grammar handles mana through TAP lines.
+
+And once, surefire's `-Dtest` was given `A+B` and then a package glob; neither
+matched anything, and the stale reports from the previous run were read as
+current results. A test runner that matches nothing exits differently from one
+that runs and passes, and only the exit code says which.
+
+#### What the comparison does not claim
+
+Matching is on the **card**, not the line: the engine names a spell once
+(`Cast Shock`) where a position names each targeting of it. So this asks whether
+a play is available at all, never whether its target is legal.
+
+Blocks are excluded. `getAvailableBlockers` returned the same creature at a main
+phase and at declare blockers, so it is not phase-sensitive — a `BLOCKER` line
+means *could block something*, not *blocking is legal now*. Comparing it would
+have marked every position as able to block and read as a finding.
