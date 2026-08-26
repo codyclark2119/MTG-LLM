@@ -1057,6 +1057,32 @@ def test_reference_answer() -> int:
     failed += not check("...and it names the line",
                         any("UNTAP EVERYTHING" in i for i in invented), True)
 
+    # A PLAY after a PASS asserts the opponent did not use the window; a
+    # DECLARATION after one asserts almost nothing. Separating them is what
+    # makes "where does a reference line end" decidable (Section 21.92).
+    from positions import reference_consistency
+    def _rc(actions):
+        return "\n".join(reference_consistency(
+            [{"id": "b1", "reference_actions": actions}]))
+    failed += not check("ending a phase after a PASS is not flagged",
+                        "plays after an opponent window" in _rc(
+                            ["PHASE precombat main", "PLAY Forest", "PASS",
+                             "END PHASE precombat main"]), False)
+    failed += not check("but taking another play after one is",
+                        "plays after an opponent window" in _rc(
+                            ["PHASE precombat main", "CAST Shock TARGET Bear", "PASS",
+                             "END PHASE precombat main", "PHASE declare attackers",
+                             "ATTACK Bear -> Opponent", "PASS"]), True)
+    failed += not check("a line with no PASS is not flagged for it",
+                        "plays after an opponent window" in _rc(
+                            ["PHASE precombat main", "PLAY Forest"]), False)
+    # It reports, never enforces: a mulligan cannot end a phase, so the absence
+    # of END PHASE there is correct and must not be an error.
+    failed += not check("consistency reporting raises nothing",
+                        isinstance(reference_consistency(
+                            [{"id": "b", "reference_actions": ["PHASE upkeep", "PASS"]}]),
+                            list), True)
+
     # A scenario step's own correct line must reach the expanded position under
     # the SAME name a position uses. It was read for teacher forcing and never
     # set, so the one field that claims to be parser-verified was the one field

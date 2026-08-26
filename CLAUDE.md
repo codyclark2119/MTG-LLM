@@ -544,6 +544,14 @@ Two invariants worth keeping:
   stage 7 (a full game) is not, and the missing piece is **scenario authoring**,
   not more verbs — 21.71 already puts the opponent's action in the *board*
   between steps, where `legal_actions` still enumerates one player's plays.
+- **A reference line ends where the board stops determining the answer** (21.92).
+  `PASS` is an opponent window, so a line continuing past one is asserting it
+  was declined. A DECLARATION after a `PASS` (`END PHASE`, `PHASE`) asserts
+  almost nothing; a **play** after one asserts the opponent did not act, which
+  no single position states — that line belongs in a scenario, where the next
+  step's board says what happened. Measured: 7 of 10 lines continue past a
+  `PASS` and only 1 plays after one. So `PASS`, `END PHASE` and a further play
+  are three different closes, not a style inconsistency to normalise away.
 - **`--check-references` answers two different questions.** `check_reference`
   asks whether a line is legal on its board; `reference_consistency` asks
   whether the lines agree with EACH OTHER, which is what makes them usable as

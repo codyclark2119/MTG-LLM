@@ -869,6 +869,34 @@ def reference_consistency(boards: list[dict]) -> list[str]:
     out.append("  final action: " + ", ".join(
         f"{v} x{n}" for v, n in last.most_common()))
 
+    # A PLAY after a PASS asserts the opponent did not interact, and the board
+    # cannot support that claim: PASS is a window, and what happens in it
+    # decides everything after (the reviewer's point).
+    #
+    # A DECLARATION after a PASS asserts almost nothing — ending a phase once
+    # nobody responded is how a turn proceeds. So the two are separated rather
+    # than "continues past a PASS" being flagged wholesale: measured on the
+    # first ten lines, 7 continue past a PASS and only 1 plays after one.
+    #
+    # A line that needs a real play after an opponent window is a SCENARIO,
+    # where the next step's board states what the opponent did instead of the
+    # answer assuming it (21.71, 21.89).
+    risky = []
+    for rid, r in refs:
+        up = [a.strip().upper() for a in r]
+        if "PASS" not in up:
+            continue
+        after = r[up.index("PASS") + 1:]
+        plays = [a for a in after
+                 if not a.strip().upper().startswith(("PHASE", "END PHASE", "PASS"))]
+        if plays:
+            risky.append((rid, plays))
+    out.append(f"  no play after a PASS: {len(refs) - len(risky)}/{len(refs)}")
+    for rid, plays in risky:
+        out.append(f"      {rid} plays after an opponent window: {plays}")
+        out.append("          -> belongs in a scenario, where the next step's "
+                   "board says what the opponent did")
+
     # Two spellings of the same step name are a difference a parser cannot see
     # — matching is case-insensitive — and a training set can.
     seen: dict[str, set] = {}

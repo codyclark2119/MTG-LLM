@@ -8339,3 +8339,77 @@ Two entries are worth separating from the rest:
 The reported distribution `END x6, PASS x2, PHASE x1, CAST x1` is the real
 answer to the question asked: **the set is unified on how it opens and not yet
 on how it closes.**
+
+### 21.92 Where a reference line ends, and why a PASS is the boundary
+
+The reviewer, on why the closing action was hard to settle:
+
+> *"Deciding on an ending action is difficult as each PASS comes with possible
+> Opponent interaction that would change whatever plan goes beyond that."*
+
+That is right, and it decides the question rather than complicating it. `PASS`
+offers each opponent a window (117.3). Anything a reference line says after one
+is conditional on that window being declined — and the board cannot support
+that claim, because nothing in the position says what the opponent will do.
+
+So a reference that continues past a `PASS` is asserting something it does not
+know. But not every continuation asserts the same amount, and the distinction
+is what makes the rule usable.
+
+#### The measurement
+
+| | |
+| --- | --- |
+| lines continuing past a `PASS` | **7 of 10** |
+| lines taking a **play** after one | **1 of 10** |
+
+The other six add only `END PHASE` or `PHASE`. Ending a phase once nobody
+responded is how a turn proceeds; it asserts almost nothing. Taking another
+*play* asserts the opponent declined a window in which they could have acted.
+
+Only `pos-combat-math-0005` does it:
+
+```
+PHASE precombat main
+CAST Shock TARGET Grizzly Bears
+PASS                                 <- the opponent may respond here
+END PHASE precombat main
+PHASE declare attackers
+ATTACK Centaur Courser -> Opponent   <- assumes they did not
+PASS
+END PHASE declare attackers
+```
+
+If the opponent has a trick, the attack is a different decision. The line is not
+wrong about Magic; it is over-claiming for a single board.
+
+#### The rule this yields
+
+**A reference line ends where the answer stops being determined by the board.**
+Declarations may follow a `PASS`. A play may not — and a line that needs one is
+a **scenario**, where the next step's board *states* what the opponent did
+rather than the answer assuming it. That is the structure 21.71 already built,
+and it is the same answer 21.89 reached from the other direction, where the
+grammar could not express an opponent's action inside one answer.
+
+So the three ways a line can close are not a style inconsistency to be
+normalised away:
+
+- **`PASS`** — the board's decision is made and the opponent acts next
+  (`pos-mulligan-0002`, `pos-trigger-ordering-0002`);
+- **`END PHASE`** — the window passed unused and the turn moves on, asserting
+  nothing about a later decision (six lines);
+- **a further play** — only valid when a board states the intervening window's
+  outcome, which a single position never does.
+
+`reference_consistency` reports the split and names the one line that crosses
+it. It still does not enforce: the fix for `pos-combat-math-0005` is to shorten
+it or to promote it to a two-step scenario, and which is right depends on what
+the position is meant to teach — combat math, in that case, which argues for
+the scenario.
+
+The general shape is worth keeping. The reviewer's difficulty was not a gap in
+the tooling but a fact about the game that the tooling had no way to express,
+and the fix was to make the distinction measurable rather than to pick a
+convention and enforce it. A standard that flattens a real rules distinction
+would have produced consistent gold data teaching something false.
