@@ -142,6 +142,52 @@ def validate_adjudication_input(body: dict, task: dict) -> list[str]:
       problems.append(f"{field} must be boolean")
   return problems
 
+
+def validate_reference_input(body: dict, record_ids: set[str]) -> list[str]:
+  """Validate reference-line submissions from the public form."""
+  problems = []
+  rid = (body.get("record_id") or "").strip()
+  if rid not in record_ids:
+    problems.append("unknown record")
+  author = body.get("author")
+  if not isinstance(author, str) or not author.strip():
+    problems.append("author is required for attribution")
+  elif len(author.strip()) > MAX_AUTHOR_LENGTH:
+    problems.append(f"author exceeds {MAX_AUTHOR_LENGTH} characters")
+  lines = body.get("reference_actions")
+  if not isinstance(lines, list):
+    problems.append("reference_actions must be a list")
+    return problems
+  clean = [str(x).strip() for x in lines if str(x).strip()]
+  if len(clean) > 60:
+    problems.append("at most 60 actions")
+  if any(len(x) > 200 for x in clean):
+    problems.append("an action line is over 200 characters")
+  return problems
+
+
+def validate_review_input(body: dict, record_ids: set[str]) -> list[str]:
+  """Validate board-review flag submissions from the public form."""
+  problems = []
+  rid = (body.get("record_id") or "").strip()
+  if rid not in record_ids:
+    problems.append("unknown record")
+  author = body.get("author")
+  if not isinstance(author, str) or not author.strip():
+    problems.append("author is required for attribution")
+  elif len(author.strip()) > MAX_AUTHOR_LENGTH:
+    problems.append(f"author exceeds {MAX_AUTHOR_LENGTH} characters")
+  kind = (body.get("kind") or "").strip()
+  if kind and kind not in POSITION_REVIEW_KINDS:
+    problems.append("kind must be one of: " + ", ".join(sorted(POSITION_REVIEW_KINDS)))
+  note = body.get("note")
+  if note is not None and not isinstance(note, str):
+    problems.append("note must be text")
+    return problems
+  if kind and not (note or "").strip():
+    problems.append("say what needs changing")
+  return problems
+
 # Bumped whenever the adjudication form's WORDING changes in a way that could
 # move a verdict. The first eight verdicts were collected under v1, which asked
 # "which of these does it commit?" and did not say to judge the play rather than
@@ -851,17 +897,12 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         per (record, author), so a correction does not need the old row deleted.
         """
         body = await request.json()
+        problems = validate_reference_input(body, by_record)
+        if problems:
+          code = 404 if problems == ["unknown record"] else 400
+          return JSONResponse({"error": "; ".join(problems)}, code)
         rid = (body.get("record_id") or "").strip()
-        if rid not in by_record:
-            return JSONResponse({"error": "unknown record"}, 404)
-        lines = body.get("reference_actions")
-        if not isinstance(lines, list):
-            return JSONResponse({"error": "reference_actions must be a list"}, 400)
-        clean = [str(x).strip() for x in lines if str(x).strip()]
-        if len(clean) > 60:
-            return JSONResponse({"error": "at most 60 actions"}, 400)
-        if any(len(x) > 200 for x in clean):
-            return JSONResponse({"error": "an action line is over 200 characters"}, 400)
+        clean = [str(x).strip() for x in (body.get("reference_actions") or []) if str(x).strip()]
         append_submission(submissions_path, {
             "kind": "reference",
             "record_id": rid,
@@ -886,17 +927,13 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         `positions.py --ingest-references`, which validates the kind.
         """
         body = await request.json()
+        problems = validate_review_input(body, by_record)
+        if problems:
+          code = 404 if problems == ["unknown record"] else 400
+          return JSONResponse({"error": "; ".join(problems)}, code)
         rid = (body.get("record_id") or "").strip()
-        if rid not in by_record:
-            return JSONResponse({"error": "unknown record"}, 404)
         kind = (body.get("kind") or "").strip()
-        if kind and kind not in POSITION_REVIEW_KINDS:
-            return JSONResponse(
-                {"error": "kind must be one of: "
-                          + ", ".join(sorted(POSITION_REVIEW_KINDS))}, 400)
         note = (body.get("note") or "").strip()[:1000]
-        if kind and not note:
-            return JSONResponse({"error": "say what needs changing"}, 400)
         append_submission(submissions_path, {
             "kind": "review",
             "record_id": rid,
@@ -1334,6 +1371,7 @@ $('#who').oninput=()=>mlAuthorSet(who());
 
 function renderArm(arm){
   const n_strategy = arm.n_strategy || 0;
+  const dis = arm.done ? ' disabled' : '';
   return '<div class="arm-panel'+(arm.done?' done':'')+'" data-key="'+esc(arm.key)+'">'+
     '<div class="arm-head"><b>'+esc(arm.arm)+'</b>'+(arm.done?'<span class="done">saved</span>':'')+'</div>'+
     '<div class="answer-wrap"><pre class="answer">'+esc(arm.answer)+'</pre></div>'+
@@ -1343,13 +1381,13 @@ function renderArm(arm){
     (arm.common_errors||[]).map((e,n)=>
       ((n===n_strategy)?'<h3 class="grp">Mistakes any answer can make</h3>'+
         '<p class="hint">These apply to every position. Check them the same way — by what the answer did, not by how it worded it.</p>':'')+
-      '<label class="opt"><input type="checkbox" class="e" value="'+(n+1)+'"><span><b>'+(n+1)+'.</b> '+esc(e)+'</span></label>').join('')+
+      '<label class="opt"><input type="checkbox" class="e" value="'+(n+1)+'"'+dis+'><span><b>'+(n+1)+'.</b> '+esc(e)+'</span></label>').join('')+
     '<p class="hint"><b>Check none if it makes none of them</b> — a real verdict and a common one, not a skip.</p>'+
-    '<label class="opt"><input type="checkbox" class="notcovered"><span><b>Bad, but not for any reason above.</b> The answer is wrong or useless and none of the listed mistakes describe it.</span></label>'+
-    '<label class="opt"><input type="checkbox" class="unsure"><span>Genuinely ambiguous — I could argue it either way</span></label>'+
+    '<label class="opt"><input type="checkbox" class="notcovered"'+dis+'><span><b>Bad, but not for any reason above.</b> The answer is wrong or useless and none of the listed mistakes describe it.</span></label>'+
+    '<label class="opt"><input type="checkbox" class="unsure"'+dis+'><span>Genuinely ambiguous — I could argue it either way</span></label>'+
     '<h3 class="grp">Why is this play wrong?</h3>'+
     '<p class="hint">The boxes above are the verdict; this is the reasoning.</p>'+
-    '<textarea class="note" rows="4" placeholder="Explain what the answer got wrong and what the right line was."></textarea>'+
+    '<textarea class="note" rows="4"'+dis+' placeholder="Explain what the answer got wrong and what the right line was."></textarea>'+
     '</div>';
 }
 
@@ -1436,6 +1474,7 @@ $('#go').onclick=async()=>{
     const key = card.dataset.key;
     const arm = (group.arms||[]).find(x => x.key === key);
     if (!arm) continue;
+    if (arm.done) continue;
     const present=[...card.querySelectorAll('.e')].filter(c=>c.checked).map(c=>+c.value);
     const note = card.querySelector('.note');
     const unsure = card.querySelector('.unsure');

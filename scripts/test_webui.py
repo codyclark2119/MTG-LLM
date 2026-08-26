@@ -132,6 +132,14 @@ def main() -> None:
     # without a line here is a page whose JavaScript nothing parses.
     check_page("rubric_server/reference", rubric_server.REFERENCE_HTML)
 
+    # Grouped adjudication must not re-submit already-saved arms when revisiting
+    # a record. The guard is in-page JavaScript so keep a string-level check.
+    check("adjudication skips already-saved arms on grouped submit",
+          "if (arm.done) continue;" in rubric_server.ADJUDICATE_HTML, True)
+    check("adjudication disables controls on saved arm panels",
+          "const dis = arm.done ? ' disabled' : '';" in rubric_server.ADJUDICATE_HTML,
+          True)
+
     # This file holds four complete pages as separate Python strings, and
     # nothing ties a CSS rule to the page whose markup uses it. Twice now a
     # selector has been added to one page while the elements it styles live in

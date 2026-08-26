@@ -196,7 +196,8 @@ def main() -> None:
     # record_id::arm survives a regeneration of the arms while the answer behind
     # it does not, so comparing keys alone marks already-graded keys done and
     # hides exactly the tasks needing a fresh verdict (Section 21.62).
-    from rubric_server import _answer_sha as _sha, group_adjudication_tasks
+    from rubric_server import (_answer_sha as _sha, group_adjudication_tasks,
+                               validate_reference_input, validate_review_input)
 
     grouped = group_adjudication_tasks([
         {"record_id": "p", "question": "Q", "key": "p::a", "arm": "a",
@@ -209,6 +210,28 @@ def main() -> None:
     check("tasks group by record_id with per-arm rows preserved",
           [{g["record_id"]: [a["key"] for a in g["arms"]] for g in grouped}],
           [{"p": ["p::a", "p::b"], "q": ["q::a"]}])
+
+    # Reference/review rows are attribution-bearing judgements and must never
+    # accept empty authors, mirroring rubric/adjudication validation.
+    recs = {"p", "q"}
+    check("reference submission requires an author",
+          validate_reference_input({"record_id": "p",
+                                    "reference_actions": ["PASS"],
+                                    "author": ""}, recs),
+          ["author is required for attribution"])
+    check("reference submission validates unknown records",
+          validate_reference_input({"record_id": "z",
+                                    "reference_actions": ["PASS"],
+                                    "author": "me"}, recs),
+          ["unknown record"])
+    check("review submission requires an author",
+            validate_review_input({"record_id": "p", "kind": "split",
+                                 "note": "two decisions", "author": ""}, recs),
+          ["author is required for attribution"])
+    check("review submission requires note when flagging",
+            validate_review_input({"record_id": "p", "kind": "split",
+                                 "note": "", "author": "me"}, recs),
+          ["say what needs changing"])
 
     _tasks = [{"key": "p::a", "answer": "PLAY Swamp\nPASS"}]
     _live = {t["key"]: _sha(t["answer"]) for t in _tasks}
