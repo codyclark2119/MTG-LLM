@@ -544,6 +544,14 @@ Two invariants worth keeping:
   stage 7 (a full game) is not, and the missing piece is **scenario authoring**,
   not more verbs — 21.71 already puts the opponent's action in the *board*
   between steps, where `legal_actions` still enumerates one player's plays.
+- **A position asks ONE question** (21.93). Median reference: 4.5 actions but
+  only **1.5 plays** — most of a line is protocol scaffolding and the decision
+  is usually a single move. Plays in two phases mean two positions written as
+  one; split it or make it a scenario. Note the cost asymmetry when growing
+  either taxonomy: **categories are strings** (a dropdown and a membership
+  check, free to widen) while `PROTOCOL_ERRORS` is append-only and costs every
+  collected verdict. So widen categories when a split produces a position that
+  fits none — not ahead of the evidence.
 - **A reference line ends where the board stops determining the answer** (21.92).
   `PASS` is an opponent window, so a line continuing past one is asserting it
   was declined. A DECLARATION after a `PASS` (`END PHASE`, `PHASE`) asserts

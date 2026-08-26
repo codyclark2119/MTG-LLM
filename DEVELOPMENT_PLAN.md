@@ -8413,3 +8413,80 @@ the tooling but a fact about the game that the tooling had no way to express,
 and the fix was to make the distinction measurable rather than to pick a
 convention and enforce it. A standard that flattens a real rules distinction
 would have produced consistent gold data teaching something false.
+
+### 21.93 Shorter answers, and the case for widening categories that the data does not yet make
+
+The reviewer, after 21.92:
+
+> *"This feels like a case that can be made for shortening expected actions and
+> instead widening the category types for each move."*
+
+Half of that is strongly supported and half is not, and the half that holds is
+the one that matters.
+
+#### Shortening: supported
+
+Across the ten stored reference lines:
+
+| | median | range |
+| --- | --- | --- |
+| total actions | **4.5** | 3–8 |
+| actual **plays** | **1.5** | 1–3 |
+
+Six of ten encode exactly one play. The three-play cases are `TAP`, `TAP`,
+`CAST` — one decision plus the payment the grammar requires for it. **Most of a
+reference line is protocol scaffolding, and the decision itself is usually a
+single move.**
+
+That is what makes the position the right unit: it asks one question, and the
+answer to one question is one play plus whatever the notation demands around it.
+
+The check follows directly. Grouping a reference's plays by the phase they
+happen in, a line with plays in two phases is two positions written as one —
+and it is the same line the play-after-a-`PASS` check flags, arrived at from the
+other side. One of ten crosses it:
+
+```
+pos-combat-math-0005 plays in 2 phases:
+    precombat main:    CAST Shock TARGET Grizzly Bears
+    declare attackers: ATTACK Centaur Courser -> Opponent
+```
+
+Two independent checks, built for different reasons, naming the same line. That
+is the useful kind of agreement: 21.92's rule is about what a board can
+*assert*, this one is about what a position *asks*, and a line that violates one
+violates the other because they are the same constraint seen from two sides.
+
+#### Widening: not yet
+
+The proposal was that narrower answers should be paid for with more category
+types. The evidence does not support it — and my first pass at gathering that
+evidence over-claimed.
+
+A crude keyword sweep suggested **7 of 32** positions turn on targeting with no
+category for it. Requiring instead that a `common_error` actually name choosing
+the *wrong* target — "should target the player instead of Goblin Guide" — gives
+**3 of 32**, and all three are `payment` positions where targeting is a
+*distractor* inside the question rather than the question. That is not a missing
+category; that is a well-constructed distractor doing its job.
+
+Recorded because the first number was mine and was wrong in the encouraging
+direction: a regex over prose measures which words appear, and a category is
+about what the position *turns on*. The same distinction 21.80 required before
+promoting an error class — measure the thing itself, not a word that co-occurs
+with it.
+
+#### The asymmetry worth keeping
+
+Categories are strings used by a dropdown and a membership check, so widening
+them changes nothing already recorded. `PROTOCOL_ERRORS` is append-only because
+the judge returns error NUMBERS, so growing it costs every collected verdict
+(21.78, 21.84 — 36 of them). **Widening the taxonomy is the cheap direction and
+lengthening the rubric is the expensive one**, which is what makes the
+reviewer's instinct right even where this particular evidence does not carry it.
+
+So the path is: shorten the answers, split the positions that were doing two
+jobs, and widen the categories **when a split produces a position that does not
+fit one**. That gives the same taxonomy growth as an evidence trail rather than
+as a guess — the disposition 21.80 and 21.84 already established for rubric
+entries, applied one level up.

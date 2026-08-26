@@ -1083,6 +1083,19 @@ def test_reference_answer() -> int:
                             [{"id": "b", "reference_actions": ["PHASE upkeep", "PASS"]}]),
                             list), True)
 
+    # A position asks ONE question, so plays in two phases are two positions
+    # written as one (Section 21.93). Same line the play-after-a-PASS check
+    # flags, reached from the other side.
+    failed += not check("plays in two phases are flagged",
+                        "plays in 2 phases" in _rc(
+                            ["PHASE precombat main", "CAST Shock TARGET Bear", "PASS",
+                             "END PHASE precombat main", "PHASE declare attackers",
+                             "ATTACK Bear -> Opponent", "PASS"]), True)
+    failed += not check("one phase with several plays is not",
+                        "plays in 2 phases" in _rc(
+                            ["PHASE postcombat main", "TAP Island FOR {U}",
+                             "TAP Mountain FOR {R}", "CAST Chart a Course", "PASS"]), False)
+
     # A scenario step's own correct line must reach the expanded position under
     # the SAME name a position uses. It was read for teacher forcing and never
     # set, so the one field that claims to be parser-verified was the one field

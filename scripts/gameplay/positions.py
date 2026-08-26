@@ -897,6 +897,33 @@ def reference_consistency(boards: list[dict]) -> list[str]:
         out.append("          -> belongs in a scenario, where the next step's "
                    "board says what the opponent did")
 
+    # Plays grouped by the phase they happen in. A position asks ONE question,
+    # so a reference making plays in two phases is two positions written as one
+    # — and it is the same line the play-after-a-PASS check flags, reached from
+    # the other side (Section 21.93).
+    #
+    # This is the measurement behind "shorten the answers": across the first ten
+    # lines the median is 4.5 actions but only 1.5 PLAYS, so most of a reference
+    # is protocol scaffolding and the decision itself is usually a single move.
+    spanning = []
+    for rid, r in refs:
+        cur, buckets = None, {}
+        for a in r:
+            u = a.strip().upper()
+            if u.startswith("PHASE "):
+                cur = a.strip()[6:]
+            elif not u.startswith(("END PHASE", "PASS")):
+                buckets.setdefault(cur, []).append(a.strip())
+        if len(buckets) > 1:
+            spanning.append((rid, buckets))
+    out.append(f"  plays confined to one phase: {len(refs) - len(spanning)}/{len(refs)}")
+    for rid, buckets in spanning:
+        out.append(f"      {rid} plays in {len(buckets)} phases:")
+        for ph, acts in buckets.items():
+            out.append(f"          {ph}: {', '.join(acts)}")
+        out.append("          -> two decisions in one position: split it, or make "
+                   "it a scenario so the second board states what came between")
+
     # Two spellings of the same step name are a difference a parser cannot see
     # — matching is case-insensitive — and a training set can.
     seen: dict[str, set] = {}
