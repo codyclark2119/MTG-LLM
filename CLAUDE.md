@@ -119,6 +119,16 @@ directory. Paths a user passes on the command line stay relative to their cwd.
 the trained adapter — an adapter is only valid for the format it saw. This is
 the project's #1 documented failure mode (Section 8.7).
 
+**`PASS` and `END PHASE` are different plays** (21.87). PASS offers opponents a
+window to respond to the play just made; END PHASE leaves the step. The grammar
+had only PASS, so a full turn — stages 6 and 7 — was unexpressible in the
+notation it was to be scored in. END PHASE is a DECLARATION, so it cannot move
+Gate 1. `ATTACK <c>, <c> -> <defender>` likewise: a creature attacks a player or
+a planeswalker (506.2) and nothing else, and **6 of 418** stored answers wrote
+the arrow before the grammar allowed it. `match_to_legal` treats an undirected
+`legal_action` as not constraining the direction, so the 32 stored positions
+still match; re-scoring 248 answers changed 0 verdicts.
+
 **The gameplay prompt has its own fingerprint.** `prompt_fingerprint` covers the
 rules track only, so until Section 21.60 an edit to `GAMEPLAY_SYSTEM_PROMPT` —
 the grammar block that *is* the output contract — left no trace in any run file.

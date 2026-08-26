@@ -1047,13 +1047,34 @@ def test_reference_answer() -> int:
     # tolerance for ARM answers (21.61) and wrong for a reference, where every
     # line is a claim. The first reference submitted invented `END PHASE <step>`
     # twice and was accepted in silence (Section 21.86).
+    # `END PHASE` was this test's example of an invented verb until 21.87 made
+    # it real, which is the correct reason for a test to change.
     invented = check_reference(board, ["PHASE precombat main",
                                        "CAST Shock TARGET Bear",
-                                       "END PHASE precombat main", "PASS"])
+                                       "UNTAP EVERYTHING", "PASS"])
     failed += not check("a line outside the grammar is refused",
                         any("not in the action grammar" in i for i in invented), True)
     failed += not check("...and it names the line",
-                        any("END PHASE" in i for i in invented), True)
+                        any("UNTAP EVERYTHING" in i for i in invented), True)
+
+    # A later PHASE line after END PHASE is the answer ADVANCING the turn, not
+    # misreporting the board. Without this, every correct line on a position
+    # whose legal_actions span two steps was charged entry 4 (Section 21.87).
+    from positions import phase_problems
+    from actions import parse_output as _po
+    spanning = {"id": "t3", "phase": "precombat main"}
+    advanced = _po("PHASE precombat main\nCAST Shock TARGET Bear\nPASS\n"
+                   "END PHASE precombat main\nPHASE declare attackers\n"
+                   "ATTACK Bear -> Opponent\nPASS")
+    failed += not check("an ended phase may be followed by the next one",
+                        phase_problems(spanning, advanced.actions), [])
+    jumped = _po("PHASE precombat main\nPHASE declare attackers\n"
+                 "ATTACK Bear -> Opponent\nPASS")
+    failed += not check("...but jumping without ending it is still charged",
+                        len(phase_problems(spanning, jumped.actions)), 1)
+    wrong = _po("PHASE end step\nPASS")
+    failed += not check("and the OPENING step is still checked",
+                        len(phase_problems(spanning, wrong.actions)), 1)
 
     # A board that intentionally enumerates no play: PASS alone is the whole
     # correct answer, and a reference that plays something contradicts it.

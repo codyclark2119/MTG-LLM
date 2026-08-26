@@ -303,13 +303,14 @@ ACTION_GRAMMAR = (
     "CAST <card>                       cast a spell that has no targets\n"
     "CAST <card> TARGET <a>, <b>       cast a spell, naming its targets\n"
     "ACTIVATE <permanent>: <ability>   activate an ability\n"
-    "ATTACK <creature>, <creature>     declare all attackers at once\n"
+    "ATTACK <c>, <c> -> <defender>     declare attackers and who they attack\n"
     "BLOCK <blocker> -> <attacker>     one assignment per line\n"
     "ORDER TRIGGERS <a>, <b>           in the order they should resolve\n"
     "MULLIGAN                          ship the opening hand\n"
     "KEEP                              keep the opening hand as it is\n"
     "KEEP BOTTOM <a>, <b>              keep, naming the cards put on the bottom\n"
     "TAP <permanent> FOR <mana>        tap for mana, one permanent per line\n"
+    "END PHASE <step>                  leave this step for the next one\n"
     "PASS                              take no further action"
 )
 
@@ -321,6 +322,19 @@ GAMEPLAY_SYSTEM_PROMPT = (
     "Write card names exactly as the position shows them, with no brackets or "
     "quotation marks around them. Give your reasoning first if you want to, "
     "then the actions. End with a single PASS.\n\n"
+    # PASS and END PHASE are different plays and the grammar had only one of
+    # them, so a full turn was unexpressible in the notation it was to be
+    # scored in (Section 21.87).
+    "PASS and END PHASE are different. PASS offers each opponent the chance to "
+    "respond to the play you just made; it does not move the turn on. END PHASE "
+    "leaves the step you declared and goes to the next one. A line of play "
+    "within a single step ends with PASS; a turn that moves through several "
+    "steps declares each with PHASE, ends each with END PHASE, and finishes "
+    "with a single PASS.\n\n"
+    "A creature may attack a player or a planeswalker that player controls, and "
+    "nothing else. Name the defender after the arrow, one ATTACK line per "
+    "defender: `ATTACK Bear, Elk -> Opponent` sends both at the player, and a "
+    "second line may send another creature somewhere else.\n\n"
     "Be explicit rather than brief. Open with PHASE, naming the step the "
     "position is in. Before casting anything, TAP the lands that "
     "pay for it, one line each, naming the mana each one produces — a land that "
@@ -738,11 +752,10 @@ def build_position_messages(pos: dict, context: str | None = None,
 
     if closed:
         legal = pos.get("legal_actions") or []
-        if not legal:
-            raise ValueError(f"position {pos.get('id')} has no legal_actions for the closed arm")
-        listing = "\n".join(f"  {a}" for a in legal)
+        listing = ("  (no legal plays are available; PASS is the only response)"
+                   if not legal else "\n".join(f"  {a}" for a in legal))
         parts.append(
-            "These are the only legal actions available to you. Choose from "
+            "These are the only legal plays available to you. Choose from "
             f"this list and reply with the ones you take:\n{listing}"
         )
         parts.append("Which do you take?")

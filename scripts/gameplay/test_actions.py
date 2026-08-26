@@ -226,11 +226,72 @@ def test_tap_grammar() -> int:
     return failed
 
 
+def test_end_phase_and_attack_direction() -> int:
+    """`END PHASE` and `ATTACK ... -> <defender>` (Section 21.87).
+
+    PASS offers opponents a window to respond to the play just made; END PHASE
+    leaves the step. The grammar had only PASS, so a full turn — which is mostly
+    phase transitions — could not be written in the notation it was to be scored
+    in. And a creature attacks a player or a planeswalker (506.2), which the
+    arrow now says; 6 of 418 stored answers wrote it before it was allowed.
+    """
+    failed = 0
+
+    # END PHASE is a DECLARATION: it changes nothing `legal_actions` enumerates,
+    # so it must not count as a play or Gate 1 moves on a notation change.
+    out = parse_output("PHASE Main\nCAST Shock TARGET Bear\nPASS\n"
+                       "END PHASE Main\nPHASE Declare Attackers\n"
+                       "ATTACK Bear -> Opponent\nPASS")
+    failed += not check("END PHASE parses",
+                        [a.verb for a in out.actions].count("END PHASE"), 1)
+    failed += not check("END PHASE is not a play",
+                        [a.verb for a in out.plays].count("END PHASE"), 0)
+    failed += not check("the step is optional", parse_line("END PHASE").verb, "END PHASE")
+    # A closed step vocabulary, like PHASE: otherwise prose opening with the
+    # words becomes a declaration.
+    failed += not check("narration is not an END PHASE",
+                        parse_line("END PHASE two of my plan"), None)
+
+    a = parse_line("ATTACK Bear, Elk -> Opponent")
+    failed += not check("attackers split on the comma", a.args, ("Bear", "Elk"))
+    failed += not check("the defender is separate", a.target, "Opponent")
+    failed += not check("a planeswalker defender survives whole",
+                        parse_line("ATTACK Bear -> Opponent Planeswalker 1").target,
+                        "Opponent Planeswalker 1")
+    failed += not check("an arrow with no defender fails",
+                        isinstance(parse_line("ATTACK Bear ->"), ParseFailure), True)
+    failed += not check("attacker order does not matter",
+                        parse_line("ATTACK Elk, Bear -> Opponent").key(),
+                        parse_line("ATTACK Bear, Elk -> Opponent").key())
+    failed += not check("the defender does matter",
+                        parse_line("ATTACK Bear -> Opponent").key()
+                        != parse_line("ATTACK Bear -> Opponent Planeswalker").key(), True)
+
+    # Backwards compatibility, and why it is not optional: 32 stored positions
+    # enumerate `ATTACK <creature>` with no direction, so requiring one would
+    # have scored every correct attack illegal and arrived as "the model got
+    # worse at combat" (21.61's shape).
+    legal = ["ATTACK Bear", "CAST Shock TARGET Bear"]
+    failed += not check("a directed attack matches an undirected legal action",
+                        match_to_legal(parse_line("ATTACK Bear -> Opponent"), legal),
+                        "ATTACK Bear")
+    failed += not check("an undirected attack still matches",
+                        match_to_legal(parse_line("ATTACK Bear"), legal), "ATTACK Bear")
+    failed += not check("the wrong creature still does not match",
+                        match_to_legal(parse_line("ATTACK Elk -> Opponent"), legal), None)
+    # When the POSITION names a defender, the answer must match it.
+    failed += not check("a position may constrain the defender",
+                        match_to_legal(parse_line("ATTACK Bear -> Opponent Planeswalker"),
+                                       ["ATTACK Bear -> Opponent"]), None)
+    return failed
+
+
 def main() -> None:
     failed = 0
     failed += check_joint_legality()
     failed += test_degenerate_and_only_pass()
     failed += test_tap_grammar()
+    failed += test_end_phase_and_attack_direction()
 
     for line, want in CASES:
         result = parse_line(line)

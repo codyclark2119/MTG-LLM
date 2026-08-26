@@ -9,7 +9,8 @@ The grammar:
     PLAY <card>                       a land drop
     CAST <card> [TARGET <a>, <b>]     a spell, with targets if it has them
     ACTIVATE <permanent>: <ability>   an activated ability
-    ATTACK <creature>[, <creature>]   declare attackers, all at once
+    ATTACK <c>[, <c>] -> <defender>   declare attackers and their direction
+    END PHASE [<step>]                leave this step for the next one
     BLOCK <blocker> -> <attacker>     one assignment per line
     ORDER TRIGGERS <a>, <b>           in the order they should RESOLVE
     MULLIGAN                          ship the opening hand
@@ -39,7 +40,7 @@ means a parse failure always means "malformed", never "unknown card".
 import re
 from dataclasses import dataclass, field
 
-VERBS = ("PLAY", "CAST", "ACTIVATE", "ATTACK", "BLOCK", "ORDER TRIGGERS",
+VERBS = ("END PHASE", "PLAY", "CAST", "ACTIVATE", "ATTACK", "BLOCK", "ORDER TRIGGERS",
          "MULLIGAN", "KEEP", "PASS", "TAP", "PHASE")
 
 # Markdown/list scaffolding the model wraps its answer in. Stripped, not failed.
@@ -61,6 +62,13 @@ class Action:
     verb: str
     args: tuple = ()
     raw: str = ""
+    # ATTACK only: who the attackers are being sent at. A creature attacks a
+    # player or a planeswalker that player controls (506.2), and those are the
+    # only legal directions — so this is a small closed idea rather than a free
+    # operand. Empty for every other verb, and empty for an ATTACK that names no
+    # defender, which stays legal because 32 stored positions enumerate
+    # `ATTACK <creature>` with no direction (Section 21.87).
+    target: str = ""
 
     def key(self) -> str:
         if not self.args:
@@ -69,8 +77,10 @@ class Action:
             return "KEEP BOTTOM " + ", ".join(sorted(self.args))
         if self.verb == "ATTACK":
             # Attacker order is not meaningful — sort so two orderings of the
-            # same attack compare equal.
-            return "ATTACK " + ", ".join(sorted(self.args))
+            # same attack compare equal. The DEFENDER is meaningful: sending two
+            # creatures at a player and at a planeswalker are different attacks.
+            body = "ATTACK " + ", ".join(sorted(self.args))
+            return f"{body} -> {self.target}" if self.target else body
         if self.verb == "BLOCK":
             return f"BLOCK {self.args[0]} -> {self.args[1]}"
         if self.verb == "ACTIVATE":
@@ -247,6 +257,25 @@ def parse_line(line: str) -> Action | ParseFailure | None:
             return None
         return Action("PHASE", (body,), line)
 
+    if verb == "END PHASE":
+        # Advancing the turn, which `PASS` does NOT mean. Passing priority
+        # offers each opponent a window to respond to the play just made; ending
+        # a phase leaves the step entirely. Conflating them left no way to say
+        # "I am done here, move to combat", which is most of what a FULL TURN
+        # is — so stage 6 was unexpressible in the grammar it was to be scored
+        # in. The one step the non-active player ends is declare blockers, which
+        # is why this is the active player's declaration (Section 21.87).
+        #
+        # A declaration, not a play: it changes no board state that
+        # `legal_actions` enumerates, so it cannot move Gate 1.
+        #
+        # The step is optional. Naming it is checkable and better; requiring it
+        # would fail an answer that ended the phase it had just declared, which
+        # is unambiguous.
+        if body and not any(step in body.lower() for step in PHASE_NAMES):
+            return None  # narration — "End phase two of the plan"
+        return Action("END PHASE", (body,) if body else (), line)
+
     if verb == "TAP":
         # `TAP <permanent> FOR <mana>` — the mana declaration (Section 21.60).
         # FOR is required: `TAP Forest` alone says a land was tapped but not what
@@ -300,10 +329,25 @@ def parse_line(line: str) -> Action | ParseFailure | None:
 
     if verb == "ATTACK":
         body = re.sub(r"^\s*WITH\b\s*", "", body, flags=re.I)  # "ATTACK WITH x"
+        # `ATTACK <c>, <c> -> <defender>`. A creature attacks a player or a
+        # planeswalker its controller does not control (506.2); nothing else is
+        # a legal direction, so the arrow means the same thing it means for
+        # BLOCK — assign the left to the right — rather than a second syntax.
+        #
+        # 6 of 418 stored answers already wrote the arrow before the grammar
+        # allowed it, and so did the first human-authored reference line: the
+        # arrow was doing work in BLOCK and nothing in ATTACK, which is the kind
+        # of near-miss a model and a person make identically (Section 21.86).
+        target = ""
+        if "->" in body:
+            body, _, target = body.partition("->")
+            target = _norm(target)
+            if not target:
+                return ParseFailure(line, "ATTACK -> with no defender named")
         names = _split_list(body)
         if not names:
             return ParseFailure(line, "ATTACK with no creature named")
-        return Action("ATTACK", names, line)
+        return Action("ATTACK", names, line, target)
 
     if verb == "BLOCK":
         # Both orderings occur in the wild and they mean OPPOSITE things:
@@ -475,7 +519,19 @@ def match_to_legal(action: Action, legal_actions: list[str]) -> str | None:
         return "PASS"
     for legal in legal_actions:
         parsed = parse_line(legal)
-        if isinstance(parsed, Action) and parsed.key().casefold() == want:
+        if not isinstance(parsed, Action):
+            continue
+        if parsed.key().casefold() == want:
+            return legal
+        # `ATTACK <c>` in a position means "attacking with <c> is available" and
+        # says nothing about the direction, so an answer that names one is not
+        # illegal for being more specific. When the position DOES name a
+        # defender the answer must match it — otherwise adding the direction to
+        # the grammar would have scored 32 positions' worth of correct attacks
+        # illegal, arriving as "the model got worse at combat" (21.61's shape).
+        if (parsed.verb == "ATTACK" and action.verb == "ATTACK"
+                and not parsed.target and action.target
+                and sorted(parsed.args) == sorted(action.args)):
             return legal
     return None
 
@@ -517,7 +573,7 @@ REPEAT_IS_MEANINGFUL = ONCE_PER_TURN + ("TAP",)
 # The steps and phases a `PHASE` declaration may name (CR 500-514), plus the
 # pre-game state positions use. A closed vocabulary, because "Phase two of my
 # plan" opens with the verb and is prose; see parse_line.
-DECLARATIONS = ("PHASE", "TAP")
+DECLARATIONS = ("PHASE", "TAP", "END PHASE")
 
 PHASE_NAMES = (
     "untap", "upkeep", "draw", "precombat main", "postcombat main", "main",

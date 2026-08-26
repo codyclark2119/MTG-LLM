@@ -7995,3 +7995,86 @@ a sequence, and 21.71 built the harness for sequences precisely so that a
 multi-step line is scored step by step rather than crammed into one board. But
 it is a decision about the gold set's shape, so it is stated with its options
 rather than taken.
+
+### 21.87 `END PHASE` and a direction for `ATTACK`: the grammar could not express a turn
+
+Two grammar changes, both from the reviewer, both correcting places where the
+notation could not say something the game requires.
+
+#### `PASS` was doing two jobs
+
+*"`PASS` means for whatever action a player takes they are passing priority to
+make a reaction to that play to each opponent. `END PHASE` is moving out of the
+declared phase and into the next phase in the turn."*
+
+Those are different acts. Passing priority opens a window for each opponent to
+respond to the play just made (117.3); ending a phase leaves the step. The
+grammar had only `PASS`, so **there was no way to write "I am done here, move
+to combat"** — which is most of what a turn is.
+
+That matters more than a missing convenience. Stage 6 is *full-turn validity*
+and stage 7 is *full-game validity*; both are sequences of steps, and neither
+was expressible in the notation they were to be scored in. The harness for
+sequences has existed since 21.71 and the vocabulary for them did not.
+
+`END PHASE [<step>]` is a **declaration**, like `PHASE` and `TAP`: it changes
+nothing `legal_actions` enumerates, so adding it cannot move Gate 1. The step is
+optional but validated against `PHASE_NAMES` when given, the same closed
+vocabulary `PHASE` uses — otherwise "End phase two of my plan" becomes a
+declaration.
+
+The reviewer also supplied the exception worth recording: the active player ends
+each phase **except declare blockers**, which the defending player ends.
+
+#### The arrow meant something in one verb and nothing in the other
+
+`BLOCK <blocker> -> <attacker>` used an arrow to mean *assign the left to the
+right*. `ATTACK <creature>, <creature>` had no direction at all — but a creature
+attacks a player or a planeswalker that player controls (506.2), and those are
+the only legal directions, so the direction is part of the play.
+
+The near-miss was measured on both sides. **6 of 418** stored answers wrote
+`ATTACK … -> …` before the grammar allowed it, and the first human-authored
+reference line did too. When a model and a careful person independently reach
+for the same syntax, the grammar is what is wrong.
+
+Now `ATTACK <c>, <c> -> <defender>`, one line per defender, so an attack can be
+split across a player and a planeswalker.
+
+**Backwards compatibility was the risk, and it is handled explicitly.** 32
+stored positions enumerate `ATTACK <creature>` with no direction. Requiring one
+would have scored every correct attack illegal and arrived as *"the model got
+worse at combat"* — 21.61's shape exactly. `match_to_legal` treats an
+undirected `legal_action` as not constraining the direction, while a position
+that **does** name a defender still requires the answer to match it.
+
+Verified rather than assumed: re-scoring **248 stored answers** under the new
+grammar produced **0** changes to `all_legal` or `n_plays`. The six arrow
+answers do now parse differently — attackers split correctly and the defender
+extracted, where before the whole tail was one attacker name — and stay illegal
+for the reasons they already were, so the check is not vacuous.
+
+#### And entry 4 had to follow
+
+The reviewer's reference line then failed on one charge only: entry 4, *the
+PHASE line names a step other than the one the position is in*. Correct on its
+own terms — `pos-combat-math-0005` records `precombat main` while enumerating
+both a main-phase cast and a combat attack, so **any** correct line that does
+both declares a second step.
+
+21.86 left that open with three options. `END PHASE` answers it: only the FIRST
+declaration is a claim about where the position is, and a later one that follows
+an `END PHASE` is the answer *advancing* rather than misreporting. A step
+declared **without** ending the previous one is still a jump and still charged,
+and the opening step is still checked. Zero of 248 stored verdicts changed,
+because nothing written before this used a verb that did not exist.
+
+The reviewer's line is now accepted and is the first `reference_actions` in the
+gold set.
+
+**The fingerprint moved** — `4a0fee3c83ee` → `f050d4aed707`. Every stored
+position run is now incomparable to a new one, which is what
+`gameplay_fingerprint` exists to make loud. The arms have to be regenerated
+before any new position number means anything, and unlike 21.84's no-op that
+regeneration will produce genuinely different answers, because the prompt is
+genuinely different.

@@ -364,7 +364,23 @@ def phase_problems(pos: dict, actions) -> list[str]:
     if not want:
         return []
     out = []
+    # Only the FIRST declaration is a claim about where the position is. Once
+    # `END PHASE` exists (21.87), a later `PHASE` line is the answer ADVANCING
+    # the turn, not misreporting the board — and a correct full-turn line
+    # necessarily names several steps.
+    #
+    # `pos_n24_protocol2`'s `pos-combat-math-0005` is the case: it records
+    # `precombat main` while enumerating both a main-phase cast and a combat
+    # attack, so every correct line that does both declared a second step and
+    # was charged entry 4 for it. The reviewer's own reference line was.
+    #
+    # A later step still has to be EARNED: declaring one without ending the
+    # previous is a jump, not an advance, and is charged as before.
+    advanced = False
     for a in actions:
+        if a.verb == "END PHASE":
+            advanced = True
+            continue
         if a.verb != "PHASE" or not a.args:
             continue
         said = a.args[0].lower()
@@ -374,6 +390,9 @@ def phase_problems(pos: dict, actions) -> list[str]:
             continue
         shared = [st for st in PHASE_NAMES if st in said and st in want]
         if shared:
+            continue
+        if advanced:
+            # Left the declared step first, so this names where it went.
             continue
         out.append(f"PHASE {a.args[0]!r}: the position is in {pos.get('phase')!r}")
     return out
