@@ -27,11 +27,17 @@ It emits Java. It does not run it: there is no JVM here, and a generated test
 that has never compiled is a draft, not a result. The output is meant to be
 dropped into a `Mage.Tests` checkout and run there.
 
-Two things are deliberately isolated at the top of this file rather than spread
-through the emitter, because they are the parts this repo cannot verify:
-`PHASE_STEP` maps our phase names onto XMage's `PhaseStep` constants, and
-`TAPPED_CALL` is how a permanent is put onto the battlefield already tapped.
-Both are one-line fixes against a real checkout, and everything regenerates.
+The API here is read from a checkout, not guessed. `CardTestPlayerBase`,
+`addCard(Zone, player, name, count)`, `setLife`, `setStopAt(turn, PhaseStep.X)`
+and the `currentGame` / `playerA` fields are all as the existing tests use them,
+and `TestPlayer implements Player`, so `playerA.getPlayable(...)` is reachable
+directly. Tapped is a FIFTH parameter to `addCard` rather than a separate call,
+which is why grepping the tests for a `setTapped` helper finds nothing.
+
+`PHASE_ALIASES` is the one concession to the data: the position set spells its
+phases nine ways for fourteen closed steps, because it is generated (21.98).
+Aliasing lets every position export while the run still names each one that
+needed it, so the inconsistency stays visible rather than being absorbed here.
 
 Usage:
     python scripts/gameplay/xmage_export.py --out /tmp/xmage
@@ -78,10 +84,24 @@ PHASE_STEP = {
     "opening hand": None,
 }
 
-# How a permanent enters already tapped. Marked uncertain on purpose — this is
-# the single most likely thing to be wrong, and a silently-wrong tap state makes
-# a mana check pass that should fail.
-TAPPED_CALL = "// TODO(xmage): tap {card} for {player} — verify the helper name"
+# Verified against a checkout: tapped is a FIFTH parameter to addCard, not a
+# separate call —
+#     addCard(Zone gameZone, TestPlayer player, String cardName, int count,
+#             boolean tapped)
+# (`CardTestPlayerAPIImpl:742`). There is no `setTapped` helper, which is why
+# grepping the tests for one found nothing.
+
+# Our phase strings are not a vocabulary — 9 spellings for 14 closed steps,
+# because the set is generated (21.98, 21.99). Aliases let all 32 export while
+# `--report` still names every position that needed one, so the data problem
+# stays visible instead of being absorbed here.
+PHASE_ALIASES = {
+    "pre-combat main phase": "precombat main",
+    "post-combat main phase": "postcombat main",
+    "opening hand, on the play": "opening hand",
+    "opponent's declare attackers step": "declare attackers",
+    "opponent's declare blockers step": "declare blockers",
+}
 
 _SAFE = re.compile(r"[^A-Za-z0-9]+")
 
@@ -106,10 +126,13 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     the failure mode worth avoiding.
     """
     problems: list[str] = []
-    phase = (pos.get("phase") or "").strip().lower()
+    raw_phase = (pos.get("phase") or "").strip().lower()
+    phase = PHASE_ALIASES.get(raw_phase, raw_phase)
+    if phase != raw_phase:
+        problems.append(f"phase {raw_phase!r} is not canonical; read as {phase!r}")
     step = PHASE_STEP.get(phase)
     if step is None:
-        problems.append(f"no PhaseStep for phase {phase!r}")
+        problems.append(f"no PhaseStep for phase {raw_phase!r}")
 
     lines: list[str] = []
     add = lines.append
@@ -149,24 +172,25 @@ def emit(pos: dict) -> tuple[str, list[str]]:
         who = _player(side)
         perms = [b for b in (pos.get("battlefield") or [])
                  if b.get("controller") == side]
-        counts: dict[str, int] = {}
-        order: list[str] = []
-        tapped: list[str] = []
+        # Grouped by (card, tapped): the same card untapped and tapped are two
+        # calls, because `tapped` is a per-call flag and not per-permanent.
+        counts: dict[tuple[str, bool], int] = {}
+        order: list[tuple[str, bool]] = []
         for b in perms:
             card = b.get("card")
             if not card:
                 continue
-            if card not in counts:
-                order.append(card)
-            counts[card] = counts.get(card, 0) + 1
-            if b.get("tapped"):
-                tapped.append(card)
-        for card in order:
-            n = counts[card]
-            add(f'        addCard(Zone.BATTLEFIELD, {who}, "{card}"'
-                + (f", {n});" if n > 1 else ");"))
-        for card in sorted(set(tapped)):
-            add("        " + TAPPED_CALL.format(card=card, player=who))
+            key = (card, bool(b.get("tapped")))
+            if key not in counts:
+                order.append(key)
+            counts[key] = counts.get(key, 0) + 1
+        for card, is_tapped in order:
+            n = counts[(card, is_tapped)]
+            if is_tapped:
+                add(f'        addCard(Zone.BATTLEFIELD, {who}, "{card}", {n}, true);')
+            else:
+                add(f'        addCard(Zone.BATTLEFIELD, {who}, "{card}"'
+                    + (f", {n});" if n > 1 else ");"))
 
     add("")
     for card in ((pos.get("players") or {}).get("you") or {}).get("hand") or []:
@@ -192,11 +216,10 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     add("        execute();")
     add("")
     add("        // What the ENGINE says is playable, versus what the position claims.")
-    add("        // getPlayable(currentGame, true) returns List<ActivatedAbility>;")
-    add("        // getPlayableObjects(currentGame, Zone.ALL) is the object-level view.")
-    add("        currentGame.getPlayer(playerA.getId())")
-    add("                   .getPlayable(currentGame, true)")
-    add("                   .forEach(a -> System.out.println(\"PLAYABLE: \" + a.toString()));")
+    add("        // TestPlayer implements Player, so getPlayable is reachable directly.")
+    add(f'        System.out.println("=== {pos["id"]} ===");')
+    add("        playerA.getPlayable(currentGame, true)")
+    add('                .forEach(a -> System.out.println("PLAYABLE: " + a));')
     add("    }")
     add("}")
     add("")
@@ -240,10 +263,8 @@ def main() -> None:
             n_problem += 1
             print(f"  {pos['id']}: " + "; ".join(problems))
     print(f"{len(positions)} tests -> {args.out}")
-    print(f"{n_problem} carry an UNVERIFIED note and must not be trusted until checked")
-    print("\nThese have never been compiled — there is no JVM here. Drop them into a")
-    print("Mage.Tests checkout, fix PHASE_STEP/TAPPED_CALL in xmage_export.py if the")
-    print("names are wrong, and re-export.")
+    print(f"{n_problem} needed a phase alias — the position's own `phase` string is "
+          "not one of the fourteen steps (21.99)")
 
 
 if __name__ == "__main__":
