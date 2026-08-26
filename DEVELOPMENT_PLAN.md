@@ -8600,3 +8600,115 @@ stdlib. That is the same arrangement `PHASE_VOCABULARY` has, and the same risk:
 two copies of a list, kept honest only by `test_eval` asserting they are equal.
 Three such pairs now exist. Worth watching — the fourth is the point at which
 the boundary needs a better answer than "mirror it and assert".
+
+### 21.97 One home per vocabulary, and a check that keeps it that way
+
+Four closed vocabularies were each defined in more than one module. All four
+agreed when anyone last looked, which is the only reason none had bitten.
+
+| constant | homes | shape |
+| --- | --- | --- |
+| `DIFFICULTIES` | **3** — `positions`, `label_store`, `validate_gold` | list, list, set |
+| `CATEGORIES` | 2 — `label_store`, `validate_gold` | list and set |
+| `POSITION_CATEGORIES` | 2 — mine (21.96) | both tuples |
+| `PHASE_NAMES` / `PHASE_VOCABULARY` | 2 — mine (21.89) | **different names** |
+
+The last is the worst shape: a mirror under a different name is invisible to a
+scan that looks for a repeated identifier, so it can only be found by knowing it
+is there.
+
+All four now live in one section of `common.py` and every other module
+re-exports. That is where CLAUDE.md already said to put shared values, and the
+deploy boundary forces it regardless — `rubric_server.py` ships with only
+`common.py`, so anything the public form validates against had to be there. They
+are plain strings, so the pure-stdlib rule costs nothing.
+
+They are **tuples**, so no consumer can mutate the shared vocabulary for
+everyone. That surfaced two `[""] + CATEGORIES` sites in `webui.py`, now explicit
+`list()` calls.
+
+`_STOP` is deliberately **not** merged. `audit_sft._STOP` is contamination-overlap
+tokens and `common._STOP` is rubric-lint stopwords: two different lists doing two
+different jobs that happen to share a private name. Merging them would have been
+a real bug — the right fix there is distinct names, and the duplicate check
+allowlists it for exactly that reason.
+
+#### The check matters more than the cleanup
+
+Consolidating today does not stop a fifth appearing, and a duplicate is invisible
+until the copies drift — at which point the symptom is a value that is valid in
+one half of the program and rejected by the other.
+
+`test_imports.py` now fails on any module-level collection constant defined in
+two production modules. Re-exports correctly do not count, since only assignments
+are inspected: **one home, any number of doors.** Test files are excluded — a
+fixture named after the thing it stands in for is a fixture, not a second home,
+which `test_eval_positions`' own `ARMS` demonstrated immediately.
+
+Mutation-confirmed by re-adding `DIFFICULTIES` to `validate_gold`.
+
+The equality assertions 21.89 and 21.96 added are replaced by identity checks
+(`PHASE_NAMES is common.PHASE_NAMES`) — a stronger guarantee than any test,
+because there is now only one object to be wrong about.
+
+### 21.98 Every position is generated, and that qualifies the whole gameplay track
+
+Stated by the reviewer, and it is the most important fact in this file about how
+to read the sections above it: **all 32 positions are machine-drafted**, with
+minor human corrections in places. Not the seed file — the set.
+
+14.6 measured hand-authored rubrics beating machine drafts by a wide margin,
+**r +0.30 → +0.62**, and CLAUDE.md carries that caveat scoped to
+`positions_seed.jsonl` as "plumbing verification, not gate evidence." That
+scoping was too narrow. The caveat covers the gameplay track.
+
+#### What it qualifies
+
+Every gameplay number was measured on generated boards **and generated rubrics**:
+
+- Gates 1, 2 and 3, including "the eval discriminates" at 79%
+- blunder rates, the arm ranking, and `valid_turn`
+- 37% parser-checked protocol precision (21.74), and its per-class bimodality
+- the judge-vs-human kappa work (21.79–21.82), and "the judge's clean verdicts
+  are 70–78% wrong"
+
+The sharpest case is the rubric-coverage thread. 21.47 through 21.83 read
+`not_covered` as evidence that **the rubric was missing entries** — the 69% → 24%
+collapse, and the three classes promoted in 21.84. If `common_errors` is
+generated, then "no entry describes this" partly means *the generator did not
+think of it*, which is a fact about the generator and not about the domain. That
+reading was available throughout and was not taken. The promoted entries are
+still real error classes — they were measured against parser truth, not against
+the rubric — but the *coverage* framing was weaker than it read.
+
+#### What it does not qualify
+
+The **instrument**. `PROTOCOL_ERRORS`, `protocol_truth`, `legality`,
+`check_reference`, the reference validator and the judge-comparison machinery are
+all about the harness, and a generated board is still a board a parser can check.
+Their results are claims about the tooling and survive.
+
+The **rules track**. `gold_questions.jsonl` is human-labelled through
+`label_store` and the `#/label` workflow, a different corpus and a different
+provenance. *Fine-tuning does not beat retrieval*, under four judges and
+confirmed on run 4 by a second vendor, is untouched.
+
+And the **reference lines**. Those are hand-authored — the first genuinely human
+artifact in the position set, and the reason 21.96 could make entry 1 decidable
+from the answer rather than from the shape of the board.
+
+#### The consequence for what comes next
+
+This inverts the priority. Adjudicating and correcting generated positions
+produces a better-measured synthetic set; it does not produce a real one. So the
+next step is not more adjudication but **positions taken from played games** —
+boards that are structurally natural because a person actually reached them.
+
+That also re-ranks the platforms, and on a criterion this file had not been
+using. Arena requires *owning the cards*, so an arbitrary Standard board cannot
+be constructed at all — a hard ceiling that no log quality compensates for.
+Cockatrice, EDHPlay and XMage all have the full card pool freely available and
+allow one person to drive both sides, which turns recording from *mining* into
+*authoring by playing*: both decks chosen, the board played toward deliberately,
+and none of the opponent-variance or selection-bias problems that passive log
+mining has. XMage additionally enforces the rules, so it is the initial platform.

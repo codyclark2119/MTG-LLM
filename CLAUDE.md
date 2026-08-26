@@ -476,9 +476,29 @@ Positions live in `data/gold/positions.jsonl`, deliberately **not** in
 the rules gold set, and an in-flight n≈100 comparison depends on its
 composition.
 
-`data/gold/positions_seed.jsonl` is machine-drafted plumbing verification, not
-gate evidence. Hand-authored rubrics beat machine drafts by a wide margin
-(r +0.30 → +0.62, Section 14.6).
+**EVERY position is machine-drafted** — all 32, with minor human corrections
+(21.98). Not just `positions_seed.jsonl`, which this file previously scoped the
+caveat to. Hand-authored rubrics beat machine drafts by a wide margin
+(r +0.30 → +0.62, Section 14.6), so that margin applies to the whole gameplay
+track: **Gates 1–3, blunder rate, the arm ranking, 37% protocol precision and
+every judge-vs-human kappa were measured on generated boards AND generated
+rubrics.** Quote none of them without it.
+
+Read the rubric-coverage thread (21.47–21.83) with this in mind especially:
+`not_covered` was treated as *the rubric is missing an entry*, and on a
+generated rubric it partly means *the generator did not think of it*. The three
+classes promoted in 21.84 survive — they were measured against parser truth, not
+against the rubric — but the coverage framing was weaker than it read.
+
+**Not qualified by this:** the instrument (`PROTOCOL_ERRORS`, `protocol_truth`,
+`legality`, `check_reference`) — a generated board is still a board a parser can
+check; the rules track, which is human-labelled through `label_store`; and the
+hand-authored `reference_actions`.
+
+The consequence is that more adjudication produces a better-measured *synthetic*
+set. Real positions have to come from played games — see `PLAN_NEXT.md`. Note
+Arena is disqualified for this by card ownership, not by log quality: an
+arbitrary board cannot be built without the collection.
 
 The board is **rendered from structured state, never authored as text**, so a
 renderer change applies retroactively. That is true of the *board*, not of the
