@@ -409,6 +409,13 @@ the class never firing.
 **The form was most of the coverage gap, and that is now measured**: `not_covered`
 ran **69%** (v2, strategy entries only) and **24%** (v4, strategy + protocol).
 
+**Entry 1 does not fire on a board with no legal play** (21.85). *"Only passes"*
+is a blunder when a play was available and the **correct answer** when none was;
+the readings agree on every board that enumerates a play and came apart on
+stage 3's `sample-stage3-payment-0005`, where the right answer scored
+`valid_turn=False`. Conditioned on the position's own list (the open arm never
+sees it, but the board still has one), and an *absent* list is left alone.
+
 `PROTOCOL_ERRORS` is **append-only**. The judge returns error NUMBERS, so
 strategy errors must keep `1..n` or every verdict already collected silently
 changes meaning. Under-tapping (5) and over-tapping (6) are separate on purpose:
@@ -514,6 +521,15 @@ Two invariants worth keeping:
 - **Attribution rides on each submission**, not on the import command, so one
   file holds several authors and `eval.py --compare` can break agreement down
   per author.
+- **`reference_actions` is the 100%-correct line**, authored in the form and
+  promoted by `positions.py --ingest-references` (21.85). It is **refused
+  unless the parser agrees**: it must parse, every play must be in
+  `legal_actions`, and no decidable `PROTOCOL_ERRORS` entry may fire.
+  `validate_position` re-checks stored lines, because the rubric is append-only
+  and a reference that was clean can stop being clean. The form shows it below
+  the grading panels with `legal_actions` collapsed — that list is the answer
+  key for entry 3, and a reviewer who reads it first stops being independent
+  evidence on the one entry the judge already gets right (21.74).
 - **The note is the reasoning, not a fallback** (form_version 4, 21.77). The
   boxes say *which* mistakes; the note says *why*, on every faulted verdict.
   An absent note means different things under v3 and v4, so `--notes` never

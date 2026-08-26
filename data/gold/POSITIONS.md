@@ -167,7 +167,43 @@ available.
 
 Supplying them is optional but worth it: the closed arm is the measurement of
 whether the model's problem is *not knowing what is possible* or *not knowing
-what is good*. So far it is the second.
+what is good*. So far it is the second. An empty list is valid only when the
+position intentionally has no legal play; the closed prompt then states that
+`PASS` is the only response. Do not use an empty list to hide an incomplete
+position.
+
+An empty list also changes what `PROTOCOL_ERRORS` entry 1 means. "Only passes"
+is a blunder when a play was available and the *correct* answer when none was,
+so `protocol_findings` does not charge entry 1 on a board whose `legal_actions`
+is present and empty. A list that is *absent* is left alone — that is "not
+stated", not "nothing is legal" (Section 21.85).
+
+## `reference_actions` — the 100%-correct line
+
+Optional. The ideal answer for this board in the action grammar, one action per
+line, exactly as a perfect model would emit it:
+
+```json
+"reference_actions": ["PHASE Declare Attackers Step",
+                      "TAP Forest FOR {G}", "CAST Ambush Viper", "PASS"]
+```
+
+Authored in the `#/adjudicate` form and promoted with:
+
+```bash
+python scripts/gameplay/positions.py --ingest-references submissions.jsonl --dry-run
+```
+
+**It is refused unless a parser agrees with it.** `check_reference` runs the
+line through the same parser and the same `PROTOCOL_ERRORS` checks every arm
+answer goes through: it must parse, every play must be in `legal_actions`, and
+no decidable protocol entry may fire. `validate_position` re-checks stored
+lines, so a reference that was clean when written and stops being clean when
+the rubric grows — `PROTOCOL_ERRORS` is append-only — fails loudly instead of
+quietly becoming wrong.
+
+Same shape as a scenario step's `reference_actions` (`turns.py`) on purpose:
+one name, one meaning.
 
 ---
 

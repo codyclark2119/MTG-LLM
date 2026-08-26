@@ -194,6 +194,15 @@ def validate_position(pos: dict, card_index=None,
 
     problems.extend(timing_problems(pos, card_index))
     problems.extend(mana_problems(pos, card_index))
+    # A stored reference line is a claim that this is the 100%-correct answer,
+    # and it is the one claim in a position a machine can settle. Checked here
+    # as well as at ingest so it is re-verified whenever anything else changes
+    # — a rubric entry added later (PROTOCOL_ERRORS is append-only) can make a
+    # previously clean reference fail, and nothing else would notice (21.85).
+    if pos.get("reference_actions"):
+        problems.extend(f"reference_actions: {pr}" for pr in
+                        check_reference(pos, pos["reference_actions"], card_index))
+
     return [f"[{rid}] {p}" for p in problems]
 
 
@@ -292,7 +301,20 @@ def protocol_findings(pos: dict, parsed, card_index=None) -> dict[int, bool]:
     from actions import legality
 
     out: dict[int, bool | None] = {}
-    out[1] = parsed.only_pass
+    # "Only passes" is a blunder when there was something to do and the CORRECT
+    # answer when there was not. Those two readings agree on every board that
+    # enumerates a play and come apart on the one kind that does not — stage 3's
+    # payment positions, where the whole test is recognising that nothing is
+    # affordable. Without this, the right answer to
+    # `sample-stage3-payment-0005` fired entry 1 and scored valid_turn=False.
+    #
+    # Conditioned on the position's own list, not on what the arm was shown: the
+    # open arm never sees `legal_actions`, but the board still has them, and
+    # this is a question about the board. An ABSENT list is left alone — that is
+    # "not stated", not "nothing is legal", the same distinction `phase_problems`
+    # draws (Section 21.85).
+    no_play_board = "legal_actions" in pos and not (pos.get("legal_actions") or [])
+    out[1] = False if no_play_board else parsed.only_pass
     out[2] = parsed.degenerate
     out[3] = not legality(parsed, pos.get("legal_actions") or []).get("all_legal")
     out[4] = bool(phase_problems(pos, parsed.actions)) if pos.get("phase") else None
@@ -748,6 +770,8 @@ def ingest(drafts: list[dict], existing: list[dict], author: str = "",
         # break agreement down per author for the rules gold set.
         if not pos.get("rubric_source"):
             pos["rubric_source"] = f"hand-authored ({author})" if author else "hand-authored"
+        elif pos["rubric_source"].startswith("draft sample") and author:
+            pos["rubric_source"] = f"hand-authored ({author}); reviewed draft"
         problems.extend(validate_position(pos, card_index, rule_ids))
         accepted.append(pos)
 
@@ -781,6 +805,59 @@ def ingest(drafts: list[dict], existing: list[dict], author: str = "",
     return len(accepted)
 
 
+def check_reference(pos: dict, lines: list[str], card_index=None) -> list[str]:
+    """Why this reference line is not a 100%-correct answer, if it is not.
+
+    A reference line claims to be the perfect output for a board, so it is
+    checkable in a way no ordinary claim about gold data is: run it through the
+    same parser and the same `PROTOCOL_ERRORS` checks every arm answer goes
+    through, and a correct line must come out clean on all of them.
+
+    That is what makes this field worth collecting. Section 21.55's trap is a
+    field a human fills in that nothing reads; this one is refused at the door
+    if it does not hold up, so a stored reference is a line a machine has
+    already agreed with.
+
+    Checks, in the order a failure is most likely:
+
+    - it parses at all, with no `ParseFailure`;
+    - every play is in `legal_actions` (skipped when the board enumerates none,
+      where PASS alone is the whole correct answer);
+    - `protocol_findings` fires nothing decidable. An undecidable entry is not
+      a failure — the 21.43 rule that a check which cannot run must not be
+      reported as a verdict.
+
+    Returns [] when the line is good, so it reads like `validate_position`.
+    """
+    from actions import legality, parse_output
+
+    if not lines:
+        return ["reference is empty"]
+    parsed = parse_output("\n".join(lines))
+    problems = [f"unparseable: {f.line!r}" for f in parsed.failures]
+
+    legal = pos.get("legal_actions") or []
+    if legal:
+        info = legality(parsed, legal)
+        for bad in info.get("illegal") or []:
+            problems.append(f"not a legal play here: {bad!r}")
+    else:
+        # An empty `legal_actions` means the board intentionally has no play, so
+        # PASS is the whole correct answer and anything else contradicts the
+        # position. PASS is excluded explicitly: `ParsedOutput.plays` keeps it,
+        # because it is the protocol terminator rather than a declaration
+        # (16.13), so counting `plays` here would refuse the only correct line.
+        made = [a for a in parsed.plays if a.verb != "PASS"]
+        if made:
+            problems.append("board lists no legal plays, but the reference makes "
+                            f"{len(made)}")
+
+    for n, fired in protocol_findings(pos, parsed, card_index).items():
+        if fired:
+            problems.append(f"commits PROTOCOL_ERRORS entry {n}")
+    return problems
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -795,6 +872,10 @@ def main() -> None:
                         help="print the rendered board (and prompt) for one position id")
     parser.add_argument("--closed", action="store_true",
                         help="with --render, show the closed-arm prompt instead of the open one")
+    parser.add_argument("--ingest-references", type=Path, default=None,
+                        metavar="FILE",
+                        help="promote reference lines from a submissions log "
+                             "into positions.jsonl (parser-validated)")
     parser.add_argument("--no-cards", action="store_true",
                         help="skip Oracle name validation (faster; loses the main check)")
     args = parser.parse_args()
@@ -826,6 +907,61 @@ def main() -> None:
         rule_ids = load_rule_ids()
     except Exception as exc:  # rules corpus not built yet — skip, don't fail
         print(f"(skipping citation checks: {exc})")
+
+    if args.ingest_references:
+        # Promotion is local and reviewed, the invariant the rubric form has
+        # always kept: the deployed server appends a claim, and this is where a
+        # claim becomes gold — after a parser has agreed with it (21.85).
+        existing = load_positions(args.positions)
+        by_id = {p["id"]: p for p in existing}
+        rows = [r for r in read_jsonl(args.ingest_references, missing_ok=True)
+                if r.get("kind") == "reference"]
+        # Newest row per (record, author) wins, so a correction supersedes the
+        # line it corrects without anyone editing the log.
+        newest: dict[tuple, dict] = {}
+        for r in sorted(rows, key=lambda r: r.get("submitted") or ""):
+            newest[(r.get("record_id"), r.get("author"))] = r
+        # card_index is built above and is None under --no-cards, which makes
+        # `protocol_findings` entries 5, 6 and 8 undecidable rather than false —
+        # so a reference imported without card data is checked less thoroughly,
+        # not credited (21.43).
+        accepted, refused, unchanged = [], [], 0
+        for (rid, author), row in sorted(newest.items()):
+            pos = by_id.get(rid)
+            if pos is None:
+                refused.append((rid, author, ["no such position"]))
+                continue
+            lines = row.get("reference_actions") or []
+            problems = check_reference(pos, lines, card_index)
+            if problems:
+                refused.append((rid, author, problems))
+                continue
+            if (pos.get("reference_actions") or []) == lines:
+                unchanged += 1
+                continue
+            accepted.append((rid, author, lines))
+        print(f"{len(rows)} reference submissions, {len(newest)} after "
+              f"(record, author) dedup")
+        print(f"  {len(accepted)} accepted, {len(refused)} REFUSED, "
+              f"{unchanged} already on file unchanged")
+        for rid, author, problems in refused:
+            print(f"  refused {rid} ({author or '?'}):")
+            for pr in problems:
+                print(f"      {pr}")
+        if not accepted:
+            return
+        if args.dry_run:
+            for rid, author, lines in accepted:
+                print(f"  would set {rid} <- {len(lines)} actions ({author or '?'})")
+            print("\nDRY RUN — re-run without --dry-run to write")
+            return
+        for rid, author, lines in accepted:
+            by_id[rid]["reference_actions"] = lines
+            by_id[rid]["reference_source"] = (f"hand-authored ({author})"
+                                              if author else "hand-authored")
+        write_jsonl_atomic(args.positions, existing)
+        print(f"wrote {len(accepted)} reference lines -> {args.positions}")
+        return
 
     if args.ingest:
         # A missing file used to read as an empty list and report "0 positions

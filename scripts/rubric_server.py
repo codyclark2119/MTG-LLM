@@ -229,6 +229,10 @@ def group_adjudication_tasks(tasks: list[dict]) -> list[dict]:
                 "key_points": task.get("key_points") or [],
                 "n_strategy": task.get("n_strategy"),
                 "common_errors": task.get("common_errors") or [],
+                # Per-RECORD, not per-arm: the correct line is a property of the
+                # board, not of any model's attempt at it.
+                "legal_actions": task.get("legal_actions") or [],
+                "reference_actions": task.get("reference_actions") or [],
                 "done": False,
                 "arms": [],
             }
@@ -433,6 +437,10 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
     # serve the wrong form's task.
     by_id = {t["id"]: t for t in rubric_tasks}
     by_key = {t["key"]: t for t in adj_tasks}
+    # Reference lines are per-BOARD, so /api/reference validates the record id
+    # against the same served tasks rather than trusting the client's string.
+    by_record = {t.get("record_id") or (t.get("key") or "").split("::")[0]
+                 for t in adj_tasks}
     tasks = rubric_tasks or adj_tasks
     categories = sorted({t.get("category") or "" for t in rubric_tasks})
 
@@ -737,6 +745,48 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
             "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         })
         return {"ok": True, "key": tid}
+
+    @app.post("/api/reference")
+    async def api_reference(request: Request):
+        """Record the 100%-correct line for a board, in the action grammar.
+
+        A property of the POSITION, not of any arm — so it is keyed by
+        `record_id` and carries no `errors_present`, which is also how the
+        ingest filters tell the three row kinds apart in the shared log.
+
+        **Validated locally, not here.** The deployed container has no card
+        index, no positions file and no action parser — `common.py` must stay
+        pure stdlib, and the grammar lives in `gameplay/actions.py`. So this
+        endpoint checks only shape and size; `positions.py --ingest-references`
+        parses each line, requires every one to be legal on this board, and
+        refuses the whole submission otherwise. That keeps the invariant the
+        rubric form has always had: **the server never writes the gold set**,
+        promotion is local and reviewed.
+
+        Re-submitting is allowed and appends. The ingest takes the newest row
+        per (record, author), so a correction does not need the old row deleted.
+        """
+        body = await request.json()
+        rid = (body.get("record_id") or "").strip()
+        if rid not in by_record:
+            return JSONResponse({"error": "unknown record"}, 404)
+        lines = body.get("reference_actions")
+        if not isinstance(lines, list):
+            return JSONResponse({"error": "reference_actions must be a list"}, 400)
+        clean = [str(x).strip() for x in lines if str(x).strip()]
+        if len(clean) > 60:
+            return JSONResponse({"error": "at most 60 actions"}, 400)
+        if any(len(x) > 200 for x in clean):
+            return JSONResponse({"error": "an action line is over 200 characters"}, 400)
+        append_submission(submissions_path, {
+            "kind": "reference",
+            "record_id": rid,
+            "reference_actions": clean,
+            "author": (body.get("author") or "").strip()[:60],
+            "form_version": ADJUDICATION_FORM_VERSION,
+            "submitted": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        })
+        return {"ok": True, "record_id": rid, "n": len(clean)}
 
     @app.get("/api/export")
     def api_export():
@@ -1114,6 +1164,18 @@ input[type=text],.note{width:100%;padding:.55rem .6rem;font:inherit;font-size:.9
    on its own it would render unstyled. */
 .note{resize:vertical;min-height:5.5rem;line-height:1.5;font-size:16px}
 .note:focus{outline:2px solid var(--accent);outline-offset:1px}
+/* The reference line. #ref is a textarea, so it needs the same treatment .note
+   needed — input[type=text] does not match one. Monospace because it is the
+   action grammar, not prose. */
+#ref{width:100%;padding:.55rem .6rem;background:var(--panel);color:var(--ink);
+ border:1px solid var(--rule);border-radius:4px;resize:vertical;min-height:7rem;
+ font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;line-height:1.5}
+#ref:focus{outline:2px solid var(--accent);outline-offset:1px}
+.refrow{display:flex;gap:.7rem;align-items:center;margin-top:.5rem}
+.refrow .hint{margin:0}
+details.legal{margin:.4rem 0 .6rem;font-size:.86rem;color:var(--soft)}
+details.legal summary{cursor:pointer;color:var(--accent)}
+details.legal ul{margin:.4rem 0 0;padding-left:1.2rem}
 h3.grp{margin:1.1rem 0 .35rem;font-size:.74rem;text-transform:uppercase;
  letter-spacing:.07em;color:var(--faint);font-weight:650;
  border-top:1px solid var(--rule);padding-top:.7rem}
@@ -1174,7 +1236,51 @@ function render(){
   $('#main').innerHTML=
     '<h2>The situation</h2><pre>'+esc(t.question)+'</pre>'+
     '<h2>The correct line</h2><ul>'+(t.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
-    '<div class="arm-grid">'+(t.arms||[]).map(renderArm).join('')+'</div>';
+    '<div class="arm-grid">'+(t.arms||[]).map(renderArm).join('')+'</div>'+
+    referenceBlock(t);
+  bindReference();
+}
+
+// The 100%-correct line, in the action grammar, as a property of the BOARD
+// rather than of any arm's answer. Rendered AFTER the grading panels and with
+// the legal plays collapsed: that list is the answer key for protocol entry 3,
+// and a reviewer who reads it before ticking boxes stops being independent
+// evidence on the one entry the judge already gets right (21.74).
+function referenceBlock(t){
+  const have=(t.reference_actions||[]).join('\n');
+  return '<h2>The 100% correct line</h2>'+
+    '<p class="hint">Write the ideal answer in the action grammar, one action per '+
+    'line, exactly as a perfect model would output it. This is stored as the '+
+    'reference for this board \u2014 it is checked by the parser on import and '+
+    'refused if any line is not legal here, so it can serve as a known-good '+
+    'answer to measure against later.</p>'+
+    '<details class="legal"><summary>Show the legal plays on this board ('+
+      (t.legal_actions||[]).length+')</summary>'+
+    '<ul>'+((t.legal_actions||[]).map(a=>'<li><code>'+esc(a)+'</code></li>').join('')
+            || '<li><i>none \u2014 PASS is the only response</i></li>')+'</ul></details>'+
+    '<textarea id="ref" rows="6" spellcheck="false" placeholder="PHASE Declare '+
+    'Attackers Step&#10;TAP Forest FOR {G}&#10;CAST Ambush Viper&#10;PASS">'+
+    esc(have)+'</textarea>'+
+    '<div class="refrow"><button id="saveref" type="button">Save the correct line'+
+    '</button><span id="refmsg" class="hint"></span></div>';
+}
+// Bound after every render, because render() replaces #main wholesale and any
+// handler attached to the previous node is discarded with it.
+function bindReference(){
+  const btn=$('#saveref'); if(!btn) return;
+  btn.onclick=async()=>{
+    const t=T[i]; if(!t) return;
+    const lines=$('#ref').value.split('\n').map(x=>x.trim()).filter(Boolean);
+    const msg=$('#refmsg');
+    msg.textContent='saving...';
+    const r=await fetch('/api/reference',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({record_id:t.record_id,reference_actions:lines,author:who()})});
+    const d=await r.json();
+    if(!d.ok){msg.textContent=d.error||'save failed';return}
+    t.reference_actions=lines;
+    msg.textContent=lines.length?('saved '+lines.length+' actions'):'saved (cleared)';
+  };
 }
 $('#skip').onclick=()=>{i=Math.min(T.length-1,i+1);render();scrollTo(0,0)};
 $('#go').onclick=async()=>{

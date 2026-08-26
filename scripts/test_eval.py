@@ -42,6 +42,7 @@ from eval import (  # noqa: E402
     stratified_sample,
     verify_quoted_claims,
 )
+from common import build_position_messages  # noqa: E402
 
 CHECKS_RUN = 0
 
@@ -1006,6 +1007,54 @@ def test_uncovered_classes() -> int:
     return failed
 
 
+def test_reference_answer() -> int:
+    """The 100%-correct line is machine-checkable, and refused when it is not.
+
+    Section 21.55's trap is a field a human fills in that nothing reads. This
+    one is refused at the door: a reference claims to be the perfect output for
+    a board, so it must survive the same parser and the same `PROTOCOL_ERRORS`
+    checks every arm answer goes through (Section 21.85).
+    """
+    sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+    from positions import check_reference
+    failed = 0
+
+    board = {"id": "t1", "phase": "precombat main",
+             "legal_actions": ["CAST Shock TARGET Bear", "PASS"],
+             "battlefield": [{"controller": "you", "card": "Mountain", "tapped": False}],
+             "players": {"you": {"hand": ["Shock"]}}}
+
+    failed += not check("a legal line with a phase is accepted",
+                        check_reference(board, ["PHASE precombat main",
+                                                "CAST Shock TARGET Bear", "PASS"]), [])
+    failed += not check("an empty reference is refused",
+                        check_reference(board, []), ["reference is empty"])
+
+    bad = check_reference(board, ["PHASE precombat main", "CAST Black Lotus", "PASS"])
+    failed += not check("a play not on this board is refused",
+                        any("not a legal play" in b for b in bad), True)
+
+    # Entries 9 and 10 were promoted in 21.84 and immediately earn their keep
+    # here: they catch bad GOLD, not just bad model output.
+    waste = check_reference(board, ["PHASE precombat main", "TAP Mountain FOR {R}", "PASS"])
+    failed += not check("tapping and casting nothing is refused",
+                        any("entry 9" in w for w in waste), True)
+    nophase = check_reference(board, ["CAST Shock TARGET Bear", "PASS"])
+    failed += not check("a line with no PHASE is refused",
+                        any("entry 10" in n for n in nophase), True)
+
+    # A board that intentionally enumerates no play: PASS alone is the whole
+    # correct answer, and a reference that plays something contradicts it.
+    nolegal = {"id": "t2", "phase": "precombat main", "legal_actions": [],
+               "battlefield": [], "players": {"you": {"hand": []}}}
+    failed += not check("PASS alone is valid where nothing is legal",
+                        check_reference(nolegal, ["PASS"]), [])
+    contra = check_reference(nolegal, ["PHASE precombat main", "CAST Shock", "PASS"])
+    failed += not check("...and playing something there is refused",
+                        any("no legal plays" in c for c in contra), True)
+    return failed
+
+
 def test_adjudication_scoring() -> int:
     """`unsure` must be excluded and every exclusion reported (21.55).
 
@@ -1743,6 +1792,29 @@ def test_turn_scenarios() -> int:
     return failed
 
 
+def test_closed_no_play_position() -> int:
+    """A valid position can have no legal plays and must still prompt safely."""
+    position = {
+        "id": "no-play",
+        "turn": 2,
+        "phase": "pre-combat main phase",
+        "active_player": "you",
+        "priority": "you",
+        "players": {"you": {"life": 20, "hand": [], "library_count": 50},
+                    "opp": {"life": 20, "hand_count": 7, "library_count": 50}},
+        "battlefield": [],
+        "legal_actions": [],
+    }
+    messages = build_position_messages(position, closed=True)
+    prompt = messages[-1]["content"]
+    failed = 0
+    failed += not check("closed no-play prompt says PASS is the only response",
+                        "PASS is the only response" in prompt, True)
+    failed += not check("closed no-play prompt does not invent an action",
+                        "(no legal plays are available" in prompt, True)
+    return failed
+
+
 def test_half_answer() -> int:
     """The `partial` control in the calibration harness (Section 21.33).
 
@@ -1817,6 +1889,7 @@ def main() -> None:
                      ("judge_identity", test_judge_identity),
                      ("targeting_problems", test_targeting_problems),
                      ("uncovered_classes", test_uncovered_classes),
+                     ("reference_answer", test_reference_answer),
                      ("adjudication_scoring", test_adjudication_scoring),
                      ("cohens_kappa", test_cohens_kappa),
                      ("mana_problems", test_mana_problems),
@@ -1825,6 +1898,7 @@ def main() -> None:
                      ("payment_and_battlefield", test_payment_and_battlefield_casts),
                      ("protocol_findings", test_protocol_findings),
                      ("turn_scenarios", test_turn_scenarios),
+                     ("closed_no_play_position", test_closed_no_play_position),
                      ("behaviour_opening", test_behaviour_opening)):
         print(f"{name} ...")
         failed += fn()

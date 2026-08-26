@@ -7807,3 +7807,101 @@ several-hour run from the plan. The stored `gameplay_fingerprint` is
 `d094e3934d2d` on all three current runs and matches the live prompt, so the
 warning in CLAUDE.md about stored positions being stale refers to the older
 `positions_n22` family and not to these.
+
+### 21.85 A reference line the parser has to agree with, and the one board where passing is right
+
+The reviewer asked for a place to record the 100%-correct answer for a board.
+Built as `reference_actions`, and it found a bug in the gold set on the way in.
+
+#### The field, and why it is not 21.55 again
+
+`positions.jsonl` carried `answer` (prose) and `key_points` (bullets) and no
+canonical line in the grammar the model is actually required to emit. That gap
+matters: a prose answer cannot be an oracle control, because the parser scores
+prose as illegal — *"prose about a play parsing AS that play"* is already a
+documented trap here.
+
+The name is taken from scenario steps, which have carried `reference_actions`
+since 21.71. One name, one meaning.
+
+The reason this is not another field collected and read by nothing (21.55) is
+that a reference line is the one claim about gold data a machine can settle. It
+asserts *this is the perfect output*, so it must survive exactly what every arm
+answer survives. `check_reference` requires it to parse, requires every play to
+be in `legal_actions`, and requires no decidable `PROTOCOL_ERRORS` entry to
+fire. A submission that fails is **refused at the ingest**, not stored with a
+warning. `validate_position` re-checks stored lines too, so a reference that was
+clean when written and stops being clean when the rubric grows — the list is
+append-only — fails loudly rather than quietly becoming wrong.
+
+It works immediately, and on the entries promoted one section earlier:
+
+```
+refused pos-blocking-0001:  not a legal play here: 'CAST Black Lotus'
+                            commits PROTOCOL_ERRORS entry 3
+                            commits PROTOCOL_ERRORS entry 10
+refused pos-blocking-0002:  commits PROTOCOL_ERRORS entry 1
+                            commits PROTOCOL_ERRORS entry 9
+```
+
+Entries 9 and 10 existed for a day and are already catching bad **gold**, not
+just bad model output.
+
+#### Where it sits, and why that is deliberate
+
+The block renders **below** the grading panels, with the legal plays behind a
+collapsed `<details>`. `legal_actions` is not judge output — it is the same list
+the closed arm is handed — so showing it breaks no blind rule. But it *is* the
+answer key for entry 3, and a reviewer who reads it before ticking boxes stops
+being independent evidence on the one entry where the judge and the parser
+already agree (21.74). Grade first, author second.
+
+The server validates shape and size only. It has no card index, no positions
+file and no parser — `common.py` must stay pure stdlib and the grammar lives in
+`gameplay/actions.py` — so the real check runs locally at ingest. That is the
+invariant the rubric form has always kept: **the server never writes the gold
+set.** Re-submitting appends and the newest row per (record, author) wins, so a
+correction needs no row deleted.
+
+#### The bug it found: passing is correct on exactly one board
+
+Stage 3 introduced `sample-stage3-payment-0005` — one Island, Chart a Course at
+`{1}{U}`, Shock at `{R}`. Nothing is castable, so `legal_actions` is empty and
+the correct answer is to do nothing. Writing the test for "PASS alone is valid
+where nothing is legal" failed, and the test was right:
+
+```
+'PASS'   fires [1]   valid_turn=False        <- the CORRECT answer
+```
+
+`PROTOCOL_ERRORS` entry 1 is *"the answer makes no play: it only passes"*, and
+it is invalidating. So on the one board where doing nothing is the whole point,
+the right answer scored as an invalid turn.
+
+This is the "one name, two meanings" trap in its exact documented form. *Only
+passes* means **declined to play when a play was available** (a blunder, which
+is what 21.58 built the entry for) and **correctly did nothing when nothing was
+legal** (right). The two readings agree on all 31 boards that enumerate a play
+and come apart on the first one that does not — and stage 3's whole subject is
+recognising that nothing is affordable, so this position type will only become
+more common.
+
+Entry 1 is now conditioned on the board offering a play. Conditioned on the
+*position's* list rather than on what the arm was shown, because the open arm
+never sees `legal_actions` while the board still has them; and an **absent**
+list is left alone, since that is "not stated" rather than "nothing is legal" —
+the same distinction `phase_problems` draws.
+
+Impact, measured rather than assumed: **one** stored answer flips, and it is the
+arm that answered correctly.
+
+| arm | valid_turn before | after |
+| --- | --- | --- |
+| `base_cards_open` | 24% | **26%** |
+| every other arm | — | unchanged |
+
+The stored `positions_n32_scenarios` runs were corrected rather than left to
+disagree with the checker, with an assertion that no field other than
+`valid_turn` and `protocol_truth` moved on any of 170 arm-answers. A stored run
+whose numbers disagree with the code that produced them is a trap for whoever
+reads it next.

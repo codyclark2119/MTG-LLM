@@ -40,3 +40,8 @@ data/submissions.pre-migration.jsonl
 
 # Local planning doc — deliberately not published (see REPO_MAP.md precedent)
 PLAN_NEXT.md
+
+# The deployed form writes this locally; verdicts are promoted into
+# data/gold/judge_adjudications.jsonl by `adjudicate.py --ingest-submissions`,
+# so the raw log is a working file and not a tracked artifact.
+submissions.jsonl

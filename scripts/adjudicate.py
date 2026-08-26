@@ -213,6 +213,19 @@ def task_for(item: dict, rubrics: dict) -> dict | None:
         # `score_run` can tell a legacy verdict from a current one.
         "n_strategy": len(strategy),
         "key_points": rec.get("key_points") or [],
+        # The plays available on this board. NOT judge output — it is the same
+        # list the closed arm is handed — so it does not break the blind rule,
+        # which is about what a judge SAID. It is here so a reviewer authoring
+        # the reference line can write one that is actually legal.
+        #
+        # The form keeps it collapsed and below the grading panels on purpose:
+        # it is the answer key for `PROTOCOL_ERRORS` entry 3, and a reviewer who
+        # reads it before ticking boxes stops being independent evidence on the
+        # one entry where the judge and the parser already agree (21.74).
+        "legal_actions": rec.get("legal_actions") or [],
+        # A reference line already on file, so the form can show it for
+        # correction rather than asking for it twice.
+        "reference_actions": rec.get("reference_actions") or [],
         "category": rec.get("category"),
         # `source_run` is deliberately NOT here. It is a filename like
         # `pos_n24_verbose_32b.jsonl`, which names the judge — and the blind-task
