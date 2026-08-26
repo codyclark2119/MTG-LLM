@@ -86,6 +86,13 @@ def expand_steps(scenario: dict) -> list[dict]:
         pos["legal_actions"] = step.get("legal_actions") or []
         pos["key_points"] = step.get("key_points") or []
         pos["common_errors"] = step.get("common_errors") or []
+        # The step's own correct line, carried onto the expanded position under
+        # the SAME name a position uses. It was read below for teacher forcing
+        # and never set here, so a scenario step's reference was invisible to
+        # the authoring form and was never run through `check_reference` — the
+        # one field that claims to be verified was the one field nothing
+        # verified (Section 21.90).
+        pos["reference_actions"] = list(step.get("reference_actions") or [])
         # The line already taken this turn, as the model would know it. Shown
         # rather than derived: deriving one board from the previous one is the
         # rules engine this deliberately does not build.
@@ -94,7 +101,14 @@ def expand_steps(scenario: dict) -> list[dict]:
             known.append("Already done this turn: " + "; ".join(prior))
             pos["known_information"] = known
         out.append(pos)
-        prior.extend(step.get("reference_actions") or [])
+        # PHASE and END PHASE say WHERE the turn is, not what was done in it,
+        # so they do not belong in "Already done this turn". TAP does: a land
+        # tapped in step 1 is still tapped in step 2, which is exactly the state
+        # the next step needs. Without this filter, requiring a PHASE line on
+        # every reference (21.90) would have written "Already done this turn:
+        # PHASE precombat main" into the board the model reads.
+        prior.extend(a for a in (step.get("reference_actions") or [])
+                     if not a.strip().upper().startswith(("PHASE ", "END PHASE")))
     return out
 
 

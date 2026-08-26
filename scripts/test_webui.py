@@ -128,6 +128,9 @@ def main() -> None:
     # shipped blank for several commits (see the module docstring).
     check_page("rubric_server/position", rubric_server.POSITION_HTML)
     check_page("rubric_server/choose", rubric_server.CHOOSE_HTML)
+    # Every page the server can return. Added with /reference (21.90) — a page
+    # without a line here is a page whose JavaScript nothing parses.
+    check_page("rubric_server/reference", rubric_server.REFERENCE_HTML)
 
     # This file holds four complete pages as separate Python strings, and
     # nothing ties a CSS rule to the page whose markup uses it. Twice now a
@@ -142,7 +145,8 @@ def main() -> None:
     #
     # Checked in the dead-rule direction only. A page with markup and no CSS is
     # ordinary; a page with CSS for a selector it never uses is a mistake.
-    for name, page in (("rubric", rubric_server.INDEX_HTML),
+    for name, page in (("reference", rubric_server.REFERENCE_HTML),
+                       ("rubric", rubric_server.INDEX_HTML),
                        ("adjudicate", rubric_server.ADJUDICATE_HTML),
                        ("position", rubric_server.POSITION_HTML),
                        ("choose", rubric_server.CHOOSE_HTML),

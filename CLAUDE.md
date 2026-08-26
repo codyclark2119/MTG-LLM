@@ -544,6 +544,12 @@ Two invariants worth keeping:
   stage 7 (a full game) is not, and the missing piece is **scenario authoring**,
   not more verbs — 21.71 already puts the opponent's action in the *board*
   between steps, where `legal_actions` still enumerates one player's plays.
+- **`/reference` is where correct lines are authored**, separate from grading:
+  grading walks a sample once, authoring revisits a board until the line is
+  right (21.90). It covers scenario steps too — `expand_steps` returns them
+  position-shaped, so a step needs no separate path. `positions.py
+  --check-references` validates every stored line at once, and the ingest routes
+  a `::step` id back to `turn_scenarios.jsonl` rather than `positions.jsonl`.
 - **`reference_actions` is the 100%-correct line**, authored in the form and
   promoted by `positions.py --ingest-references` (21.85). It is **refused
   unless the parser agrees**: it must parse, every play must be in

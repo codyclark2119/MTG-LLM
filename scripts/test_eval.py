@@ -1057,6 +1057,34 @@ def test_reference_answer() -> int:
     failed += not check("...and it names the line",
                         any("UNTAP EVERYTHING" in i for i in invented), True)
 
+    # A scenario step's own correct line must reach the expanded position under
+    # the SAME name a position uses. It was read for teacher forcing and never
+    # set, so the one field that claims to be parser-verified was the one field
+    # nothing verified (Section 21.90).
+    from turns import expand_steps
+    _sc = {"id": "s1", "turn": 1, "phase": "precombat main", "category": "payment",
+           "difficulty": "basic", "source": "t", "answer": "a",
+           "players": {"you": {"hand": []}, "opp": {}},
+           "battlefield": [], "key_points": ["k"], "common_errors": ["e"],
+           "steps": [{"phase": "precombat main", "legal_actions": ["PLAY Forest"],
+                      "key_points": ["k"], "common_errors": ["e"],
+                      "reference_actions": ["PHASE precombat main", "PLAY Forest"]},
+                     {"phase": "declare attackers", "legal_actions": ["ATTACK Bear"],
+                      "key_points": ["k"], "common_errors": ["e"],
+                      "reference_actions": ["PHASE declare attackers", "ATTACK Bear"]}]}
+    _steps = expand_steps(_sc)
+    failed += not check("a step carries its own reference line",
+                        _steps[0]["reference_actions"],
+                        ["PHASE precombat main", "PLAY Forest"])
+    # PHASE says where the turn is, not what was done in it, so it must not
+    # reach "Already done this turn" — otherwise requiring a PHASE line on every
+    # reference writes it into the board the model reads.
+    _known = " ".join(_steps[1].get("known_information") or [])
+    failed += not check("a play carries forward to the next step",
+                        "PLAY Forest" in _known, True)
+    failed += not check("...but the PHASE declaration does not",
+                        "PHASE precombat main" in _known, False)
+
     # The form shows the accepted step names; the parser owns them. Two copies
     # exist because `common.py` must stay pure stdlib for the deployed server,
     # so the only thing keeping them honest is this assertion (Section 21.89).
@@ -1074,10 +1102,13 @@ def test_reference_answer() -> int:
     import adjudicate as _adj
     _rub = _adj._rubric_index()
     _positions = {rid for rid, rec in _rub.items() if rec.get("legal_actions")}
+    # Scenario steps are boards too and reach the form the same way (21.90).
+    from turns import load_steps as _ls
+    _positions |= {st["id"] for st in _ls(None) if st.get("legal_actions")}
     _out = Path(_tf.mkdtemp()) / "tasks.json"
     _adj.export_tasks([], _out)          # empty queue: only reference-only rows
     _t = _j.loads(_out.read_text())["tasks"]
-    failed += not check("an empty queue still exports every position",
+    failed += not check("an empty queue still exports every board",
                         {x["record_id"] for x in _t}, _positions)
     failed += not check("...and every one is reference-only",
                         all(x.get("reference_only") for x in _t), True)

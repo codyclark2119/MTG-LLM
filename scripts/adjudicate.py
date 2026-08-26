@@ -270,6 +270,20 @@ def export_tasks(queue: list[dict], out: Path) -> int:
     # disturb the sample — the form renders the board, the key points and the
     # reference box, and the per-arm save loop finds no panels.
     seen = {t["record_id"] for t in tasks}
+
+    # Scenario STEPS are boards too. `expand_steps` already returns them
+    # position-shaped (21.71), so they need no separate handling here — and a
+    # step is exactly where an opponent's action lives, which is the thing the
+    # single-player grammar cannot express inside one answer (21.89). Authoring
+    # their reference lines is how a full game gets written down.
+    try:
+        sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
+        from turns import load_steps
+        for step in load_steps(None):
+            rubrics.setdefault(step["id"], step)
+    except Exception as exc:                       # no scenarios yet is fine
+        print(f"  (no scenario steps: {exc})")
+
     for rid, rec in sorted(rubrics.items()):
         if rid in seen or not rec.get("legal_actions"):
             continue  # positions only: a rules question has no board to play

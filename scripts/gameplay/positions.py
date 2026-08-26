@@ -901,6 +901,8 @@ def main() -> None:
                         help="print the rendered board (and prompt) for one position id")
     parser.add_argument("--closed", action="store_true",
                         help="with --render, show the closed-arm prompt instead of the open one")
+    parser.add_argument("--check-references", action="store_true",
+                        help="validate every stored reference line at once")
     parser.add_argument("--ingest-references", type=Path, default=None,
                         metavar="FILE",
                         help="promote reference lines from a submissions log "
@@ -937,12 +939,50 @@ def main() -> None:
     except Exception as exc:  # rules corpus not built yet — skip, don't fail
         print(f"(skipping citation checks: {exc})")
 
+    if args.check_references:
+        # Every reference line in the repo, checked together. Positions and
+        # scenario steps go through the same `check_reference`, because a step
+        # IS a position once expanded (21.71) and a second checker would be a
+        # second place for them to disagree.
+        from turns import load_steps
+        boards = list(load_positions(args.positions)) + list(load_steps(None))
+        withref = [b for b in boards if b.get("reference_actions")]
+        bad = []
+        for b in withref:
+            probs = check_reference(b, b["reference_actions"], card_index)
+            if probs:
+                bad.append((b["id"], probs))
+        print(f"{len(withref)}/{len(boards)} boards carry a reference line")
+        print(f"  positions      : {sum(1 for b in withref if '::step' not in b['id'])}"
+              f"/{sum(1 for b in boards if '::step' not in b['id'])}")
+        print(f"  scenario steps : {sum(1 for b in withref if '::step' in b['id'])}"
+              f"/{sum(1 for b in boards if '::step' in b['id'])}")
+        print(f"  card index     : {'loaded' if card_index else 'ABSENT — entries '
+              '5, 6 and 8 are undecidable, so this check is weaker than it looks'}")
+        if bad:
+            print(f"\n{len(bad)} FAIL:")
+            for rid, probs in bad:
+                print(f"  {rid}")
+                for pr in probs:
+                    print(f"      {pr}")
+            raise SystemExit(1)
+        print("\nall reference lines are consistent with their boards")
+        return
+
     if args.ingest_references:
         # Promotion is local and reviewed, the invariant the rubric form has
         # always kept: the deployed server appends a claim, and this is where a
         # claim becomes gold — after a parser has agreed with it (21.85).
         existing = load_positions(args.positions)
         by_id = {p["id"]: p for p in existing}
+        # Scenario steps are boards too, and they live in a different file. They
+        # arrive keyed `<scenario>::step<n>`, so the id says where to write —
+        # `expand_steps` supplies the board a step's line is checked against
+        # (21.90).
+        from turns import SCENARIOS_PATH, expand_steps, load_steps
+        scenarios = read_jsonl(SCENARIOS_PATH, missing_ok=True)
+        step_pos = {st["id"]: st for st in load_steps(None)}
+        by_id.update(step_pos)
         rows = [r for r in read_jsonl(args.ingest_references, missing_ok=True)
                 if r.get("kind") == "reference"]
         # Newest row per (record, author) wins, so a correction supersedes the
@@ -984,12 +1024,28 @@ def main() -> None:
                 print(f"  would set {rid} <- {len(lines)} actions ({author or '?'})")
             print("\nDRY RUN — re-run without --dry-run to write")
             return
+        n_pos = n_step = 0
         for rid, author, lines in accepted:
-            by_id[rid]["reference_actions"] = lines
-            by_id[rid]["reference_source"] = (f"hand-authored ({author})"
-                                              if author else "hand-authored")
-        write_jsonl_atomic(args.positions, existing)
-        print(f"wrote {len(accepted)} reference lines -> {args.positions}")
+            src = f"hand-authored ({author})" if author else "hand-authored"
+            if "::step" in rid:
+                sid, _, tail = rid.partition("::step")
+                idx = int(tail) - 1
+                for sc in scenarios:
+                    if sc.get("id") == sid and 0 <= idx < len(sc.get("steps") or []):
+                        sc["steps"][idx]["reference_actions"] = lines
+                        sc["steps"][idx]["reference_source"] = src
+                        n_step += 1
+                        break
+            else:
+                by_id[rid]["reference_actions"] = lines
+                by_id[rid]["reference_source"] = src
+                n_pos += 1
+        if n_pos:
+            write_jsonl_atomic(args.positions, existing)
+            print(f"wrote {n_pos} reference lines -> {args.positions}")
+        if n_step:
+            write_jsonl_atomic(SCENARIOS_PATH, scenarios)
+            print(f"wrote {n_step} step reference lines -> {SCENARIOS_PATH}")
         return
 
     if args.ingest:

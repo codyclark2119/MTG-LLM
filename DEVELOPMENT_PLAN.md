@@ -8170,3 +8170,91 @@ and larger claim about a board that was not asking for one.
 
 Eight positions of 32 now carry a reference, and every one passes
 `validate_position`.
+
+### 21.90 A view for authoring, and the reference field that was never checked
+
+Two requests: separate authoring from adjudication, and make scenario steps
+authorable so a full game can be written down. Building the second found that
+the first was hiding a defect.
+
+#### The two jobs have different shapes
+
+The reference box lived inside the adjudication form, so editing a line meant
+finding its record in a queue ordered by *grading* status. Grading walks a
+sample once; authoring revisits a board until the line is right. `/reference`
+is its own page: every board in a sidebar, a tick against the ones that have a
+line, free navigation, and the board, key points, legal plays, action grammar
+and step vocabulary all in view while typing.
+
+The deploy boundary did not grow. `tasks.json` is keyed `(record, arm)` because
+grading is per answer; `/api/reference-boards` collapses the arms server-side,
+so one file still ships and the `.dockerignore` allowlist is untouched.
+
+#### Scenario steps are boards, and their reference was invisible
+
+`expand_steps` already returns a step position-shaped (21.71), so a step needs
+no separate authoring path — it needs to be *in* the list. Adding it exposed
+this, in `expand_steps`:
+
+```python
+pos["legal_actions"] = step.get("legal_actions") or []
+pos["key_points"]    = step.get("key_points") or []
+pos["common_errors"] = step.get("common_errors") or []
+# ... and never reference_actions
+...
+prior.extend(step.get("reference_actions") or [])     # read, only for this
+```
+
+The step's own correct line was **read for teacher forcing and never set on the
+position**. So it reached no consumer: the authoring form showed both steps as
+unwritten while the scenario file held lines for them, and — worse —
+`check_reference` had never seen them. The one field in this repo that claims to
+be parser-verified was the one field nothing verified.
+
+Carried through under the same name a position uses, and both existing lines
+were checked for the first time. **Both failed:**
+
+```
+turn-payment-combat-0001::step1  ->  commits PROTOCOL_ERRORS entry 10
+turn-payment-combat-0001::step2  ->  commits PROTOCOL_ERRORS entry 10
+```
+
+Entry 10 is *a play made with no PHASE line*. They were authored before 21.60
+made the line mandatory and nothing re-read them since, which is exactly what
+`validate_position` re-checking stored references exists to prevent — the check
+was written in 21.85 and these were out of its reach. Fixed by prepending the
+step's own declared phase; both clean.
+
+#### And that fix needed a second one
+
+Adding `PHASE precombat main` to step 1's reference would have written
+*"Already done this turn: PHASE precombat main; TAP Mountain…"* into step 2's
+board, because `prior` takes the reference line verbatim. A phase declaration
+says **where** the turn is, not what was done in it. `TAP` does belong — a land
+tapped in step 1 is still tapped in step 2, and that is the state the next step
+needs. `prior` now filters `PHASE`/`END PHASE` and keeps everything else.
+
+Third time a change to the grammar has required auditing what consumes its
+output (21.61, 21.87, here). The pattern is stable enough to state as a rule:
+**a new mandatory line has to be checked against everything that reads a line,
+including the things that read it for a purpose other than scoring.**
+
+#### Consistency, as a command
+
+`positions.py --check-references` runs every stored line — positions and
+scenario steps — through one `check_reference`, because a step *is* a position
+once expanded and a second checker would be a second place for them to disagree.
+It prints whether the card index loaded, since without it entries 5, 6 and 8 are
+undecidable and the check is weaker than it looks.
+
+```
+10/34 boards carry a reference line
+  positions      : 8/32
+  scenario steps : 2/2
+  card index     : loaded
+all reference lines are consistent with their boards
+```
+
+The ingest writes a step's line back to `turn_scenarios.jsonl` and a position's
+to `positions.jsonl`, keyed off the `::step` in the id — one command, two
+destinations, no second form.

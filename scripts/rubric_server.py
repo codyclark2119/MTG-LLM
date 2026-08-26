@@ -303,6 +303,7 @@ CHOOSE_HTML = """<meta name=viewport content="width=device-width,initial-scale=1
 <span>Read an answer and say which of the listed errors it commits.</span></a>
 <a class=card href="/rubric"><b>Rubric authoring</b>
 <span>Write the key points and common errors for a question.</span></a>
+<a class=card href="/reference"><b>Correct lines</b><span>Write the 100%-correct answer for a board, in the action grammar. Separate from grading so a line can be revisited until it is right.</span></a>
 <a class=card href="/position"><b>Author a position</b>
 <span>Build a board and the decision it tests. Previews what the model sees.</span></a>
 """
@@ -454,6 +455,39 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
     # against the same served tasks rather than trusting the client's string.
     by_record = {t.get("record_id") or (t.get("key") or "").split("::")[0]
                  for t in adj_tasks}
+
+    @app.get("/reference", response_class=HTMLResponse)
+    def reference_page():
+        """Authoring the correct line, separate from grading it (21.90)."""
+        return REFERENCE_HTML
+
+    @app.get("/api/reference-boards")
+    def api_reference_boards():
+        """One row per BOARD, deduplicated across arms.
+
+        `tasks.json` is keyed (record, arm) because grading is per answer.
+        Authoring is per board, so the arms collapse here rather than in the
+        export — one file still ships, and the deploy boundary does not grow.
+
+        Ordered so unwritten boards come first and scenario steps stay in
+        sequence, which is the order someone authoring works in.
+        """
+        seen: dict[str, dict] = {}
+        for t in adj_tasks:
+            rid = t.get("record_id") or (t.get("key") or "").split("::")[0]
+            if rid in seen:
+                continue
+            seen[rid] = {
+                "record_id": rid,
+                "question": t.get("question"),
+                "key_points": t.get("key_points") or [],
+                "legal_actions": t.get("legal_actions") or [],
+                "reference_actions": t.get("reference_actions") or [],
+                "category": t.get("category"),
+            }
+        rows = sorted(seen.values(),
+                      key=lambda r: (bool(r["reference_actions"]), r["record_id"]))
+        return {"boards": rows, "total": len(rows)}
 
     @app.get("/api/grammar")
     def api_grammar():
@@ -1360,6 +1394,154 @@ $('#go').onclick=async()=>{
 };
 load();
 </script></body></html>
+"""
+
+
+# A view for AUTHORING the correct line, separate from grading it.
+#
+# The reference box lived inside the adjudication form, which made editing one
+# a matter of finding the record in a queue ordered by grading status. The two
+# jobs have different shapes: grading walks a sample once, authoring revisits a
+# board until the line is right (Section 21.90).
+REFERENCE_HTML = r"""<!doctype html>
+<meta charset="utf-8"><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Correct lines</title>
+<style>
+:root{--paper:#F5F6F8;--panel:#fff;--ink:#131820;--soft:#59636F;--faint:#8A939E;
+ --accent:#1C5A8C;--accent-bg:#EAF1F7;--ok:#1E7A4B;--bad:#A32B2B;--rule:#D9DEE4;
+ --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+ --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --paper:#0F1319;--panel:#161B22;--ink:#E6EAF0;--soft:#9BA5B2;--faint:#6B7683;
+ --accent:#6FA8D6;--accent-bg:#16232E;--ok:#5BB98B;--bad:#E0736D;--rule:#2A313A}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+ font-size:16px;line-height:1.5}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+ border-bottom:1px solid var(--rule);padding:.6rem .9rem;display:flex;
+ gap:.8rem;align-items:center;flex-wrap:wrap}
+header b{font-variant-numeric:tabular-nums}
+header .who{margin-left:auto;display:flex;gap:.4rem;align-items:center}
+input[type=text]{background:var(--panel);color:var(--ink);border:1px solid var(--rule);
+ border-radius:4px;padding:.35rem .5rem;font:inherit;font-size:.9rem}
+main{display:grid;grid-template-columns:minmax(220px,290px) 1fr;
+ height:calc(100vh - 53px);min-height:0}
+nav{border-right:1px solid var(--rule);overflow-y:auto;background:var(--panel)}
+nav button{display:block;width:100%;text-align:left;border:0;background:none;
+ color:inherit;font:inherit;font-size:.87rem;padding:.45rem .7rem;cursor:pointer;
+ border-bottom:1px solid var(--rule)}
+nav button:hover{background:var(--accent-bg)}
+nav button.on{background:var(--accent-bg);box-shadow:inset 3px 0 0 var(--accent)}
+nav .tick{color:var(--ok);font-weight:700}
+nav .cat{color:var(--faint);font-size:.78rem}
+section{overflow-y:auto;padding:1rem 1.1rem 4rem;max-width:52rem}
+h2{font-size:1rem;margin:1.2rem 0 .4rem;text-transform:uppercase;
+ letter-spacing:.06em;color:var(--faint)}
+h2:first-child{margin-top:0}
+pre.board{background:var(--panel);border:1px solid var(--rule);border-radius:4px;
+ padding:.7rem .8rem;overflow-x:auto;font-family:var(--mono);font-size:13.5px;
+ white-space:pre;margin:0}
+ul{margin:.3rem 0;padding-left:1.2rem;color:var(--soft);font-size:.92rem}
+details{margin:.5rem 0;font-size:.88rem;color:var(--soft)}
+summary{cursor:pointer;color:var(--accent)}
+pre.gram{background:var(--panel);border:1px solid var(--rule);border-radius:4px;
+ padding:.5rem .6rem;overflow-x:auto;font-family:var(--mono);font-size:12.5px;
+ white-space:pre;margin:.4rem 0 0}
+textarea{width:100%;min-height:9rem;padding:.6rem .7rem;background:var(--panel);
+ color:var(--ink);border:1px solid var(--rule);border-radius:4px;resize:vertical;
+ font-family:var(--mono);font-size:15px;line-height:1.55}
+textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;gap:.7rem;align-items:center;margin-top:.6rem;flex-wrap:wrap}
+button.go{font:inherit;font-size:.92rem;padding:.5rem 1rem;border-radius:4px;
+ border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{font:inherit;font-size:.92rem;padding:.5rem .9rem;border-radius:4px;
+ border:1px solid var(--rule);background:var(--panel);color:inherit;cursor:pointer}
+.msg{font-size:.88rem;color:var(--soft)}
+.msg.bad{color:var(--bad)}
+.hint{font-size:.85rem;color:var(--faint);margin:.4rem 0}
+</style>
+<header><b id="prog">0/0</b><span class="hint" id="meta"></span>
+<span class="who">author <input type="text" id="author" placeholder="your name"></span>
+</header>
+<main><nav id="list"></nav><section id="pane"><p class="hint">Loading…</p></section></main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>{const d=document.createElement('div');d.textContent=s??'';return d.innerHTML};
+let R=[],i=0,GRAMMAR='',PHASES=[];
+function who(){return $('#author').value.trim()}
+$('#author').value=localStorage.getItem('author')||'';
+$('#author').oninput=()=>localStorage.setItem('author',who());
+
+function done(r){return (r.reference_actions||[]).length>0}
+function drawList(){
+  $('#prog').textContent=R.filter(done).length+'/'+R.length;
+  $('#list').innerHTML=R.map((r,n)=>
+    '<button class="'+(n===i?'on':'')+'" data-n="'+n+'">'+
+    (done(r)?'<span class="tick">✓</span> ':'   ')+
+    esc(r.record_id)+'<br><span class="cat">'+esc(r.category||'')+'</span></button>').join('');
+  [...document.querySelectorAll('#list button')].forEach(b=>{
+    b.onclick=()=>{i=+b.dataset.n;draw()};
+  });
+}
+function draw(){
+  const r=R[i];
+  if(!r){$('#pane').innerHTML='<p class="hint">Nothing to author.</p>';return}
+  $('#meta').textContent=r.record_id+(r.record_id.includes('::step')?' · scenario step':'');
+  $('#pane').innerHTML=
+    '<h2>The situation</h2><pre class="board">'+esc(r.question)+'</pre>'+
+    '<h2>The correct line, in words</h2><ul>'+
+      (r.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
+    '<details><summary>Legal plays on this board ('+(r.legal_actions||[]).length+')</summary>'+
+      '<ul>'+((r.legal_actions||[]).map(a=>'<li><code>'+esc(a)+'</code></li>').join('')
+        ||'<li><i>none — PASS is the only response</i></li>')+'</ul></details>'+
+    '<details><summary>Action grammar and step names</summary>'+
+      '<pre class="gram">'+esc(GRAMMAR||'(loading)')+'</pre>'+
+      '<p class="hint">PHASE and END PHASE accept these step names only:</p>'+
+      '<pre class="gram">'+esc(PHASES.join(' · '))+'</pre></details>'+
+    '<h2>The 100% correct line</h2>'+
+    '<p class="hint">One action per line, exactly as a perfect answer would emit '+
+    'it. Checked by the parser on import and refused if any line is not legal '+
+    'here.</p>'+
+    '<textarea id="ref" spellcheck="false"></textarea>'+
+    '<div class="row"><button class="go" id="save">Save</button>'+
+    '<button class="ghost" id="next">Save and next</button>'+
+    '<span class="msg" id="msg"></span></div>';
+  $('#ref').value=(r.reference_actions||[]).join('\n');
+  $('#save').onclick=()=>save(false);
+  $('#next').onclick=()=>save(true);
+  drawList();
+}
+async function save(advance){
+  const r=R[i],msg=$('#msg');
+  const lines=$('#ref').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  msg.className='msg';msg.textContent='saving…';
+  let d;
+  try{
+    d=await (await fetch('/api/reference',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({record_id:r.record_id,reference_actions:lines,author:who()})
+    })).json();
+  }catch(e){d={error:String(e)}}
+  if(!d.ok){msg.className='msg bad';msg.textContent=d.error||'save failed';return}
+  r.reference_actions=lines;
+  msg.textContent=lines.length?('saved '+lines.length+' actions'):'saved (cleared)';
+  drawList();
+  if(advance){
+    const nxt=R.findIndex((x,n)=>n>i&&!done(x));
+    i=nxt===-1?Math.min(R.length-1,i+1):nxt;draw();
+    document.querySelector('section').scrollTop=0;
+  }
+}
+async function load(){
+  try{const g=await (await fetch('/api/grammar')).json();
+      GRAMMAR=g.grammar||'';PHASES=g.phases||[]}catch(e){}
+  const d=await (await fetch('/api/reference-boards')).json();
+  R=d.boards||[];
+  const first=R.findIndex(x=>!done(x));i=first===-1?0:first;
+  draw();
+}
+load();
+</script>
 """
 
 
