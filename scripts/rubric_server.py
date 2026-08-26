@@ -212,6 +212,34 @@ def read_submissions(path: Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+def group_adjudication_tasks(tasks: list[dict]) -> list[dict]:
+    """Collapse per-arm rows into a single question page while keeping data keyed by arm.
+
+    The public form shows one question and every model answer next to each other,
+    but each submission still persists as its own per-arm verdict. This preserves
+    the blind-review model while reducing the page churn for the reviewer.
+    """
+    grouped: dict[str, dict] = {}
+    for task in tasks:
+        rid = task.get("record_id") or (task.get("key") or "").split("::")[0]
+        if rid not in grouped:
+            grouped[rid] = {
+                "record_id": rid,
+                "question": task.get("question"),
+                "key_points": task.get("key_points") or [],
+                "n_strategy": task.get("n_strategy"),
+                "common_errors": task.get("common_errors") or [],
+                "done": False,
+                "arms": [],
+            }
+        grouped[rid]["arms"].append(task)
+    out = []
+    for item in grouped.values():
+        item["done"] = all(a.get("done") for a in item["arms"]) if item["arms"] else False
+        out.append(item)
+    return out
+
+
 def append_submission(path: Path, row: dict) -> None:
     with _WRITE_LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +247,18 @@ def append_submission(path: Path, row: dict) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
             f.flush()
             os.fsync(f.fileno())
+
+
+def prioritize_tasks(tasks: list[dict], done_key: str = "done") -> list[dict]:
+    """Keep work still needing a verdict at the front of the queue.
+
+    The queue is intentionally ordered by current status first, with a stable
+    sort preserving the original task order for items in the same bucket. That
+    way a stale row cannot sit at the top of the list while a genuinely open
+    item is hidden behind it, and the web client starts on the first task the
+    reviewer still needs to do.
+    """
+    return sorted(tasks, key=lambda t: bool(t.get(done_key)))
 
 
 # Shown at `/` only when BOTH forms are deployed. Deliberately plain: it exists
@@ -539,7 +579,9 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
                     if s.get("author") == author and "errors_present" in s
                     and s["key"] in live
                     and verdict_is_current(s, *live[s["key"]])}
-            return {"tasks": [dict(t, done=t["key"] in mine) for t in adj_tasks],
+            tasks = [dict(t, done=t["key"] in mine) for t in adj_tasks]
+            grouped = group_adjudication_tasks(tasks)
+            return {"tasks": prioritize_tasks(grouped, done_key="done"),
                     "done_by_me": len(mine), "total": len(adj_tasks)}
         # Intersect with the CURRENT task list. The submissions log is
         # append-only and outlives any one export, so after an ingest the
@@ -1054,19 +1096,24 @@ pre{font-family:var(--mono);font-size:.8rem;line-height:1.45;white-space:pre-wra
  background:var(--panel);border:1px solid var(--rule);padding:.7rem;margin:0;border-radius:4px}
 .answer{border:0;border-left:3px solid var(--accent);border-radius:0;background:transparent;
  padding:.3rem 0 .3rem .8rem;font-size:.9rem}
+.arm-grid{display:grid;gap:.85rem}
+.arm-panel{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:.8rem}
+.arm-panel.done{opacity:.82}
+.arm-head{display:flex;align-items:center;gap:.45rem;margin:0 0 .5rem}
+.answer-wrap{margin:0 0 .55rem}
 ul{margin:.2rem 0;padding-left:1.2rem;color:var(--soft);font-size:.9rem}
 label.opt{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;margin-bottom:.4rem;
  background:var(--panel);border:1px solid var(--rule);border-radius:4px;cursor:pointer}
 label.opt:has(input:checked){border-color:var(--accent);background:var(--accent-bg)}
 label.opt input{margin:.25rem 0 0;width:1.1rem;height:1.1rem;flex:none}
 .hint{font-size:.8rem;color:var(--faint);margin:.5rem 0 0}
-input[type=text],#note{width:100%;padding:.55rem .6rem;font:inherit;font-size:.9rem;
+input[type=text],.note{width:100%;padding:.55rem .6rem;font:inherit;font-size:.9rem;
  background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:4px}
 /* The note became a textarea at form_version 4 — it carries the reasoning now,
    not a one-line fallback — and input[type=text] does not match a textarea, so
    on its own it would render unstyled. */
-#note{resize:vertical;min-height:5.5rem;line-height:1.5;font-size:16px}
-#note:focus{outline:2px solid var(--accent);outline-offset:1px}
+.note{resize:vertical;min-height:5.5rem;line-height:1.5;font-size:16px}
+.note:focus{outline:2px solid var(--accent);outline-offset:1px}
 h3.grp{margin:1.1rem 0 .35rem;font-size:.74rem;text-transform:uppercase;
  letter-spacing:.07em;color:var(--faint);font-weight:650;
  border-top:1px solid var(--rule);padding-top:.7rem}
@@ -1093,81 +1140,65 @@ const who=()=>$('#who').value.trim();
 $('#who').value=localStorage.getItem('adjWho')||'';
 $('#who').oninput=()=>localStorage.setItem('adjWho',who());
 
+function renderArm(arm){
+  const n_strategy = arm.n_strategy || 0;
+  return '<div class="arm-panel'+(arm.done?' done':'')+'" data-key="'+esc(arm.key)+'">'+
+    '<div class="arm-head"><b>'+esc(arm.arm)+'</b>'+(arm.done?'<span class="done">saved</span>':'')+'</div>'+
+    '<div class="answer-wrap"><pre class="answer">'+esc(arm.answer)+'</pre></div>'+
+    '<h2>Which of these mistakes does this answer make?</h2>'+
+    ((n_strategy>0)?'<h3 class="grp">Mistakes specific to this position</h3>':'')+
+    '<p class="hint">Judge the <b>play</b>, not the wording. Check an item if the answer does that thing.</p>'+
+    (arm.common_errors||[]).map((e,n)=>
+      ((n===n_strategy)?'<h3 class="grp">Mistakes any answer can make</h3>'+
+        '<p class="hint">These apply to every position. Check them the same way — by what the answer did, not by how it worded it.</p>':'')+
+      '<label class="opt"><input type="checkbox" class="e" value="'+(n+1)+'"><span><b>'+(n+1)+'.</b> '+esc(e)+'</span></label>').join('')+
+    '<p class="hint"><b>Check none if it makes none of them</b> — a real verdict and a common one, not a skip.</p>'+
+    '<label class="opt"><input type="checkbox" class="notcovered"><span><b>Bad, but not for any reason above.</b> The answer is wrong or useless and none of the listed mistakes describe it.</span></label>'+
+    '<label class="opt"><input type="checkbox" class="unsure"><span>Genuinely ambiguous — I could argue it either way</span></label>'+
+    '<h3 class="grp">Why is this play wrong?</h3>'+
+    '<p class="hint">The boxes above are the verdict; this is the reasoning.</p>'+
+    '<textarea class="note" rows="4" placeholder="Explain what the answer got wrong and what the right line was."></textarea>'+
+    '</div>';
+}
+
 async function load(){
   const r=await fetch('/api/tasks?kind=adjudication'+(who()?'&author='+encodeURIComponent(who()):''));
-  const d=await r.json();T=d.tasks;
+  const d=await r.json();T=(d.tasks||[]).slice().sort((a,b)=>(a.done===b.done?0:(a.done?1:-1)));
   const first=T.findIndex(t=>!t.done);i=first===-1?0:first;render();
 }
 function render(){
   const t=T[i];
   if(!t){$('#main').innerHTML='<p>Nothing queued.</p>';return}
   $('#prog').textContent=T.filter(x=>x.done).length+'/'+T.length;
-  // innerHTML, not textContent, because the saved marker carries a class —
-  // .done existed in the stylesheet and was applied to nothing. Both halves
-  // are escaped; neither is free text.
-  $('#meta').innerHTML=esc(t.record_id)+' · '+esc(t.arm)+
-    (t.done?' <span class="done">· saved</span>':'');
+  $('#meta').innerHTML=esc(t.record_id)+' · '+esc((t.arms||[]).length)+' arms'+(t.done?' <span class="done">· saved</span>':'');
   $('#main').innerHTML=
     '<h2>The situation</h2><pre>'+esc(t.question)+'</pre>'+
     '<h2>The correct line</h2><ul>'+(t.key_points||[]).map(k=>'<li>'+esc(k)+'</li>').join('')+'</ul>'+
-    '<h2>The answer under review</h2><pre class="answer">'+esc(t.answer)+'</pre>'+
-    '<h2>Which of these mistakes does the answer make?</h2>'+
-    ((t.n_strategy>0)?'<h3 class="grp">Mistakes specific to this position</h3>':'')+
-    '<p class="hint">Judge the <b>play</b>, not the wording. Check an item if the answer '+
-    'does that thing. An action list like <code>PASS</code> still "takes 2 from the '+
-    'Vanguard" even though it never says those words.</p>'+
-    (t.common_errors||[]).map((e,n)=>
-      // The list is `common_errors + PROTOCOL_ERRORS`. The divider is inserted
-      // at n_strategy because the two halves are read differently: above it,
-      // mistakes specific to THIS board; below it, ones any answer can make.
-      // Numbering runs straight through both, matching the judge exactly.
-      ((n===t.n_strategy)?'<h3 class="grp">Mistakes any answer can make</h3>'+
-        '<p class="hint">These apply to every position. Check them the same '+
-        'way \u2014 by what the answer did, not by how it worded it.</p>':'')+
-      '<label class="opt"><input type="checkbox" class="e" value="'+(n+1)+'">'+
-      '<span><b>'+(n+1)+'.</b> '+esc(e)+'</span></label>').join('')+
-    '<p class="hint"><b>Check none if it makes none of them</b> — a real verdict and a '+
-    'common one, not a skip. You are not being asked whether a judge was right.</p>'+
-    '<label class="opt"><input type="checkbox" id="notcovered"><span><b>Bad, but not '+
-    'for any reason above.</b> The answer is wrong or useless and none of the listed '+
-    'mistakes describe it. This measures gaps in the rubric, so flagging it is worth '+
-    'as much as the checkboxes \u2014 but check the second group first: doing nothing, '+
-    'repeating itself and playing something illegal all have their own boxes now, and '+
-    'they did not before. Say what the missing entry should be in the box at the '+
-    'bottom.</span></label>'+
-    '<label class="opt"><input type="checkbox" id="unsure"><span>Genuinely ambiguous — '+
-    'I could argue it either way</span></label>'+
-    // The note is the REASONING, not a fallback for an uncovered case. The
-    // boxes record WHICH mistakes; this records WHY the play is wrong, which
-    // is the part no checkbox can carry and the only part that can tell a
-    // missing rubric entry from a misread board (form_version 4).
-    '<h3 class="grp">Why is this play wrong?</h3>'+
-    '<p class="hint">The boxes above are the verdict; this is the reasoning. '+
-    'Explain what the right line was and what this answer got wrong about the '+
-    'board \u2014 not just what it did. Leave it empty only when the answer is '+
-    'fine.</p>'+
-    '<textarea id="note" rows="4" placeholder="e.g. Doom Blade costs 1 generic '+
-    'and 1 black, so tapping all four Swamps floats two. It is also an instant, '+
-    'so it should be held until the opponent declares attackers."></textarea>';
+    '<div class="arm-grid">'+(t.arms||[]).map(renderArm).join('')+'</div>';
 }
 $('#skip').onclick=()=>{i=Math.min(T.length-1,i+1);render();scrollTo(0,0)};
 $('#go').onclick=async()=>{
-  const t=T[i];if(!t)return;
-  const present=[...document.querySelectorAll('.e')].filter(c=>c.checked).map(c=>+c.value);
-  // Confirm, never block. A verdict that says the play is wrong and does not
-  // say why is usually an oversight, but the reviewer is the authority on
-  // their own verdict and a hard gate would trap them mid-queue.
-  const faulted=present.length||$('#notcovered').checked;
-  if(faulted && !$('#note').value.trim() &&
-     !confirm('Submit without saying why this play is wrong?'))return;
-  const r=await fetch('/api/adjudicate',{method:'POST',
-    headers:{'content-type':'application/json'},
-    body:JSON.stringify({key:t.key,errors_present:present,author:who(),
-      unsure:$('#unsure').checked,not_covered:$('#notcovered').checked,
-      note:$('#note').value})});
-  const d=await r.json();
-  if(!d.ok){alert(d.error||'save failed');return}
-  t.done=true;
+  const group=T[i];if(!group)return;
+  const cards=[...document.querySelectorAll('.arm-panel')];
+  for (const card of cards) {
+    const key = card.dataset.key;
+    const arm = (group.arms||[]).find(x => x.key === key);
+    if (!arm) continue;
+    const present=[...card.querySelectorAll('.e')].filter(c=>c.checked).map(c=>+c.value);
+    const note = card.querySelector('.note');
+    const unsure = card.querySelector('.unsure');
+    const notcovered = card.querySelector('.notcovered');
+    const faulted=present.length||notcovered.checked;
+    if (faulted && !note.value.trim() && !confirm('Submit without saying why this play is wrong?')) return;
+    const r=await fetch('/api/adjudicate',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({key:arm.key,errors_present:present,author:who(),
+        unsure:!!unsure.checked,not_covered:!!notcovered.checked,note:note.value})});
+    const d=await r.json();
+    if(!d.ok){alert(d.error||'save failed');return}
+    arm.done=true;
+  }
+  group.done = (group.arms||[]).every(a => a.done);
   const nxt=T.findIndex((x,n)=>n>i&&!x.done);
   i=nxt===-1?Math.min(T.length-1,i+1):nxt;render();scrollTo(0,0);
 };

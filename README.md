@@ -130,6 +130,10 @@ The current reference index is
 It records observed archetype shares and source links only; it is not a deck
 legality or strategic-quality label.
 
+Additional stage-3 payment drafts are in
+[position_samples_stage3_payment_batch2.jsonl](data/gold/position_samples_stage3_payment_batch2.jsonl).
+They remain review material until promoted into the gameplay gold set.
+
 Validate a decklist before using it as training or evaluation data:
 
 ```bash
@@ -193,7 +197,7 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | RulesGuru snapshot | 1,402 verified Q&A | rulesguru.org API | yes |
 | RulesGuru candidates | 1,202 (drafted rubrics) | derived | yes |
 | **Gold set** | **99** (human-reviewed rubrics) | RulesGuru + CR glossary | yes |
-| **Positions** | **24** (all hand-adjudicated) | authored boards | yes |
+| **Positions** | **32** (all hand-adjudicated) | authored boards | yes |
 | Judge worksheets | 39 scenarios | Competitive REL sims | yes |
 
 ## Scripts
@@ -259,7 +263,7 @@ Beyond explaining rules: give the model a board and let it choose a play. See [D
 
 ```bash
 python scripts/gameplay/test_actions.py                 # parser assertions (84)
-python scripts/gameplay/positions.py                    # validate the 24-position set
+python scripts/gameplay/positions.py                    # validate the 32-position set
 python scripts/gameplay/positions.py --render pos-blocking-0001 --closed   # see the prompt
 python scripts/gameplay/eval_positions.py --second-judge mlx-community/Meta-Llama-3.1-8B-Instruct-4bit
 

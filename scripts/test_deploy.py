@@ -196,7 +196,19 @@ def main() -> None:
     # record_id::arm survives a regeneration of the arms while the answer behind
     # it does not, so comparing keys alone marks already-graded keys done and
     # hides exactly the tasks needing a fresh verdict (Section 21.62).
-    from rubric_server import _answer_sha as _sha
+    from rubric_server import _answer_sha as _sha, group_adjudication_tasks
+
+    grouped = group_adjudication_tasks([
+        {"record_id": "p", "question": "Q", "key": "p::a", "arm": "a",
+         "answer": "PLAY Swamp\nPASS", "done": False},
+        {"record_id": "p", "question": "Q", "key": "p::b", "arm": "b",
+         "answer": "PLAY Forest\nPASS", "done": True},
+        {"record_id": "q", "question": "Q2", "key": "q::a", "arm": "a",
+         "answer": "PASS", "done": False},
+    ])
+    check("tasks group by record_id with per-arm rows preserved",
+          [{g["record_id"]: [a["key"] for a in g["arms"]] for g in grouped}],
+          [{"p": ["p::a", "p::b"], "q": ["q::a"]}])
 
     _tasks = [{"key": "p::a", "answer": "PLAY Swamp\nPASS"}]
     _live = {t["key"]: _sha(t["answer"]) for t in _tasks}
@@ -219,6 +231,15 @@ def main() -> None:
     check("the server digest matches the local one",
           _sha("PLAY Swamp\nPASS"), __import__("hashlib").sha256(
               "PLAY Swamp\nPASS".encode()).hexdigest()[:12])
+
+    from rubric_server import prioritize_tasks
+    check("unfinished tasks sort before done ones",
+          [x["key"] for x in prioritize_tasks(
+              [{"key": "done::a", "done": True},
+               {"key": "open::b", "done": False},
+               {"key": "open::a", "done": False}],
+              done_key="done")],
+          ["open::b", "open::a", "done::a"])
 
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:
