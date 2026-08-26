@@ -140,6 +140,25 @@ def main() -> None:
           "const dis = arm.done ? ' disabled' : '';" in rubric_server.ADJUDICATE_HTML,
           True)
 
+    # ...and the lock must be undoable. Re-adjudication is a supported act — a
+    # verdict is keyed (key, author, answer_sha, n_shown) precisely so a second
+    # one is kept beside the first (21.78) — so locking a saved arm with no way
+    # back forecloses a workflow the identity machinery was built for. The lock
+    # is for accidental re-posts by a grouped save, which is a different problem
+    # from a reviewer changing their mind (Section 21.95).
+    _adj = rubric_server.ADJUDICATE_HTML
+    check("a saved arm offers a re-open control",
+          'class="reopen"' in _adj, True)
+    _reopen = _adj.split("function bindReopen")[1].split("$('#skip')")[0]
+    check("re-opening clears the flag the submit loop reads",
+          "arm.done=false" in _reopen.replace(" ", ""), True)
+    check("...and re-enables the panel's controls",
+          "el.disabled=false" in _reopen.replace(" ", ""), True)
+    # In place, not by re-rendering: render() rebuilds the whole record, which
+    # would discard anything typed into the OTHER panels of the same group.
+    check("re-open does not re-render the record",
+          "render();" not in _reopen, True)
+
     # This file holds four complete pages as separate Python strings, and
     # nothing ties a CSS rule to the page whose markup uses it. Twice now a
     # selector has been added to one page while the elements it styles live in

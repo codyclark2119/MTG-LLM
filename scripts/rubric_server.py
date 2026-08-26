@@ -1311,6 +1311,10 @@ pre{font-family:var(--mono);font-size:.8rem;line-height:1.45;white-space:pre-wra
 .arm-panel{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:.8rem}
 .arm-panel.done{opacity:.82}
 .arm-head{display:flex;align-items:center;gap:.45rem;margin:0 0 .5rem}
+.reopen{margin-left:auto;font:inherit;font-size:.78rem;padding:.2rem .5rem;
+ border:1px solid var(--rule);border-radius:3px;background:var(--paper);
+ color:var(--soft);cursor:pointer}
+.reopen:hover{color:var(--ink);border-color:var(--accent)}
 .answer-wrap{margin:0 0 .55rem}
 ul{margin:.2rem 0;padding-left:1.2rem;color:var(--soft);font-size:.9rem}
 label.opt{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;margin-bottom:.4rem;
@@ -1373,7 +1377,8 @@ function renderArm(arm){
   const n_strategy = arm.n_strategy || 0;
   const dis = arm.done ? ' disabled' : '';
   return '<div class="arm-panel'+(arm.done?' done':'')+'" data-key="'+esc(arm.key)+'">'+
-    '<div class="arm-head"><b>'+esc(arm.arm)+'</b>'+(arm.done?'<span class="done">saved</span>':'')+'</div>'+
+    '<div class="arm-head"><b>'+esc(arm.arm)+'</b>'+(arm.done?'<span class="done">saved</span>'+
+      '<button type="button" class="reopen">re-open</button>':'')+'</div>'+
     '<div class="answer-wrap"><pre class="answer">'+esc(arm.answer)+'</pre></div>'+
     '<h2>Which of these mistakes does this answer make?</h2>'+
     ((n_strategy>0)?'<h3 class="grp">Mistakes specific to this position</h3>':'')+
@@ -1416,6 +1421,7 @@ function render(){
         'be written for it.</p>')+
     referenceBlock(t);
   bindReference();
+  bindReopen();
 }
 
 // The 100%-correct line, in the action grammar, as a property of the BOARD
@@ -1465,6 +1471,33 @@ function bindReference(){
     msg.textContent=lines.length?('saved '+lines.length+' actions'):'saved (cleared)';
     $('#prog').textContent=T.filter(x=>x.done).length+'/'+T.length;
   };
+}
+// Re-opening a saved arm, in place. Re-rendering the record would discard
+// whatever is typed in its OTHER panels, which is the whole reason the page
+// groups them — so this clears the lock on one panel and leaves the rest alone.
+//
+// Re-adjudication is a supported act, not an accident: a verdict is identified
+// by (key, author, answer_sha, n_shown) precisely so a second one on the same
+// answer is kept beside the first rather than colliding with it (21.78). The
+// lock exists to stop a grouped save re-posting arms nobody touched, which is a
+// different problem from a reviewer changing their mind.
+function bindReopen(){
+  [...document.querySelectorAll('.reopen')].forEach(btn=>{
+    btn.onclick=()=>{
+      const card=btn.closest('.arm-panel'); if(!card) return;
+      const group=T[i]; if(!group) return;
+      const arm=(group.arms||[]).find(x=>x.key===card.dataset.key); if(!arm) return;
+      arm.done=false;
+      group.done=(group.arms||[]).length
+        ? (group.arms||[]).every(a=>a.done)
+        : ((group.reference_actions||[]).length>0);
+      card.classList.remove('done');
+      [...card.querySelectorAll('input,textarea')].forEach(el=>{el.disabled=false});
+      const tag=card.querySelector('.arm-head .done'); if(tag) tag.remove();
+      btn.remove();
+      $('#prog').textContent=T.filter(x=>x.done).length+'/'+T.length;
+    };
+  });
 }
 $('#skip').onclick=()=>{i=Math.min(T.length-1,i+1);render();scrollTo(0,0)};
 $('#go').onclick=async()=>{

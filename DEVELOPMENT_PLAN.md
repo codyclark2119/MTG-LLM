@@ -8490,3 +8490,47 @@ jobs, and widen the categories **when a split produces a position that does not
 fit one**. That gives the same taxonomy growth as an evidence trail rather than
 as a guess — the disposition 21.80 and 21.84 already established for rubric
 entries, applied one level up.
+
+### 21.95 The done-arm lock needed a way back
+
+`0d0e1bb` hardened the grouped adjudication save: a saved arm's controls are
+disabled, and the submit loop skips it. Both are right — the page posts every
+arm in a record, so revisiting a partly-graded group re-posted the ones already
+saved. The ingest dedup would have absorbed those, but `submissions.jsonl` is
+the file every analysis is pulled from, and duplicate rows in it are noise in
+the source of truth rather than in a derived number.
+
+What it did not have was an unlock. Checked rather than assumed: no re-open or
+re-adjudicate affordance existed anywhere in the page.
+
+That collides with a workflow this repo deliberately supports. A verdict is
+identified by `(key, author, answer_sha, n_shown)` **because** re-adjudication
+happens — 21.78 added the fourth component after twelve re-adjudications were
+silently dropped, and the reviewer has since redone verdicts more than once. A
+lock with no way back means a reviewer who changes their mind cannot act on it
+in the form; the only routes back were a rubric change (which bumps `n_shown`)
+or an arm regeneration, both of which invalidate far more than the one verdict
+being corrected.
+
+The two problems are different and want different answers:
+
+| | |
+| --- | --- |
+| a grouped save re-posting arms nobody touched | the lock |
+| a reviewer correcting a verdict | the unlock |
+
+`bindReopen` clears the lock on **one panel, in place** — it does not call
+`render()`. Re-rendering would rebuild the whole record and discard whatever is
+typed into the record's other panels, which is the entire reason the page groups
+them (`0684055`). So it removes `disabled` from that panel's inputs, drops the
+`saved` tag, clears `arm.done` so the submit loop stops skipping it, and
+recomputes the record's own `done` and the progress counter.
+
+Nothing changes on the server: a re-opened arm posts a normal verdict, and the
+ingest keeps it beside the earlier one exactly as it keeps any other regrade.
+
+Three checks, all mutation-confirmed: the control exists, re-opening clears the
+flag the submit loop reads and re-enables the inputs, and it does **not**
+re-render. The last one is the interesting assertion — it is not about
+correctness in isolation but about not destroying work in the panels next to
+it, which no test of the endpoint could see.
