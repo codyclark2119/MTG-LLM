@@ -1057,6 +1057,14 @@ def test_reference_answer() -> int:
     failed += not check("...and it names the line",
                         any("UNTAP EVERYTHING" in i for i in invented), True)
 
+    # The form shows the accepted step names; the parser owns them. Two copies
+    # exist because `common.py` must stay pure stdlib for the deployed server,
+    # so the only thing keeping them honest is this assertion (Section 21.89).
+    from common import PHASE_VOCABULARY
+    from actions import PHASE_NAMES as _PN
+    failed += not check("the form's step vocabulary matches the parser's",
+                        tuple(PHASE_VOCABULARY), tuple(_PN))
+
     # Every POSITION must reach the form, not only those the adjudication sample
     # drew: authoring the correct line is a per-board job over the whole gold
     # set, and 6 of 32 were unreachable (Section 21.88).

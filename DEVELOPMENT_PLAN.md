@@ -8078,3 +8078,95 @@ position run is now incomparable to a new one, which is what
 before any new position number means anything, and unlike 21.84's no-op that
 regeneration will produce genuinely different answers, because the prompt is
 genuinely different.
+
+### 21.89 Eight reference lines, an em dash, and a grammar with only one player in it
+
+The reviewer authored ten more lines. **Seven accepted, one refused**, and both
+of the initial failures were the instrument's rather than theirs.
+
+#### A bug in the validator, found by the first hard parse failure
+
+`check_reference` crashed: `ParseFailure` carries `raw`, not `line`. The branch
+had never run — the first submitted reference produced *ignored* lines and
+*illegal* plays, neither of which is a `ParseFailure`, so the one path that
+formats a parse error was written and never executed until a reviewer typed
+something the parser genuinely could not read. A test that exercises three of
+four branches looks the same as one that exercises four.
+
+#### An em dash is the same arrow
+
+```
+BLOCK Fog Bank -> Serra Angel          parsed
+BLOCK Centaur Courser —> Grizzly Bears refused
+```
+
+Two consecutive lines of one submission, same intent, different bytes: macOS
+autocorrect turns `->` into `—>` after a space. The parser saw a `BLOCK` with no
+arrow at all and refused a correct block.
+
+`—`, `–`, `−` before `>` and a bare `→` now normalise to `->`, beside the
+existing bracket stripping. Costless in the other direction: **0 of 418** stored
+model answers use any of them, so this only ever rescues input. With it, the
+line is accepted.
+
+Same family as the `[TARGET <x>]` brackets the grammar once invited models to
+copy — a correct play scored wrong on a character.
+
+#### The step vocabulary was invisible, exactly as the grammar had been
+
+The remaining refusal named `PHASE Declare Damage` and `PHASE End`. Both are
+reasonable — *declare damage* follows *declare attackers* / *declare blockers*,
+and *end* is what the step is usually called out loud. Neither is in
+`PHASE_NAMES`, which holds `combat damage` and `end step`.
+
+That vocabulary is deliberately closed: it is what stops "Phase two of my plan"
+becoming a declaration. But it was never shown to the person being asked to
+write in it — the same defect 21.86 fixed for the action grammar, one field
+over. `/api/grammar` now serves the accepted step names alongside the verbs.
+
+The list is mirrored in `common.PHASE_VOCABULARY` rather than imported, because
+`common.py` must stay pure stdlib for the deployed server and `PHASE_NAMES`
+lives in `gameplay.actions`. Two copies of a list is the shape this repo has
+been bitten by, so `test_eval` asserts they are equal — the only thing keeping
+them honest.
+
+#### The finding: the grammar has one player in it
+
+The refused line was not a near-miss. It walks a whole turn — every phase in
+order, `PASS` in each — and then crosses into the opponent's turn:
+
+```
+PHASE Opponent Declare Attackers
+PASS
+ATTACK Goblin Guide -> Player          <- Goblin Guide is the OPPONENT's creature
+TAP Mountain FOR {R}
+CAST Shock TARGET Goblin Guide
+```
+
+`ATTACK` is refused because Goblin Guide is not the answering player's creature,
+and the check is right. But what the line is *trying* to say — *the opponent
+attacks, and I respond* — has no expression at all. **Every verb in the grammar
+is an action by the answering player.** There is no way to write what the
+opponent does, so there is no way to write a response to it.
+
+That is not a gap in the notation so much as a boundary in the design, and
+21.71 already drew it: a turn scenario advances the board on the **reference**
+line, and each step is a complete position. What the opponent does belongs to
+the *board* between steps, not to the answer. Written as a scenario, the
+opponent's attack is step 2's battlefield and the answer to step 2 is
+`CAST Shock TARGET Goblin Guide` — one decision, checkable, with no second
+player in the grammar.
+
+So the honest answer is that stage 6 (a full turn) is now expressible and stage
+7 (a full game) is not, and the missing piece is scenario authoring rather than
+more verbs. Adding an `OPPONENT` prefix would make every existing check ask
+"whose action is this?" — including `legal_actions`, which enumerates the
+answering player's plays and nothing else.
+
+Also worth separating: `sample-stage3-payment-0003` is a **payment** position.
+Its key points are which land pays which half of `{1}{R}`. The correct reference
+for it is five lines, and it validates clean. The full-turn line is a different
+and larger claim about a board that was not asking for one.
+
+Eight positions of 32 now carry a reference, and every one passes
+`validate_position`.

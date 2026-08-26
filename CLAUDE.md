@@ -538,6 +538,12 @@ Two invariants worth keeping:
   is no prose — the first one submitted invented `END PHASE <step>` twice and
   was accepted in silence. `check_reference` refuses ignored lines by name. The
   inverse of 21.61, from the same bucket (21.86).
+- **The grammar has ONE player in it** (21.89). Every verb is an action by the
+  answering player, so there is no way to write what the opponent does or a
+  response to it. Stage 6 (a full turn) is expressible since `END PHASE`;
+  stage 7 (a full game) is not, and the missing piece is **scenario authoring**,
+  not more verbs — 21.71 already puts the opponent's action in the *board*
+  between steps, where `legal_actions` still enumerates one player's plays.
 - **`reference_actions` is the 100%-correct line**, authored in the form and
   promoted by `positions.py --ingest-references` (21.85). It is **refused
   unless the parser agrees**: it must parse, every play must be in

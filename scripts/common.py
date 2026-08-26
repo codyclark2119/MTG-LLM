@@ -297,6 +297,16 @@ DATASETS_DIR = REPO_ROOT / "data/datasets"
 # turned a correct play into an illegal one and would have been read as the
 # model naming actions that do not exist. Optional forms get their own line
 # instead, so there is no meta-syntax left to copy.
+# The step names `PHASE`/`END PHASE` accept, for the authoring form. The parser
+# owns the list (`gameplay.actions.PHASE_NAMES`) and cannot be imported here —
+# `common.py` must stay pure stdlib for the deployed server — so
+# `test_eval` asserts the two agree rather than trusting them to (21.89).
+PHASE_VOCABULARY = (
+    "untap", "upkeep", "draw", "precombat main", "postcombat main", "main",
+    "beginning of combat", "declare attackers", "declare blockers",
+    "combat damage", "end of combat", "end step", "cleanup", "opening hand",
+)
+
 ACTION_GRAMMAR = (
     "PHASE <step>                      state the step you are acting in\n"
     "PLAY <card>                       play a land\n"

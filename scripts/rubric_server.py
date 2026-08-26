@@ -54,7 +54,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 # The only project imports, all pure python — see the module docstring.
-from common import (ACTION_GRAMMAR, lint_common_errors, stray_names,  # noqa: E402
+from common import (ACTION_GRAMMAR, PHASE_VOCABULARY,  # noqa: E402
+                    lint_common_errors, stray_names,
                     templatize, untemplatize, verdict_is_current)
 
 # One writer at a time. Submissions append, and two contributors finishing a
@@ -465,7 +466,7 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         `common.ACTION_GRAMMAR` so the form cannot drift from what the model is
         told, which is the same one-definition rule `build_rag_messages` follows.
         """
-        return {"grammar": ACTION_GRAMMAR}
+        return {"grammar": ACTION_GRAMMAR, "phases": list(PHASE_VOCABULARY)}
     tasks = rubric_tasks or adj_tasks
     categories = sorted({t.get("category") or "" for t in rubric_tasks})
 
@@ -1252,9 +1253,9 @@ function renderArm(arm){
     '</div>';
 }
 
-let GRAMMAR='';
+let GRAMMAR='',PHASES=[];
 async function load(){
-  try{GRAMMAR=(await (await fetch('/api/grammar')).json()).grammar||''}catch(e){}
+  try{const g=await (await fetch('/api/grammar')).json();GRAMMAR=g.grammar||'';PHASES=g.phases||[]}catch(e){}
   const r=await fetch('/api/tasks?kind=adjudication'+(who()?'&author='+encodeURIComponent(who()):''));
   const d=await r.json();T=(d.tasks||[]).slice().sort((a,b)=>(a.done===b.done?0:(a.done?1:-1)));
   const first=T.findIndex(t=>!t.done);i=first===-1?0:first;render();
@@ -1293,7 +1294,10 @@ function referenceBlock(t){
     'refused if any line is not legal here, so it can serve as a known-good '+
     'answer to measure against later.</p>'+
     '<details class="legal"><summary>Show the action grammar</summary>'+
-    '<pre class="gram">'+esc(GRAMMAR||'(loading)')+'</pre></details>'+
+    '<pre class="gram">'+esc(GRAMMAR||'(loading)')+'</pre>'+
+    '<p class="hint">PHASE and END PHASE accept these step names only, so that '+
+    'prose cannot become a declaration:</p>'+
+    '<pre class="gram">'+esc((PHASES||[]).join(' · '))+'</pre></details>'+
     '<details class="legal"><summary>Show the legal plays on this board ('+
       (t.legal_actions||[]).length+')</summary>'+
     '<ul>'+((t.legal_actions||[]).map(a=>'<li><code>'+esc(a)+'</code></li>').join('')

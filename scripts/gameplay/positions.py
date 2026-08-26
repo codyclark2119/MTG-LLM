@@ -853,7 +853,7 @@ def check_reference(pos: dict, lines: list[str], card_index=None) -> list[str]:
     if not lines:
         return ["reference is empty"]
     parsed = parse_output("\n".join(lines))
-    problems = [f"unparseable: {f.line!r}" for f in parsed.failures]
+    problems = [f"unparseable ({f.reason}): {f.raw!r}" for f in parsed.failures]
     # A line the parser did not recognise goes to `ignored`, which is deliberate
     # prose tolerance for ARM answers — a model that reasons aloud must not have
     # its explanation parsed as plays (21.61). A reference is not prose: every

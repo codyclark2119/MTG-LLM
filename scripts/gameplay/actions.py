@@ -213,6 +213,13 @@ def parse_line(line: str) -> Action | ParseFailure | None:
     # uses brackets (see common.ACTION_GRAMMAR), but stripping them here keeps
     # a correct play from being scored illegal on phrasing alone.
     text = text.replace("[", " ").replace("]", " ")
+    # An em dash, en dash or minus sign in front of `>` is the same arrow. A
+    # reviewer typing `->` on macOS gets `—>` from autocorrect, and one line of
+    # a submitted reference had it while the line above it did not — same
+    # intent, different bytes, and the parser saw a BLOCK with no arrow at all.
+    # `→` is normalised for the same reason. Costless: no stored model answer
+    # uses any of them (0 of 418), so this only ever rescues input (21.89).
+    text = re.sub(r"[—–−]\s*>", "->", text).replace("→", "->")
     text = text.strip()
     if not text:
         return None
