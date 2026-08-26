@@ -8258,3 +8258,84 @@ all reference lines are consistent with their boards
 The ingest writes a step's line back to `turn_scenarios.jsonl` and a position's
 to `positions.jsonl`, keyed off the `::step` in the id — one command, two
 destinations, no second form.
+
+### 21.91 One identity under three keys, and what "unified" turned out to mean
+
+The reviewer edited nine reference lines and asked whether they were consistent.
+Ingesting them found a defect first, and answering the question needed a
+different check than the one that existed.
+
+#### Every new submission had an empty author
+
+Three pages stored the reviewer's name under three different `localStorage`
+keys — `adjWho`, `author`, `mlr_author` — so a name typed in one view was
+invisible in the next, and the new authoring page started blank. Nine
+submissions arrived unattributed.
+
+Attribution riding on each submission is the invariant that lets one file hold
+several authors, so an empty one is a lost verdict rather than a cosmetic gap.
+One definition now, `AUTHOR_JS`, injected into all three pages, reading the
+legacy keys once and migrating them.
+
+`--ingest-references --author` attributes rows the form did not stamp. It fills
+only an EMPTY field and never overwrites a name, because it acts on the
+operator's word: 21.65 records the harm of stamping old submissions from a
+source that could not know who wrote them, and the difference here is that the
+person told me.
+
+**And the fix shipped broken for one iteration.** `AUTHOR_JS` was defined below
+two of the pages that reference it, and my "already injected" guard matched the
+*call* rather than the *definition* — so two deployed pages called a function
+they did not define. That parses perfectly and throws at runtime, blanking the
+view. The JavaScript parse-check added after the `#`-comment incident cannot see
+it, and neither can the dead-CSS check.
+
+`test_webui` now collects every helper this repo defines anywhere and asserts
+that a page calling one also defines it. Third language, third instance of the
+same shape: **a page is only whole if what it references lives on it.**
+Confirmed by mutation.
+
+#### "Consistent" is two questions, and only one had a check
+
+`check_reference` asks whether a line is legal on its board. Ten of ten pass.
+That is not what the reviewer was asking: they had been editing for *"better
+unification of expectations"*, which is whether the lines agree with **each
+other**. A set of gold answers that each open differently teaches the opening
+rather than the play.
+
+`reference_consistency` reports the shape of the set:
+
+```
+10 reference lines
+  open with PHASE: 10/10
+  use END PHASE at all: 7/10
+      differs: pos-mulligan-0002, pos-trigger-ordering-0002,
+               turn-payment-combat-0001::step1
+  contain a PASS: 9/10
+      differs: turn-payment-combat-0001::step1
+  final action: END x6, PASS x2, PHASE x1, CAST x1
+  step names spelled one way: 5/6
+      'declare attackers' appears as ['Declare Attackers', 'declare attackers']
+  ASCII arrows only: 9/10
+      non-ASCII: pos-blocking-0003
+```
+
+It **reports and does not enforce**, because some of the differences are
+correct. A mulligan happens before any phase can be ended, so no `END PHASE`
+there is right; the same absence on a combat board probably is not. The tool
+names the minority and stops.
+
+Two entries are worth separating from the rest:
+
+- `turn-payment-combat-0001::step1` contains **no `PASS` at all**, and the
+  gameplay prompt's own instruction is *"End with a single PASS."* A reference
+  that does not follow the instruction the model is given is a standard
+  disagreeing with its own brief.
+- `pos-blocking-0003` keeps an em-dash arrow on one `BLOCK` line and an ASCII
+  one on the other. It parses, because 21.89 normalises it — which is exactly
+  why it survives in stored gold that nobody re-reads. The check that never
+  fails is the one that lets a difference persist.
+
+The reported distribution `END x6, PASS x2, PHASE x1, CAST x1` is the real
+answer to the question asked: **the set is unified on how it opens and not yet
+on how it closes.**

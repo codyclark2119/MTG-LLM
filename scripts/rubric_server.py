@@ -279,6 +279,27 @@ def prioritize_tasks(tasks: list[dict], done_key: str = "done") -> list[dict]:
 # Shown at `/` only when BOTH forms are deployed. Deliberately plain: it exists
 # to route, and every pixel of design here is a pixel not spent on the two forms
 # that do the work. No fetch, no state — a wrong turn costs one click.
+# Who the reviewer is, stored once. Three pages had three localStorage keys for
+# the same identity — `adjWho`, `author`, `mlr_author` — so a name typed in one
+# view was invisible in the next, and the first nine submissions from the new
+# authoring page carried an empty author. Attribution rides on each submission
+# (that is the invariant), so an empty one is a lost verdict, not a cosmetic
+# gap. Legacy keys are read once and migrated (Section 21.91).
+AUTHOR_JS = """
+function mlAuthorGet(){
+  const legacy=['mlAuthor','adjWho','author','mlr_author'];
+  for(const k of legacy){
+    try{const v=localStorage.getItem(k); if(v&&v.trim()){mlAuthorSet(v.trim());return v.trim()}}
+    catch(e){}
+  }
+  return '';
+}
+function mlAuthorSet(v){
+  try{localStorage.setItem('mlAuthor',v); localStorage.setItem('adjWho',v);
+      localStorage.setItem('author',v); localStorage.setItem('mlr_author',v)}catch(e){}
+}
+"""
+
 CHOOSE_HTML = """<meta name=viewport content="width=device-width,initial-scale=1">
 <title>magic-llm</title>
 <style>
@@ -978,13 +999,15 @@ a{color:var(--accent)}
     question.</div></div></div>
 </main>
 <script>
+""" + AUTHOR_JS + r"""
+
 const $ = s => document.querySelector(s);
 let TASKS = [], CUR = null, DIRTY = false;
 
 const author = () => $('#author').value.trim();
 
-function saveName(){ localStorage.setItem('mlr_author', author()); }
-function loadName(){ $('#author').value = localStorage.getItem('mlr_author') || ''; }
+function saveName(){ mlAuthorSet(author()); }
+function loadName(){ $('#author').value = mlAuthorGet(); }
 
 async function refresh(){
   const r = await fetch('/api/tasks?kind=rubric&author=' + encodeURIComponent(author()));
@@ -1259,12 +1282,14 @@ button.go{background:var(--accent);border-color:var(--accent);color:#fff;flex:1;
 <main id="main"></main>
 <div class="bar"><button id="skip">Skip</button><button id="go" class="go">Save &amp; next</button></div>
 <script>
+""" + AUTHOR_JS + r"""
+
 const $=s=>document.querySelector(s);
 const esc=s=>{const d=document.createElement('div');d.textContent=s??'';return d.innerHTML};
 let T=[],i=0;
 const who=()=>$('#who').value.trim();
-$('#who').value=localStorage.getItem('adjWho')||'';
-$('#who').oninput=()=>localStorage.setItem('adjWho',who());
+$('#who').value=mlAuthorGet();
+$('#who').oninput=()=>mlAuthorSet(who());
 
 function renderArm(arm){
   const n_strategy = arm.n_strategy || 0;
@@ -1465,12 +1490,13 @@ button.ghost{font:inherit;font-size:.92rem;padding:.5rem .9rem;border-radius:4px
 </header>
 <main><nav id="list"></nav><section id="pane"><p class="hint">Loading…</p></section></main>
 <script>
+""" + AUTHOR_JS + r"""
 const $=s=>document.querySelector(s);
 const esc=s=>{const d=document.createElement('div');d.textContent=s??'';return d.innerHTML};
 let R=[],i=0,GRAMMAR='',PHASES=[];
 function who(){return $('#author').value.trim()}
-$('#author').value=localStorage.getItem('author')||'';
-$('#author').oninput=()=>localStorage.setItem('author',who());
+$('#author').value=mlAuthorGet();
+$('#author').oninput=()=>mlAuthorSet(who());
 
 function done(r){return (r.reference_actions||[]).length>0}
 function drawList(){

@@ -161,6 +161,33 @@ def main() -> None:
             check(f"{name}: CSS for {sel!r} is on the page that uses it",
                   bool(used), True)
 
+    # A page that CALLS a helper it does not DEFINE parses perfectly and throws
+    # at runtime, blanking the view — the JavaScript parse-check above cannot
+    # see it. `mlAuthorGet` was used by three pages and defined in one, which
+    # is the same cross-page drift as the dead-CSS bug, in a third language
+    # (Section 21.91).
+    #
+    # Scoped to helpers this repo defines somewhere, so browser builtins and
+    # library calls are not flagged.
+    pages = {"reference": rubric_server.REFERENCE_HTML,
+             "rubric": rubric_server.INDEX_HTML,
+             "adjudicate": rubric_server.ADJUDICATE_HTML,
+             "position": rubric_server.POSITION_HTML,
+             "choose": rubric_server.CHOOSE_HTML,
+             "webui": served_html()}
+    ours = set()
+    for page in pages.values():
+        ours |= set(re.findall(r"function\s+([A-Za-z_$][\w$]*)\s*\(", page))
+        ours |= set(re.findall(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+                               r"(?:async\s*)?(?:function\b|\()", page))
+    for name, page in pages.items():
+        script = "\n".join(re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)) or page
+        defined = set(re.findall(r"function\s+([A-Za-z_$][\w$]*)\s*\(", script))
+        defined |= set(re.findall(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)", script))
+        called = set(re.findall(r"\b([A-Za-z_$][\w$]*)\s*\(", script))
+        missing = sorted((called & ours) - defined)
+        check(f"{name}: every helper it calls is defined on the page", missing, [])
+
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:
         raise SystemExit(1)

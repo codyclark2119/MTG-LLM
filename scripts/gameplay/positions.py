@@ -824,6 +824,76 @@ def ingest(drafts: list[dict], existing: list[dict], author: str = "",
     return len(accepted)
 
 
+def reference_consistency(boards: list[dict]) -> list[str]:
+    """How the stored reference lines differ from each other in SHAPE.
+
+    `check_reference` asks whether a line is legal on its board. This asks
+    whether the set of them agrees with itself, which is a different question
+    and the one that decides whether they can be used as a single standard —
+    a set of gold answers that each open differently teaches the opening, not
+    the play (Section 21.91).
+
+    Reports rather than enforces. Some differences are correct: a mulligan
+    happens before any phase can be ended, so a line with no `END PHASE` there
+    is right, and one on a combat board probably is not. Deciding which is
+    which is the author's, so this names the minority and its members and stops.
+    """
+    out: list[str] = []
+    refs = [(b["id"], b["reference_actions"]) for b in boards
+            if b.get("reference_actions")]
+    if not refs:
+        return ["no reference lines stored"]
+
+    def split(pred, label):
+        yes = [rid for rid, r in refs if pred(r)]
+        no = [rid for rid, r in refs if not pred(r)]
+        out.append(f"  {label}: {len(yes)}/{len(refs)}")
+        minority = no if len(no) <= len(yes) else yes
+        if minority and len(minority) != len(refs):
+            out.append(f"      differs: {', '.join(sorted(minority))}")
+
+    out.append(f"{len(refs)} reference lines")
+    split(lambda r: r and r[0].strip().upper().startswith("PHASE "), "open with PHASE")
+    split(lambda r: any(a.strip().upper().startswith("END PHASE") for a in r),
+          "use END PHASE at all")
+    split(lambda r: "PASS" in [a.strip().upper() for a in r], "contain a PASS")
+
+    # A distribution, not a yes/no: "ends with PASS" would report the majority
+    # as the exception here, since most lines close with END PHASE instead.
+    # What the set needs is one convention, and this shows whether it has one.
+    from collections import Counter
+    last = Counter()
+    for _rid, r in refs:
+        verb = r[-1].strip().upper() if r else ""
+        last[verb.split()[0] if verb else "(empty)"] += 1
+    out.append("  final action: " + ", ".join(
+        f"{v} x{n}" for v, n in last.most_common()))
+
+    # Two spellings of the same step name are a difference a parser cannot see
+    # — matching is case-insensitive — and a training set can.
+    seen: dict[str, set] = {}
+    for rid, r in refs:
+        for a in r:
+            u = a.strip()
+            for kw in ("PHASE ", "END PHASE "):
+                if u.upper().startswith(kw):
+                    step = u[len(kw):].strip()
+                    seen.setdefault(step.lower(), set()).add(step)
+    mixed = {k: v for k, v in seen.items() if len(v) > 1}
+    out.append(f"  step names spelled one way: {len(seen) - len(mixed)}/{len(seen)}")
+    for k, v in sorted(mixed.items()):
+        out.append(f"      {k!r} appears as {sorted(v)}")
+
+    # The parser normalises these, so they never fail — which is exactly why
+    # they persist in stored gold nobody re-reads (21.89).
+    odd = sorted(rid for rid, r in refs
+                 if any(ch in a for a in r for ch in "—–−→"))
+    out.append(f"  ASCII arrows only: {len(refs) - len(odd)}/{len(refs)}")
+    if odd:
+        out.append(f"      non-ASCII: {', '.join(odd)}")
+    return out
+
+
 def check_reference(pos: dict, lines: list[str], card_index=None) -> list[str]:
     """Why this reference line is not a 100%-correct answer, if it is not.
 
@@ -967,6 +1037,8 @@ def main() -> None:
                     print(f"      {pr}")
             raise SystemExit(1)
         print("\nall reference lines are consistent with their boards")
+        print()
+        print("\n".join(reference_consistency(boards)))
         return
 
     if args.ingest_references:
@@ -987,6 +1059,19 @@ def main() -> None:
                 if r.get("kind") == "reference"]
         # Newest row per (record, author) wins, so a correction supersedes the
         # line it corrects without anyone editing the log.
+        # `--author` attributes rows the form did not stamp. Attribution rides
+        # on the submission (that is the invariant), so this is a deliberate
+        # act on the operator's word, not a guess: it applies only where the
+        # field is EMPTY and never overwrites a name already on a row. The
+        # distinction matters — 21.65 records the harm of stamping old
+        # submissions from a source that could not know who wrote them.
+        if args.author:
+            n_blank = sum(1 for r in rows if not (r.get("author") or "").strip())
+            for r in rows:
+                if not (r.get("author") or "").strip():
+                    r["author"] = args.author
+            if n_blank:
+                print(f"  attributing {n_blank} unstamped row(s) to {args.author!r}")
         newest: dict[tuple, dict] = {}
         for r in sorted(rows, key=lambda r: r.get("submitted") or ""):
             newest[(r.get("record_id"), r.get("author"))] = r

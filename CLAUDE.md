@@ -544,6 +544,11 @@ Two invariants worth keeping:
   stage 7 (a full game) is not, and the missing piece is **scenario authoring**,
   not more verbs — 21.71 already puts the opponent's action in the *board*
   between steps, where `legal_actions` still enumerates one player's plays.
+- **`--check-references` answers two different questions.** `check_reference`
+  asks whether a line is legal on its board; `reference_consistency` asks
+  whether the lines agree with EACH OTHER, which is what makes them usable as
+  one standard. It reports and never enforces — a mulligan line correctly has no
+  `END PHASE` and a combat one probably should (21.91).
 - **`/reference` is where correct lines are authored**, separate from grading:
   grading walks a sample once, authoring revisits a board until the line is
   right (21.90). It covers scenario steps too — `expand_steps` returns them
@@ -731,6 +736,13 @@ Each cost real time. They recur in new code, so they are worth knowing.
   `--help` exits 0, because the server half was never broken. `test_webui.py`
   now parse-checks the served script with JavaScriptCore. **Testing the API of
   a page is not testing the page.**
+- **A page calling a helper it does not define.** `mlAuthorGet` was used by
+  three pages and defined in one, so two deployed views called a function that
+  did not exist — parses perfectly, throws at runtime, blanks the page. Neither
+  the JS parse-check nor the dead-CSS check can see it. `test_webui` collects
+  every helper defined anywhere in the repo and asserts a page calling one also
+  defines it. Third language, same shape: **a page is whole only if what it
+  references lives on it** (Section 21.91).
 - **A CSS rule on the page that does not use it.** `rubric_server.py` holds four
   complete pages as separate strings; twice a selector was added to one while
   the markup it styles was in another, and the group headings 21.75 added
