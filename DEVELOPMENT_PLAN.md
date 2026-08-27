@@ -9529,3 +9529,73 @@ board arises *because* the opponent responded, that fact belongs in the board of
 the next step, which is exactly what a scenario is for (21.71). Recording from
 real games makes those boards available for the first time; the grammar does not
 need a new verb to use them.
+
+### 21.109 Split balance as a position selector, borrowed from a 20-questions game
+
+The user's side project (`jslinker/TwentyQuestionsMagicTheGathering`) builds a
+decision tree over Scryfall Oracle cards and picks each question by:
+
+```python
+balance = min(yes_count, card_count - yes_count)
+if balance > best_balance:
+    best_id, best_balance = question_id, balance
+```
+
+**That heuristic is not an approximation of information gain — for a binary
+split with a uniform prior it is ordinally equivalent to it.** Checked across
+splits from 500/500 to 1/999: `min(yes,no)` and
+`H(p) = -p log p - (1-p) log(1-p)` induce the same ordering, so `argmax` picks
+the same question. It is the same choice at the cost of an integer `min` rather
+than two logarithms.
+
+Applied to this project's own problem — *which positions are worth having?* —
+it says something 21.107 missed.
+
+#### 14 of 34 positions carry no information about the blunder gate
+
+Ranking each board by how evenly the five arms split on `blundered`:
+
+| balance | boards | meaning |
+| --- | --- | --- |
+| 2 (of a possible 2) | 9 | maximally informative |
+| 1 | 11 | informative |
+| **0** | **14** | every arm agrees — the board separates nothing |
+
+21.107 called a board discriminating if the arms differed on correctness **or**
+on the blunder call, and **8 of the 14** passed that test on correctness alone.
+They still cannot move Gate 3, which reads `errors_made`.
+
+#### And every one of the 14 is saturated, not clean
+
+All fourteen are **5/5 blundered**. Not one board has all five arms clean. That
+is the same fact CLAUDE.md records from the other direction — these arms blunder
+on 82% of answers — but stated per board it is sharper: **Gate 3 is being
+measured on a set where 41% of the boards are pinned at the ceiling.** A gate
+cannot be moved by a board that is already maximally failed, so the effective n
+for Gate 3 is 20, not 34.
+
+That is a stronger reason to source new positions than "the boards are
+generated" (21.98). A generated board can still discriminate; a saturated one
+cannot, whatever its provenance.
+
+#### Where else the same selector applies
+
+**Adjudication order.** 21.107 found human verdicts had gone to boards that
+separate nothing — 7 on `pos-race-vs-stabilize-0001`, which is balance 0, and
+0 on four payment boards that are balance 1–2. `build_queue` interleaves on the
+judge's call; balance over the two judges' verdicts is the selector that would
+put the time where it moves a number.
+
+**Deck choice for recording.** The side project's other asset is
+`config/semantic-questions.json` — **56 curated Scryfall Tagger tags**
+(`removal`, `spot-removal`, `sweeper`, `counterspell`, `ramp`, `tutor`,
+`cantrip`, …) mapped to player-facing questions. Our card chunks carry
+`oracle_id`, so those tags join to our corpus directly with no matching
+heuristics. That turns "pick decks with more decision density" (21.108) from
+taste into a query: a deck built from `spot-removal` + `counterspell` cards
+produces `removal timing` boards by construction.
+
+#### What it is not useful for
+
+Card identification. `card_lookup` resolves a named card by dictionary lookup at
+99%, and this project never has to infer a card from its properties.
