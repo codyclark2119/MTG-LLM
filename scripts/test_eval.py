@@ -2158,6 +2158,58 @@ def test_card_face_names() -> int:
     return failed
 
 
+def test_multi_face_layouts() -> int:
+    """Six `//` layouts, and they do not behave alike (Section 21.111).
+
+    A `transform` back face is a permanent you reach by transforming and never
+    play; an `adventure`, `split`, `prepare` or `modal_dfc` back face IS a play.
+    Treating all 885 alike either invents a legal play or removes a real one.
+
+    The fallback matters more than the table: `prepare` arrived in Secrets of
+    Strixhaven and is already 55 cards, so the layout list goes stale. A
+    creature front with an instant/sorcery back is castable across 210 cards
+    with zero `transform`/`flip` in the bucket, and that shape survives a
+    layout name nobody has seen.
+    """
+    from card_lookup import back_face_is_a_play as play
+
+    failed = 0
+    failed += not check("a transform back is not a play",
+                        play({"name": "A // B", "layout": "transform"}), False)
+    failed += not check("an adventure back is",
+                        play({"name": "A // B", "layout": "adventure"}), True)
+    failed += not check("a prepare back is",
+                        play({"name": "A // B", "layout": "prepare"}), True)
+    failed += not check("a modal_dfc back is",
+                        play({"name": "A // B", "layout": "modal_dfc"}), True)
+    failed += not check("a single-faced card has no back face",
+                        play({"name": "Shock", "layout": "normal"}), None)
+
+    # The type-shape fallback, on a layout the table has never seen.
+    failed += not check("unknown layout, creature -> sorcery, is decided",
+                        play({"name": "A // B", "layout": "minted_in_2027",
+                              "type_line": "Creature — Wizard // Sorcery"}), True)
+    failed += not check("unknown layout, creature -> creature, abstains",
+                        play({"name": "A // B", "layout": "minted_in_2027",
+                              "type_line": "Creature — X // Creature — Y"}), None)
+    # Abstaining is the whole point: guessing either way is wrong somewhere, and
+    # a checker that cannot run must not report an answer.
+    failed += not check("unknown layout with no type_line abstains",
+                        play({"name": "A // B", "layout": "minted_in_2027"}), None)
+    # A creature that transforms into a land and a creature you may PLAY as a
+    # land are the same two type lines. Conflicted (modal_dfc 13, transform 6),
+    # so the fallback must abstain rather than invent six legal plays.
+    failed += not check("unknown layout, creature -> land, abstains",
+                        play({"name": "A // B", "layout": "minted_in_2027",
+                              "type_line": "Creature — Druid // Land"}), None)
+    # But a KNOWN layout still decides that same shape, because layout is the
+    # primary key and the fallback only runs when it misses.
+    failed += not check("a known layout decides creature -> land",
+                        play({"name": "A // B", "layout": "modal_dfc",
+                              "type_line": "Creature — Druid // Land"}), True)
+    return failed
+
+
 def test_engine_legal_actions() -> int:
     """The engine's answer in the action grammar, and where it refuses.
 
@@ -2292,7 +2344,8 @@ def main() -> None:
                      ("behaviour_opening", test_behaviour_opening),
                      ("card_face_names", test_card_face_names),
                      ("engine_legal_actions", test_engine_legal_actions),
-                     ("token_permanents", test_token_permanents)):
+                     ("token_permanents", test_token_permanents),
+                     ("multi_face_layouts", test_multi_face_layouts)):
         print(f"{name} ...")
         failed += fn()
 

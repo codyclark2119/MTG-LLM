@@ -97,6 +97,25 @@ CARD_PIN = {
     "ruling_chunks_sha256": "1e3e0fd4b57d4e10796e6adaf7fd0fdbe3a3899c0fd10aec7b71745e2ee24c17",
     "n_card_chunks": 34933,
     "n_ruling_chunks": 19726,
+    # WHICH snapshot, not just that it has not changed. The sha proves the bytes
+    # are the ones every published number was computed against; it cannot say
+    # what they are, and "our Oracle dump" is not an answer when Scryfall
+    # rebuilds bulk data daily and errata cards in place (Section 21.110).
+    #
+    # `download_bulk` already RETURNS Scryfall's upstream `updated_at` and
+    # `fetch_cards.py` already writes it into a per-file manifest — but the two
+    # bulk files this corpus is actually built from were pulled before that code
+    # existed, so no manifest was written for them and the upstream value is
+    # unrecoverable now. Recovered instead from the files themselves:
+    "oracle_bulk_downloaded_at": "2026-08-11T16:06Z",   # local mtime, not upstream
+    "rulings_bulk_downloaded_at": "2026-08-12T08:23Z",  # local mtime, not upstream
+    "oracle_bulk_updated_at": None,   # unknown; capture on the next re-pin
+    # A lower bound anyone can re-derive: the newest `released_at` in the raw
+    # bulk file. Future-dated because Scryfall carries spoiled sets before
+    # release, so it bounds the snapshot from ABOVE in set coverage rather than
+    # dating it — which is still the most useful single fact about the corpus.
+    "newest_set_released_at": "2026-11-13",
+    "n_raw_bulk_cards": 38626,        # before chunking drops non-playable rows
 }
 
 # The MTG Wiki gloss (scripts/fetch_wiki.py). Pinned for the same reason the

@@ -5,10 +5,27 @@ Phase 2 kickoff (README Section 13): rather than pulling Magic's entire
 format pool — Standard — to validate the ingestion pipeline cheaply
 before expanding to larger formats.
 
-Uses the /cards/search endpoint (not a full bulk-data download) since a
-single format's legal pool is small enough that paginated search is the
-lighter-weight option: ~2,000-3,000 Standard-legal cards is only a
-dozen-odd requests at 175 cards/page.
+TWO PATHS, AND THE CORPUS USES THE SECOND
+
+`--format standard` pages /cards/search, which is the lighter option for one
+format's legal pool: ~2,000-3,000 cards is a dozen-odd requests at 175 a page.
+`--bulk oracle_cards` takes Scryfall's prebuilt file instead, which is what
+Scryfall asks consumers to do for anything approaching the full database.
+
+**The pinned corpus comes from `--bulk`, not from search** — 38,626 raw cards
+into 34,933 chunks. The header used to say the opposite, which mattered because
+the two paths have different provenance: a search pull is a point-in-time query
+over a moving legality filter, while a bulk file is a dated artefact Scryfall
+rebuilds daily (Section 21.110).
+
+`oracle_cards` is the right bulk type here: one row per distinct game object.
+`default_cards` gives one row per printing and `all_cards` one per printing per
+language, both of which repeat identical Oracle text across reprints — more
+bytes, no more rules content, and a name index that would need de-duplicating.
+
+`download_bulk` returns the upstream `updated_at` so the caller can record which
+snapshot it took. Record it in `common.CARD_PIN` when re-pinning: the sha proves
+the bytes have not drifted and cannot say what they are.
 
 Scryfall policy compliance: requires a descriptive User-Agent and Accept
 header on every request (undocumented/missing headers get throttled),

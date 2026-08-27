@@ -9599,3 +9599,97 @@ produces `removal timing` boards by construction.
 
 Card identification. `card_lookup` resolves a named card by dictionary lookup at
 99%, and this project never has to infer a card from its properties.
+
+### 21.110 The pin says the corpus has not changed; it could not say what it is
+
+Asked whether the Scryfall API has anything we should adopt. It does not — we
+already use both endpoints and comply with the policy — but the audit found the
+provenance gap.
+
+`data/cards/raw/` holds `oracle_cards.jsonl` and `rulings.jsonl`, the two files
+`card_chunks.jsonl` is built from, and **neither had a manifest**. The only one
+there was `standard_MANIFEST.md`, for a `/cards/search` pull that is not what
+the corpus is built from — and `fetch_cards.py`'s own header said the project
+uses search, which is how that impression survived.
+
+So `CARD_PIN` proved the bytes had not drifted and could not say which snapshot
+they were. `download_bulk` already RETURNS Scryfall's upstream `updated_at`;
+nothing recorded it.
+
+Recovered what the files still allow:
+
+```
+oracle_cards.jsonl   downloaded 2026-08-11T16:06Z   38,626 raw -> 34,933 chunks
+rulings.jsonl        downloaded 2026-08-12T08:23Z
+newest released_at   2026-11-13 (Star Trek, spoiled ahead of release)
+```
+
+Those dates are local mtimes, not the upstream timestamp, and the upstream value
+is unrecoverable — Scryfall rebuilds bulk data daily and serves only the current
+file. `CARD_PIN` now carries them, marked for what they are, with
+`oracle_bulk_updated_at: None` to be filled on the next deliberate re-pin.
+
+`oracle_cards` remains the right bulk type: one row per distinct game object.
+`default_cards` is one row per printing and `all_cards` one per printing per
+language, both repeating identical Oracle text across reprints.
+
+### 21.111 Six ways to put two spells on one card, and they do not agree
+
+Prompted by the user: *"there are more than a few different types of two spells
+on one card."* Correct, and the audit found the shape of the problem.
+
+885 cards in the corpus carry a `//` name, across six layouts, and 21.104's face
+index treats them identically. For LOOKUP that is right — every one of those is
+a real printed name. For a CAST action it is not:
+
+| layout | n | is the back face a play? |
+| --- | --- | --- |
+| `transform` | 401 | **no** — reached by transforming |
+| `adventure` | 170 | yes |
+| `split` | 137 | yes |
+| `modal_dfc` | 100 | yes — often a land, so played rather than cast |
+| `prepare` | 55 | yes — cast as a copy while prepared |
+| `flip` | 22 | **no** |
+
+**529 back-face names are things you can never play**, and nothing distinguished
+them from the 356 you can.
+
+#### `mana_cost` looks like the discriminator and is not
+
+`'{2}{B} // {B}'` for adventure, **`None`** for both `modal_dfc` and
+`transform`. Per-face costs live in `card_faces[]`, which `chunk_cards.py`
+flattens away — so the field that would settle it is the field we dropped. The
+joined `type_line` survives, which is what makes the fallback below possible at
+all.
+
+#### The layout list is open, which is the real constraint
+
+`prepare` is from Secrets of Strixhaven, two sets ago, and is already 55 cards —
+newer than the assistant's knowledge, and it would have been silently
+mishandled. A hardcoded layout table goes stale within a set or two, so
+`back_face_is_a_play` falls back to the TYPE SHAPE when the layout is unknown:
+a creature front with an instant/sorcery back is playable across 210 cards with
+no `transform` or `flip` among them.
+
+Two corrections to that, both from the user:
+
+- **The shape identifies the VERDICT, not the layout.** `Creature -> Sorcery` is
+  `adventure` (82), `prepare` (45) *and* `modal_dfc` (7). All three agree the
+  back is playable, which is why the rule holds — not because the shape is
+  diagnostic.
+- **A creature can have a LAND on the back**, and that shape is conflicted:
+  `modal_dfc` 13 against `transform` 6. Deliberately left undecided. A creature
+  that transforms into a land and a creature you may play as a land are the same
+  two type lines.
+
+Measured overall: **shape settles the verdict for 56% of multi-face cards** and
+cannot for the other 44%, the largest conflicted class being
+`Creature -> Creature` at 223 (`transform` 191, `modal_dfc` 17, `flip` 15).
+`None` is returned there, because guessing either way is wrong somewhere.
+
+#### Latent, not live — and pointed straight at us
+
+Zero of these names appear in the 32 stored positions or in the recorded
+candidates. But the user's own Hobbit decks contain seven, recordings use modern
+cards, and `Everywhere` already cost 35 of 52 exported boards (21.106). This is
+the same class: a modern card whose shape our corpus flattened.

@@ -53,6 +53,82 @@ def names_a_card(how: str) -> bool:
     return how in CERTAIN_MATCHES
 
 
+# Whether the SECOND printed name on a multi-face card is itself a legal play.
+# Measured over the pinned corpus: 885 cards carry a `//` name across six
+# layouts, and they do not behave alike (Section 21.111).
+#
+#   split      137  either half is cast from hand
+#   adventure  170  the creature or its Adventure
+#   prepare     55  the spell half is cast as a copy while the creature is
+#                   prepared — Secrets of Strixhaven, two sets old
+#   modal_dfc  100  you choose a face when playing it; the back is often a LAND,
+#                   so it is played rather than cast, but it is still a play
+#   transform  401  the back is reached by transforming and is never played
+#   flip        22  Role tokens here; the back is never played
+#
+# `mana_cost` looks like it should decide this and does not: it is `'{2}{B} // {B}'`
+# for adventure and **None** for both modal_dfc and transform, because per-face
+# costs live in `card_faces[]` — which `chunk_cards.py` flattens away. So the
+# answer has to come from the layout.
+#
+# OPEN ON PURPOSE. `prepare` did not exist when this project started and is
+# already 55 cards; a seventh layout will arrive. An unknown `//` layout returns
+# None — "cannot decide" — rather than defaulting, because both defaults are
+# wrong somewhere: treating a transform back as playable invents a legal play,
+# and treating a modal_dfc back as unplayable removes a real one.
+BACK_FACE_IS_A_PLAY = {
+    "split": True, "adventure": True, "prepare": True, "modal_dfc": True,
+    "transform": False, "flip": False,
+}
+
+
+def back_face_is_a_play(card: dict) -> bool | None:
+    """Can the second printed name be played, or only reached in play?
+
+    Layout first, then a TYPE-SHAPE fallback for a layout this table has never
+    seen — `prepare` is two sets old and already 55 cards, so the table WILL go
+    stale.
+
+    The fallback rule: a creature front with an instant or sorcery back means
+    the back is playable. Measured over 886 multi-face game cards, that shape is
+    `adventure` (147), `prepare` (55) and `modal_dfc` (8) — 210 cards, no
+    `transform`, no `flip`.
+
+    Note what that does and does not say. The shape does **not** identify the
+    layout; three layouts share it. It settles the VERDICT, because all three
+    agree the back is playable. Shape settles the verdict for **56%** of
+    multi-face cards and cannot for the rest — the largest conflicted shape is
+    `Creature -> Creature` at 223 cards (`transform` 191, `modal_dfc` 17,
+    `flip` 15), where the same two type lines mean "you transform into it" and
+    "you may play it" depending only on the layout.
+
+    `Creature -> Land` is conflicted too (`modal_dfc` 13, `transform` 6) and is
+    deliberately NOT decided here: a creature that transforms into a land and a
+    creature you may instead play as a land are the same shape, and guessing
+    would invent six legal plays.
+
+    None means neither could decide, and the caller must not guess. Same
+    discipline as `protocol_findings` returning None for an undecidable entry:
+    a check that cannot run must not be reported as an answer.
+    """
+    name = card.get("name") or ""
+    if " // " not in name:
+        return None
+    known = BACK_FACE_IS_A_PLAY.get(card.get("layout"))
+    if known is not None:
+        return known
+    # `chunk_cards` flattens `card_faces` away but joins `type_line` with the
+    # same ` // `, so the per-face types survive even though the per-face costs
+    # do not.
+    parts = (card.get("type_line") or "").split(" // ")
+    if len(parts) != 2:
+        return None
+    front, back = parts
+    if "Creature" in front and ("Instant" in back or "Sorcery" in back):
+        return True
+    return None
+
+
 def normalize(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
