@@ -9471,3 +9471,61 @@ Measured across **2,312 stored answers**: the new check reclassifies **20
 (0.87%)**. A further 48 differ from their stored value for an unrelated reason —
 they predate 21.58 — and separating the two mattered, because the first
 measurement showed 68 flips and reported them all as this fix's doing.
+
+### 21.108 The priority flow is 10x our notation, and 80% of it carries nothing
+
+The user's observation on reading the recorded game: XMage models priority as
+real clicks — cast a spell, take priority back to respond to your own spell,
+pass, opponent passes, it resolves — for **both** players, while our grammar has
+one player in it (21.89) and one `PASS` standing for the whole thing (16.13).
+The concern was bloat: a notation that under-models the real protocol on our
+side and does not model the opponent's at all.
+
+Measured against the first real recording (n=**1 game**, so directional):
+
+| | count |
+| --- | --- |
+| priority prompts to ONE player (`GAME_SELECT`) | **186** |
+| plays in the whole game, BOTH players | **37** |
+| priority windows declined | **≥ 80%** |
+| our reference lines (21.93) | ~3 protocol actions per play |
+| the engine | ~10 priority windows per play |
+
+#### The simplification is right, and this is the argument for it
+
+Four fifths of the priority windows in a real game are declined. They are not
+compressible detail that we happen to be dropping — they carry no information at
+all. Representing them would multiply every reference line by ten with content
+that is almost always *"nothing happened"*, and 21.61 already measured what
+happens when the prompt demands more protocol output: the same correct answer
+starts failing the checks that consume it.
+
+#### But it flips 21.92's caution
+
+21.92 reads a `PASS` as an opponent window and warns that **a play after one
+asserts the opponent did not act** — treated as a risky claim that belongs in a
+scenario. At an 80% decline rate that assertion is usually *true*. The rule
+still holds for the cases that matter (a held removal spell, an untapped blue
+opponent), but the default is safer than it was written as. Worth re-measuring
+across several games before changing the guidance.
+
+#### Per-step snapshotting absorbs the click noise, and that is the design
+
+The collector snapshots on a **(turn, step, active player)** change, not per
+priority window. Consequence, measured: 66 snapshots over 15 turns — 4.4 per
+turn against the engine's 12.4 prompts per turn *per player* — and **0 duplicate
+board states among the 66**.
+
+That is what makes the user's other point harmless. Real games contain
+misplays, cancelled casts and re-taken priority; none of them change the board,
+so none of them produce a snapshot. The click-level record is where the noise
+lives, and we deliberately do not read it.
+
+#### The real gap is the opposite of bloat
+
+Not that our notation says too little about our own passes — it is that it
+cannot say anything about the **opponent's** action (21.89). When a recorded
+board arises *because* the opponent responded, that fact belongs in the board of
+the next step, which is exactly what a scenario is for (21.71). Recording from
+real games makes those boards available for the first time; the grammar does not
+need a new verb to use them.
