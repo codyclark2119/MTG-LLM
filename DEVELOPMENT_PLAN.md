@@ -9079,3 +9079,70 @@ The two are the mulligan boards, which correctly have no step: XMage has no
 `PhaseStep` for the opening hand because the CR does not either. The engine diff
 is byte-identical before and after — **30 of 32** — so the migration changed the
 vocabulary and not a single measurement.
+
+### 21.103 Recording real games: XMage's own hook, and why the AI path is not it
+
+21.98 says every board in the set is machine-drafted, and 21.101 established the
+boards are mechanically sound far more often than feared — 30 of 32. That
+settles legality and leaves the actual objection: *a generated board has no
+reason to be a board anyone would ever face.*
+
+Boards from a played game do. Built this session:
+
+- **`MagicLlmPositionDataCollector`** (in the XMage checkout) — one board
+  snapshot per step, JSONL. It is XMage's **own** documented extension point
+  (`mage.collectors.DataCollector`: *"create new class and extends
+  EmptyDataCollector … modify DataCollectorServices.init"*), so it needs no fork
+  and costs nothing unless `-Dxmage.dataCollectors.magicllmPositions=true` is
+  passed. The whole change to the checkout is one file plus one `add()` line.
+- **`scripts/gameplay/import_game.py`** — snapshots to position DRAFTS.
+
+#### It records the board and nothing else, on purpose
+
+The collector could compute `legal_actions` — the engine is right there, and it
+is the field most likely to be wrong. It does not, because `xmage_export.py` +
+`xmage_diff.py` already ask that question and are validated at 30 of 32. Two
+implementations of one field is how two copies drift, which this repo has
+already paid for five times (`carry_diagnostics`, `coverage_lines`,
+`turns.load_steps`, and twice more).
+
+Drafts also carry no `key_points`, no `common_errors`, and no `category`. A
+generated rubric is *half* of what 21.98 is a caveat about, so filling them here
+would put the caveat straight back under a new name. An empty rubric is honest.
+
+#### The AI-vs-AI path does not work, and the reason is one line
+
+The plan was to validate at volume with AI-vs-AI games in the test framework —
+no server, no client, one maven command. It produced 24 valid snapshots and a
+game with nothing in it: **both hands empty for all 12 turns**, both players on
+20 life throughout, one Mountain per turn as the only permanent ever played.
+
+`GameImpl.init`:
+
+```java
+if (!gameOptions.testMode) { mulligan.drawHand(startingHandSize, player, this); }
+```
+
+The harness sets `testMode = true`, so **no opening hand is ever dealt**. That is
+correct for its purpose — every card test places an exact board — and fatal for
+this one. Not a fixable detail: it is the assumption the whole test API rests on.
+
+Worth recording as a near miss. The snapshots were structurally perfect —
+valid JSONL, turns advancing, permanents accumulating, life and library counts
+moving — and a filter that only checked *shape* would have passed all 24. The
+`--interesting` shortlist rejected **0 of 24**, which is the honest answer, and
+the thing that made the emptiness visible was reading a rendered board rather
+than a count.
+
+So the recorder test keeps its place as a smoke test for the collector and is
+labelled as one. Real games come from the server path, where `testMode` is
+false. The collector is unchanged between them: it hangs off `GameImpl`'s own
+log hook, which both paths call.
+
+#### Deck choice is the sampling frame
+
+The recording contains whatever the decks contain, so **the decks decide what
+categories of position exist**. No constraint comes from this side: the card
+index holds 34,881 Oracle cards and every modern card tested resolves `exact`,
+so any real deck works. That is the point the user made about virtual clients
+generally — no collection to buy, unlike Arena.
