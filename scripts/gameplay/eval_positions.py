@@ -243,6 +243,17 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
                  f"{'PASS' if p3b else 'FAIL'} | "
                  f"{'**REVERSES**' if p3a != p3b else 'agree'} |")
 
+    # The same headroom line the single-judge report prints. Both writers, because
+    # a hardening landing on one of two report paths is this project's most
+    # repeated bug (21.53, 21.54, 21.74, 21.105) and the direction flips each
+    # time. Computed per judge: a board can be pinned under one and not the other,
+    # and that difference is itself a statement about the judges.
+    for label, rows_j in (("judge A", rows_a), ("judge B", rows_b)):
+        mv, pin, n_g3 = gate3_headroom(rows_j, arms)
+        if pin:
+            lines.append(f"\n> **{label}: {pin} of {n_g3} boards cannot move Gate 3** — "
+                         f"every arm agrees on them, leaving n={mv} doing the work.")
+
     # Agreeing is not the same as being stable. Gate 3 currently agrees only
     # because both judges land far from the threshold; the SWING between them
     # is what says whether the verdict would survive a better model. Measured on
@@ -810,6 +821,40 @@ def unearned_action_points(answer: str, key_points: list[str],
     return sorted(set(out))
 
 
+def gate3_headroom(results, arm_names) -> tuple[int, int, int]:
+    """(boards that can move Gate 3, boards pinned at the ceiling, total).
+
+    A board every arm blunders on cannot lower the best arm's rate, and one no
+    arm blunders on cannot raise it. Either way the gate is being averaged over
+    boards that could not have changed it, and the reported rate says nothing
+    about how many of those there were — the same defect as an agreement figure
+    printed without its coverage (21.105).
+
+    Measured on the n=32 run: **14 of 34 boards are pinned, and every one of
+    them is pinned at 5/5 blundered rather than 0/5**, so the effective n for
+    Gate 3 is 20 (Section 21.109). That is a stronger argument for sourcing new
+    positions than provenance is: a generated board can still discriminate, and
+    a saturated one cannot whatever its origin.
+
+    Named `headroom` rather than `balance` because the asymmetry is the point.
+    Two pinned boards are not equivalent: all-clean means the set is too easy
+    and all-blundered means it is too hard, and the fix differs.
+    """
+    easy = [r for r in results if r.get("difficulty") in ("basic", "intermediate")]
+    movable = pinned = 0
+    for r in easy:
+        vals = [(r["arms"].get(a) or {}).get("blundered") for a in arm_names]
+        vals = [v for v in vals if v is not None]
+        if not vals:
+            continue
+        yes = sum(bool(v) for v in vals)
+        if yes in (0, len(vals)):
+            pinned += 1
+        else:
+            movable += 1
+    return movable, pinned, movable + pinned
+
+
 def gate3_blunder(results, arm_names) -> tuple[str | None, float]:
     """(best arm, its blunder rate) over basic+intermediate positions.
 
@@ -1319,11 +1364,23 @@ def _write_report(results, positions, arm_names, closed_arms, args,
     easy = [r for r in results if r["difficulty"] in ("basic", "intermediate")]
     best_arm, best_rate = gate3_blunder(results, arm_names)
     g3 = best_arm is not None and best_rate <= GATE3_MAX_BLUNDER
+    movable, pinned, n_g3 = gate3_headroom(results, arm_names)
     lines.append(f"\n**Gate 3 — blunder rate ≤{GATE3_MAX_BLUNDER:.0%} on basic+intermediate: "
                  f"{'PASS' if g3 else 'FAIL'}.** Best arm `{best_arm}` at {best_rate:.0%} "
                  f"over {len(easy)} positions."
                  + (" Seed fixtures cannot settle this gate — it needs judge-authored positions."
                     if seeded else ""))
+    # HEADROOM, printed with the gate and never after the caveats. A board every
+    # arm blunders on cannot lower the rate and one no arm blunders on cannot
+    # raise it, so the denominator overstates what the gate was measured on —
+    # the same defect as an agreement figure with no coverage (21.105, 21.109).
+    if pinned:
+        lines.append(
+            f"\n> **{pinned} of {n_g3} boards cannot move this gate** — every arm "
+            f"agrees on them, so only **{movable}** are doing work. Read the rate "
+            f"against n={movable}, not n={n_g3}. A board pinned at all-blundered "
+            "says the set is too hard for these arms; one pinned at all-clean says "
+            "it is too easy. Neither is fixed by adjudicating it again.")
 
     # Gate 3 is one number over basic+intermediate, and that number hides which
     # band it came from: a set weighted toward `basic` can pass on positions too

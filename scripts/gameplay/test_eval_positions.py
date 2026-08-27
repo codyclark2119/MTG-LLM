@@ -387,9 +387,50 @@ def test_parser_arbitration() -> int:
     return failed
 
 
+def test_gate3_headroom() -> int:
+    """A board every arm agrees on cannot move Gate 3 (Section 21.109).
+
+    The gate reports a rate over every basic+intermediate board, including the
+    ones that could not have changed it in either direction. Measured on the
+    n=32 run: 12 of 28 pinned, so the rate is over n=28 while n=16 does the
+    work.
+
+    Both directions are tested because they mean opposite things and the fix
+    differs: all-blundered says the set is too hard for these arms, all-clean
+    says it is too easy.
+    """
+    from eval_positions import gate3_headroom
+    failed = 0
+    arms = ["a", "b", "c"]
+
+    def board(rid, blunders, difficulty="basic"):
+        return {"id": rid, "difficulty": difficulty,
+                "arms": {a: {"blundered": b} for a, b in zip(arms, blunders)}}
+
+    rows = [
+        board("split", [True, False, False]),      # movable
+        board("all-bad", [True, True, True]),      # pinned at the ceiling
+        board("all-good", [False, False, False]),  # pinned at the floor
+        board("hard", [True, False, True], "advanced"),   # excluded by difficulty
+    ]
+    movable, pinned, total = gate3_headroom(rows, arms)
+    failed += not check("a split board is movable", movable, 1)
+    failed += not check("both kinds of pinned board count", pinned, 2)
+    failed += not check("advanced boards are outside the gate", total, 3)
+
+    # A board no arm was graded on is neither movable nor pinned — it is not
+    # measured, and counting it either way would invent a denominator.
+    ungraded = [{"id": "x", "difficulty": "basic",
+                 "arms": {a: {"blundered": None} for a in arms}}]
+    failed += not check("an ungraded board counts as neither",
+                        gate3_headroom(ungraded, arms), (0, 0, 0))
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("gate2_discrimination", test_gate2),
+                     ("gate3_headroom", test_gate3_headroom),
                      ("gate3_blunder", test_gate3),
                      ("coverage guard", test_coverage_guard),
                      ("gate2 vs stored runs", test_gate2_against_stored_runs),

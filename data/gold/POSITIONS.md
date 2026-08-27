@@ -317,3 +317,65 @@ They are **not** gate evidence. Section 14.6 measured hand-authored rubrics
 lifting inter-judge agreement from r = +0.30 to +0.62, and there is no reason
 positions are exempt. Regenerate them with
 `python scripts/gameplay/make_seed_positions.py`.
+
+## Choosing decks for a recording session
+
+Positions sourced from played games (Section 21.103) inherit whatever the decks
+could do. **The deck is the sampling frame**, so it decides which categories are
+even possible — and, more sharply, how many boards present a decision at all.
+
+### The objective is decision density, not deck quality
+
+A good deck wins. A good *recording* deck produces boards where two or more
+distinct plays are available, for as many turns as possible. Those are not the
+same thing, and the second is measurable: record a game, count the boards
+offering ≥2 distinct plays.
+
+Measured on the first recording (Section 21.108), the whole 15-turn game had a
+**three-turn window** — turns 9–11 — holding 14 of the 20 boards with a
+plausible choice. Turns 1–8 were mana-starved and turns 12–15 were hellbent.
+Widening that window is the entire game:
+
+| raises density | lowers density |
+| --- | --- |
+| instant-speed cards (playable in many windows) | sorcery-speed only |
+| cheap spells, castable in multiples | expensive bombs — one play a turn |
+| cards competing for the same mana | a curve that only ever allows one play |
+| card draw, refilling the hand | 40-card decks that run out by turn 12 |
+
+Welcome decks are 40 cards, 16 lands and deliberately low-interaction. They are
+fine for proving the pipeline and poor for density.
+
+### Category to card, via Scryfall Tagger
+
+`jslinker/TwentyQuestionsMagicTheGathering` maintains 57 curated Tagger tags in
+`config/semantic-questions.json`. Our card chunks carry `oracle_id`, so those
+tags join to the corpus directly — no name matching. That makes "build a deck
+that produces `removal timing` boards" a query rather than a matter of taste:
+
+| position category | Tagger tags to draft from |
+| --- | --- |
+| `removal timing` | `spot-removal`, `removal-creature`, `removal-destroy`, `removal-exile`, `counterspell`, `single-target-instant-sorcery`, `protection` |
+| `combat math` | `power-boost-to-all`, `power-matters`, `counters-matter`, `gives-trample`, `gives-flying`, `gives-first-strike` |
+| `blocking` | `gives-first-strike`, `gives-trample`, `damage-prevention`, `protection`, `tapper` |
+| `land sequencing` | `tapland`, `fetchland`, `rainbow-land`, `mana-filter`, `land-ramp` |
+| `trigger ordering` | `death-trigger`, `attack-trigger`, `repeatable-token-generator` |
+| `race vs stabilize` | `lifegain`, `burn-player`, `sweeper`, `damage-prevention` |
+| `payment` | `mana-rock`, `mana-filter`, `cost-reducer`, `life-payment`, `mana-value-matters`, `sacrifice-outlet` |
+| `closing the turn` | `burn-player`, `gives-haste`, `untapper`, `tapper` |
+| `mulligan` | no tag reaches it — a mulligan is about the opening hand, so it is a function of the CURVE, not of any card's text |
+
+The last row is the honest one: eight of nine categories map to tags and one does
+not, because the tags describe what a card *does* and a mulligan decision is
+about what a hand *is*.
+
+### Spread, not balance
+
+The 20-questions algorithm those tags come from picks each question by
+`max min(yes, no)` — the most even split — because it is identifying ONE card
+and wants to halve the candidates (Section 21.109). **Deckbuilding is the
+opposite problem.** A deck is not a search; it wants to *cover* a function space
+at chosen ratios. Balance is the right objective for identifying a card and the
+wrong one for assembling a deck, and reaching for it because the two problems
+share a data source would produce a deck of maximally-ambiguous cards rather
+than a deck that plays.
