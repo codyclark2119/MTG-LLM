@@ -9312,3 +9312,87 @@ it offers `CAST Shock TARGET you`, which is legal and which no one would do.
 `legal_actions` is a curated list — POSITIONS.md: *list only the plays that are
 genuinely available* — so the engine's answer is raw material, and the closed
 arm measures something different when handed thirty options.
+
+### 21.106 The first real game recorded, and two bugs the test game could not find
+
+A human-vs-AI game on the modified server: **66 snapshots, turns 1–15, zero
+errors**, life from 20 down to −3, hands populated on 65 of 66 boards, up to 24
+permanents. A mid-game board renders correctly through `render_position`. The
+pipeline works end to end.
+
+It took two fixes, and the interesting thing about both is that the AI-vs-AI
+test game (21.103) could not have found either.
+
+#### One: `getCards(null)` — hidden by the empty-hand defect
+
+The first real game wrote **nothing**, and the server log said why on every
+step:
+
+```
+magic-llm positions: snapshot failed - NullPointerException:
+Cannot invoke "mage.game.Game.getPermanent(UUID)" because "game" is null
+```
+
+`player.getHand().getCards(null)` — written assuming the argument was a filter.
+It is the **game**: the one-arg form is `getCards(Game)` and the filter form is
+`getCards(FilterCard, Game)`. `getPermanentOrCard(cardId, game)` then
+dereferenced the null on the first card any player held.
+
+The test game wrote 24 clean snapshots against this exact code, because
+`testMode` deals no opening hand — so both hands were empty for twelve turns,
+`stream()` mapped nothing, and the null was never touched. **The defect that
+made the test game useless is precisely what hid this one.** 21.5's family: a
+harness bug whose trigger rate depends on the condition under test.
+
+The error handling did its job — caught, logged, game undisturbed — which is the
+only reason this was diagnosable from one log line instead of a repro.
+
+#### Two: a token is not a card
+
+With the NPE fixed, 3 of 16 card names in the recording did not resolve:
+`Treasure Token`, `Hero Token`, and **`Everywhere`** — the land token *Overlord
+of the Hauntwoods* creates. `validate_position` rejects a name that does not
+resolve against Oracle, and an Oracle dump contains no tokens, so **every board
+a modern game produces would have been refused.**
+
+`Everywhere` is why the flag comes from the engine's own `Permanent.isToken()`
+rather than from the string: nothing in that name says "token", and a
+name-based heuristic would have passed it straight into the Oracle check.
+
+Tokens are still recorded, still rendered, still on the board — they just are
+not looked up. `position_card_names` skips a permanent marked `token`, and a
+permanent with **no** flag is still checked, since absent means "a card" rather
+than "unknown".
+
+#### The client's own log is not a substitute
+
+Worth recording, because it looks like one. The XMage client saves every match
+to `gamelogsJson/game-<uuid>.json` — 2.5 MB for a single game. It is a **UI
+message trace**: 1,025 messages, mostly `GAME_UPDATE` / `GAME_SELECT` /
+`SEND_PLAYER_BOOLEAN`, whose `gameView` carries only `combat`, `players`,
+`priorityTime`, `stack`.
+
+**No phase, no step, no turn number, no hand, no library count** — four fields a
+position needs, and phase is the one that makes a board a decision point at all.
+It records what the UI had to draw, not what the board was.
+
+`gamelogs/*.html` is a readable play-by-play and is genuinely useful for
+reviewing a game before picking boards from it. XMage's own `saveGameHistory`
+collector is now enabled alongside ours for the same reason: an independent
+account of the same game, to check a suspicious snapshot against.
+
+#### Setup notes that cost real time
+
+- **XMage 1.4.61 targets Java 8 and JBoss Remoting reflects into `java.io`.**
+  On JDK 17+ the login dies with `InaccessibleObjectException`, and the failure
+  is invisible from the server side — nothing reaches it, so its log stays
+  empty and the problem reads as "the server isn't listening". Both launchers
+  pass `--add-opens` now. The distribution's own `installed.properties` still
+  sets `-XX:MaxPermSize`, a flag **removed in Java 8**, which is the clearest
+  statement that it expects an ancient JRE.
+- **A stock install cannot be patched with this collector.** Compiling against
+  the installed jars showed the `DataCollector` interface had drifted
+  (`onTestsStackResolve(Game)` vs `onTestsStackResolveStart/End`) in the 13 days
+  between builds. A `git log --since` check said "unchanged" and meant nothing —
+  the clone is shallow, depth 1. Compiling against the actual artifact is what
+  settled it; reading history could not.

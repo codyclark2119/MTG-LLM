@@ -67,10 +67,19 @@ def position_card_names(pos: dict) -> list[str]:
 
     Stack entries are free text ("Lightning Strike (targeting Bears)") so only
     the leading name is taken; everything else is a plain name field.
+
+    A permanent marked `token` is EXCLUDED, because a token is not a card and an
+    Oracle dump does not contain one. It is still on the board and still
+    rendered — the answer may well depend on it — it just cannot be looked up.
+    The alternative, checking tokens against Oracle, rejects every board a
+    modern game produces: the first real recording made "Treasure Token",
+    "Hero Token", and "Everywhere", the land token Overlord of the Hauntwoods
+    creates. That third one is why the flag comes from the engine's `isToken()`
+    rather than from the word "Token" appearing in a name (Section 21.106).
     """
     names: list[str] = []
     for p in pos.get("battlefield") or []:
-        if p.get("card"):
+        if p.get("card") and not p.get("token"):
             names.append(p["card"])
         names.extend(p.get("attachments") or [])
     names.extend(pos["players"]["you"].get("hand") or [])

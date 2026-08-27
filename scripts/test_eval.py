@@ -2220,6 +2220,46 @@ def test_engine_legal_actions() -> int:
     return failed
 
 
+def test_token_permanents() -> int:
+    """A token is on the board and is not a card (Section 21.106).
+
+    `validate_position` rejects a name that does not resolve against Oracle, and
+    an Oracle dump has no tokens in it. The first real recorded game produced
+    three, so without this every board a modern game makes is refused.
+
+    The `Everywhere` case is why the flag has to come from the engine: it is the
+    land token Overlord of the Hauntwoods creates, and nothing in the string
+    says "token".
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent / "gameplay"))
+    from positions import position_card_names
+
+    failed = 0
+    pos = {"players": {"you": {"hand": ["Shock"]}, "opp": {}},
+           "battlefield": [
+               {"card": "Everywhere", "controller": "opp", "token": True},
+               {"card": "Treasure Token", "controller": "you", "token": True},
+               {"card": "Starfield Vocalist", "controller": "you"}]}
+    names = position_card_names(pos)
+    failed += not check("a token is not checked against Oracle",
+                        "Everywhere" in names, False)
+    failed += not check("...even when the name does not say 'token'",
+                        "Treasure Token" in names, False)
+    failed += not check("a real permanent still is", "Starfield Vocalist" in names, True)
+    failed += not check("and so is a card in hand", "Shock" in names, True)
+
+    # An unflagged permanent must still be checked: absent `token` means "a
+    # card", not "unknown". Getting this backwards would silently stop
+    # validating every board authored before the flag existed.
+    plain = {"players": {"you": {}, "opp": {}},
+             "battlefield": [{"card": "Grizzly Bears", "controller": "you"}]}
+    failed += not check("no token flag means it IS a card",
+                        position_card_names(plain), ["Grizzly Bears"])
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("rubric_correctness", test_rubric_correctness),
@@ -2251,7 +2291,8 @@ def main() -> None:
                      ("closed_no_play_position", test_closed_no_play_position),
                      ("behaviour_opening", test_behaviour_opening),
                      ("card_face_names", test_card_face_names),
-                     ("engine_legal_actions", test_engine_legal_actions)):
+                     ("engine_legal_actions", test_engine_legal_actions),
+                     ("token_permanents", test_token_permanents)):
         print(f"{name} ...")
         failed += fn()
 

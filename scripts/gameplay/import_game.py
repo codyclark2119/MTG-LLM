@@ -113,6 +113,15 @@ def to_position(snap: dict, sides: dict[str, str], index: int) -> dict:
         if side is None:
             continue
         entry: dict = {"controller": side, "card": perm.get("card")}
+        # A token is carried through as a permanent and marked, because it IS on
+        # the board and the answer may depend on it — but it is not a card, and
+        # `validate_position` checks every name against Oracle. The first real
+        # recording produced "Treasure Token", "Hero Token" and "Everywhere";
+        # the third is the land token Overlord of the Hauntwoods creates, which
+        # is why detecting tokens by the word "Token" in the name does not work
+        # and the engine's own `isToken()` is recorded instead (Section 21.106).
+        if perm.get("token"):
+            entry["token"] = True
         if perm.get("tapped"):
             entry["tapped"] = True
         if perm.get("attacking"):
