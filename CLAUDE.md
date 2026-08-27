@@ -159,17 +159,40 @@ a constant, and a constant is the signature of a harness bug. Whether a board
 impossible vs long-winded look identical in a diff.
 
 **A rules engine validates `legal_actions` both ways** (`gameplay/xmage_export.py`,
-`xmage_diff.py`, 21.100–21.101). 32 generated JUnit tests against a `magefree/mage`
-checkout; **30 of 32 agree**. Ask each question where it has an answer:
-`getPlayable` at the stated step, `getAvailableAttackers` at `DECLARE_ATTACKERS`
-in a second `@Test` — declaring an attack is a turn-based action, so it can
-never appear in `getPlayable` at any step. Clear the default `"RB Aggro.dck"`
-hand and library first, and `setStopAt(1, …)` always: it *simulates* turns
-rather than jumping, so the position's own `turn` number plays that many.
+`xmage_diff.py`, 21.100–21.105). 32 generated JUnit tests against a `magefree/mage`
+checkout. **Read the coverage, not the agreement: 24 of 32 are COMPARED and 22
+of those agree.** "30 of 32 agree" counted eight boards the diff never looked at
+— five blocks-only, two mulligans, one with no list — because `claimed()` files
+blocks under BLOCKER and blocks are not compared. 21.49's shape, in the newest
+instrument.
 
-The two survivors are real and have teeth: `pos-trigger-ordering-000{1,2}` omit
-a castable Doom Blade, so entry 3 scores a **correct** play as illegal — on the
-entry the judge grades best (80–85%).
+Ask each question where it has an answer: `getPlayable` at the stated step,
+`getAvailableAttackers` at `DECLARE_ATTACKERS` in a second `@Test` — declaring
+an attack is a turn-based action, so it can never appear in `getPlayable` at any
+step. Targets come from `Target.possibleTargets`, because `match_to_legal` has
+no untargeted-CAST fallback and an untargeted entry would score every correct
+targeted cast illegal (21.61's shape, fourth time).
+
+Setup traps, all three real: clear the default `"RB Aggro.dck"` hand and library
+first; `setStopAt` *simulates* turns rather than jumping, so the number is only
+**whose turn it is** (playerA starts, so an `active_player: opp` board needs
+turn 2); and **`attacking` must be declared, not placed** — the export grouped
+permanents by `(card, tapped)` and silently dropped combat state on 9 of 32
+boards, which the diff structurally could not notice.
+
+Three real defects found: `pos-trigger-ordering-000{1,2}` omit a castable Doom
+Blade, so entry 3 scores a **correct** play as illegal on the entry the judge
+grades best (80–85%); and `sample-stage3-payment-0004` has *your* creature
+attacking on the *opponent's* turn (508.1).
+
+**The emitter refuses where it is blind** (`emitter_blind_spot`). It cannot
+produce blocks, `ORDER TRIGGERS` or a mulligan, and there the engine's answer is
+**empty, not incomplete** — an empty `legal_actions` makes the closed prompt say
+*"no legal plays are available; PASS is the only response"*, which is false and
+scores every correct block illegal. `emit_legal_actions` also refuses a board
+that already has a list, so a raw engine dump can never overwrite a curated one:
+`legal_actions` is curated, and the closed arm measures something different when
+handed thirty options.
 
 **The gameplay prompt has its own fingerprint.** `prompt_fingerprint` covers the
 rules track only, so until Section 21.60 an edit to `GAMEPLAY_SYSTEM_PROMPT` —
