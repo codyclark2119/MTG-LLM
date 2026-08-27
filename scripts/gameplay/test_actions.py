@@ -252,6 +252,26 @@ def test_end_phase_and_attack_direction() -> int:
     failed += not check("narration is not an END PHASE",
                         parse_line("END PHASE two of my plan"), None)
 
+    # An INTERLEAVED loop. `max_play_repeat` compares each action to the one
+    # before it, so a loop that cycles through a pattern is invisible to it: a
+    # stored answer ran 755 actions with `CAST Shock` 107 times and scored
+    # consecutive-repeat 3 (Section 21.107). A decode loop cycles.
+    looped = parse_output("\n".join(
+        ["PHASE precombat main step", "CAST Shock", "PASS"] * 6))
+    failed += not check("an interleaved loop is degenerate", looped.degenerate, True)
+    failed += not check("...which adjacent counting alone misses",
+                        looped.max_play_repeat >= 5, False)
+    failed += not check("...and total counting catches",
+                        looped.max_play_total >= 5, True)
+    # PASS is the mandated terminator, so repeating it is not a loop. A correct
+    # multi-play turn emits one after every play; counting them would flag good
+    # answers as degenerate.
+    honest = parse_output("\n".join(
+        ["PHASE precombat main step", "PLAY Forest", "PASS", "CAST Shock", "PASS",
+         "END PHASE precombat main step", "PHASE declare attackers step",
+         "ATTACK Bear -> Opponent", "PASS"]))
+    failed += not check("many PASSes are not a loop", honest.degenerate, False)
+
     a = parse_line("ATTACK Bear, Elk -> Opponent")
     failed += not check("attackers split on the comma", a.args, ("Bear", "Elk"))
     failed += not check("the defender is separate", a.target, "Opponent")

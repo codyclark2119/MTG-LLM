@@ -39,6 +39,7 @@ means a parse failure always means "malformed", never "unknown card".
 
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -170,8 +171,34 @@ class ParsedOutput:
         The split the comment above ONCE_PER_TURN describes goes one level
         further, then: `repeats_collapsed` is about the action LIST, and this is
         about the OUTPUT. A loop is a loop whichever verb it loops on.
+
+        THREE counts, because the first two only see ADJACENT repetition.
+        `max_play_repeat` compares each action to the one before it, so it is
+        blind to a loop that cycles — and a decode loop cycles through a
+        PATTERN, not a single line. Measured: one stored answer ran to 755
+        actions with `CAST Shock` **107 times** and 217 `PASS`es, interleaved as
+        `PHASE / PASS / CAST Shock / PASS`, and scored `max_play_repeat = 3` and
+        `degenerate = False` (Section 21.107). `PLAY Plains` x133, the case that
+        motivated 21.58, happened to be consecutive, and the fix generalised
+        from that one shape.
         """
-        return self.repeats_collapsed >= 5 or self.max_play_repeat >= 5
+        return (self.repeats_collapsed >= 5 or self.max_play_repeat >= 5
+                or self.max_play_total >= 5)
+
+    @property
+    def max_play_total(self) -> int:
+        """How often the single most-repeated play appears ANYWHERE in the output.
+
+        `PASS` is excluded and everything else is not. PASS is the protocol
+        terminator — the prompt mandates one after each play — so a long, correct
+        turn repeats it legitimately and counting it would flag good answers.
+        Nothing else has that excuse: five identical casts in one turn is a loop,
+        not a line, and the threshold matches the adjacent one so the two
+        cannot drift apart.
+        """
+        counts = Counter(a.key() for a in self.plays
+                         if a.key().casefold() != "pass")
+        return max(counts.values(), default=0)
 
     @property
     def only_pass(self) -> bool:

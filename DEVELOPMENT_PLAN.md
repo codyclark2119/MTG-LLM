@@ -9396,3 +9396,78 @@ account of the same game, to check a suspicious snapshot against.
   between builds. A `git log --since` check said "unchanged" and meant nothing —
   the clone is shallow, depth 1. Compiling against the actual artifact is what
   settled it; reading history could not.
+
+### 21.107 What the generated set is actually worth, and a loop the detector could not see
+
+An audit of the 32 positions against everything now available — five stored
+arms, the rules engine, and 84 human verdicts — to answer whether the set is
+worth repairing or replacing (21.98).
+
+#### It is in better shape than "every board is generated" suggests
+
+**28 of 34 boards discriminate** (82%): the arms differ on correctness, on the
+blunder call, or both. Ranking each board by discrimination, human verdicts
+collected, and whether it carries an authored reference line:
+
+| | boards |
+| --- | --- |
+| strong — discriminates AND carries human investment | **16** |
+| usable — one of the two | **13** |
+| weak — neither, or engine-defective | **3** |
+
+The three weak ones are named, not estimated: `pos-trigger-ordering-0001` and
+`sample-stage3-payment-0004` are the engine defects from 21.101/21.105, and
+`pos-blocking-0005` discriminates on nothing with one verdict against it.
+
+So the answer to *fix or replace* is neither: **29 of 32 boards are carrying
+evidential weight**, and 84 human verdicts are attached to 23 of them. Replacing
+the set wholesale discards that. 21.98's caveat still stands on every number
+they produce — generated board, generated rubric — but "generated" turned out
+not to mean "worthless".
+
+#### Where the human time went is not where it paid
+
+`pos-race-vs-stabilize-0001` has **7 verdicts and does not discriminate**; so
+does `pos-combat-math-0004` with 4. Meanwhile every `sample-stage3-payment-*`
+board has **zero** verdicts, and four of them discriminate. Adjudication has
+been going to the boards that were queued, not the boards that separate arms —
+which is worth fixing in `build_queue` before the next batch.
+
+#### 32% of "illegal" was one runaway answer
+
+Cross-checking every action the harness scored illegal against the engine's own
+answer: **393 illegal actions, of which the engine says 126 (32%) were legal.**
+
+That number is a lie of aggregation. **107 of the 126 come from a single arm on
+a single board** — `base_open` on `pos-combat-math-0005` emitted 755 actions
+with `CAST Shock` repeated 107 times. Excluding it, the data-defect share is
+**19 of 286 (6.6%)**, spread over 11 boards, and those 19 are real: the Doom
+Blade cases and a handful of correct plays the enumeration omits.
+
+Fourth time a rate in this project has rested on one cell (21.78, 21.79, 21.81,
+21.82). The decomposition is not optional.
+
+#### And that answer was not flagged degenerate
+
+`degenerate` reads `repeats_collapsed >= 5 or max_play_repeat >= 5`, and
+`max_play_repeat` compares each action **to the one before it**. The runaway
+answer interleaved:
+
+```
+PHASE ... / PASS / CAST Shock / PASS / PHASE ... / PASS / CAST Shock ...
+```
+
+217 `PASS`es and 107 `CAST Shock`, never two identical plays adjacent, so
+`max_play_repeat = 3` and the answer scored **`degenerate = False`** at 755
+actions. `PLAY Plains` x133 — the case 21.58 fixed — happened to be
+consecutive, and the fix generalised from that one shape. **A decode loop cycles
+through a pattern; it does not usually stutter.**
+
+`max_play_total` counts the most-repeated play anywhere in the output, excluding
+`PASS` — the prompt mandates one after every play, so a correct multi-play turn
+repeats it legitimately and counting it would flag good answers.
+
+Measured across **2,312 stored answers**: the new check reclassifies **20
+(0.87%)**. A further 48 differ from their stored value for an unrelated reason —
+they predate 21.58 — and separating the two mattered, because the first
+measurement showed 68 flips and reported them all as this fix's doing.
