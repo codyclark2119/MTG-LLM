@@ -38,6 +38,7 @@ from pathlib import Path
 
 from common import CR_VERSION, GOLD_PATH, RULES_PATH, iter_jsonl, load_rule_ids
 from common import RULE_ID_RE as CROSS_REF_RE
+from card_lookup import names_a_card
 
 # Labels vary across sources ("Question" vs "Question:"), and pasted text
 # picks up smart quotes from wherever it was copied, so both are optional
@@ -226,7 +227,7 @@ def main() -> None:
                 warnings.append(f"card {name!r} did not resolve — left as written")
                 resolved_cards.append(name)
             else:
-                if how != "exact":
+                if not names_a_card(how):
                     warnings.append(f"card {name!r} resolved via {how} -> {card['name']!r}")
                 resolved_cards.append(card["name"])
 

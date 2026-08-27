@@ -2084,6 +2084,80 @@ def test_half_answer() -> int:
     return failed
 
 
+def test_card_face_names() -> int:
+    """A printed face of a double-faced card names that card (Section 21.104).
+
+    The gate this guards is `validate_position`, which REJECTS a name that does
+    not resolve certainly. Before this, every DFC failed: a board saying
+    `Gollum, Silent Slinker` was told to say `Gollum, Silent Slinker // Meager
+    Meal` instead — a string no game client, deck list or player ever writes.
+
+    Asserted without loading the 35k-card corpus, because the logic under test
+    is the index construction and the resolution ORDER, not the data. The three
+    cases are the three that matter and each was measured against the real
+    corpus: an ordinary face, a face that collides with a real single-faced
+    card (25 of them, e.g. Brainstorm), and a face two cards claim (2 of them).
+    """
+    from card_lookup import CardIndex, names_a_card
+    from card_lookup import normalize as normalize_name
+
+    failed = 0
+    index = CardIndex.__new__(CardIndex)          # skip __init__'s corpus read
+    rows = [
+        {"name": "Gollum, Silent Slinker // Meager Meal"},
+        {"name": "Fire // Ice"},
+        {"name": "Start // Fire"},                # 'fire' now claimed by two
+        {"name": "Brainstorm"},                   # a real card sharing a face name
+        {"name": "Brainstorm // Bolt Wave"},
+    ]
+    index.by_name, index.by_norm, index.by_face = {}, {}, {}
+    owners: dict[str, set[str]] = {}
+    for c in rows:
+        index.by_name[c["name"]] = c
+        index.by_norm.setdefault(normalize_name(c["name"]), c)
+        if " // " in c["name"]:
+            for face in c["name"].split(" // "):
+                owners.setdefault(normalize_name(face), set()).add(c["name"])
+                index.by_face.setdefault(normalize_name(face), c)
+    index._ambiguous_faces = {k for k, v in owners.items() if len(v) > 1}
+    for k in index._ambiguous_faces:
+        index.by_face.pop(k, None)
+    index._norm_keys = list(index.by_norm)
+    index.resolve.cache_clear()
+
+    card, how = index.resolve("Gollum, Silent Slinker")
+    failed += not check("a front face resolves", how, "face")
+    failed += not check("...to the whole card", card["name"],
+                        "Gollum, Silent Slinker // Meager Meal")
+    failed += not check("a face counts as naming the card",
+                        names_a_card(how), True)
+
+    card, how = index.resolve("Meager Meal")
+    failed += not check("a BACK face resolves too", how, "face")
+
+    # Order matters: whole names are checked before faces, so a real card that
+    # shares a face's name resolves to ITSELF.
+    card, how = index.resolve("Brainstorm")
+    failed += not check("a real card beats a face of the same name", how, "exact")
+    failed += not check("...and is that card", card["name"], "Brainstorm")
+
+    # Two cards claim 'Fire', so it names NEITHER — the same discipline as
+    # ambiguous-prefix, and as find_players missing rather than guessing.
+    card, how = index.resolve("Fire")
+    failed += not check("a face two cards claim resolves to nothing", card, None)
+    failed += not check("...and says why", how, "ambiguous-face")
+    failed += not check("an ambiguous face does not name a card",
+                        names_a_card(how), False)
+
+    # The predicate is the whole point: nine gates read it, so a guess must
+    # never pass it.
+    failed += not check("a prefix guess is not a name", names_a_card("prefix"), False)
+    failed += not check("a fuzzy guess is not a name", names_a_card("fuzzy"), False)
+    failed += not check("a sloppy real name is not certain either",
+                        names_a_card("normalized"), False)
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("rubric_correctness", test_rubric_correctness),
@@ -2113,7 +2187,8 @@ def main() -> None:
                      ("protocol_findings", test_protocol_findings),
                      ("turn_scenarios", test_turn_scenarios),
                      ("closed_no_play_position", test_closed_no_play_position),
-                     ("behaviour_opening", test_behaviour_opening)):
+                     ("behaviour_opening", test_behaviour_opening),
+                     ("card_face_names", test_card_face_names)):
         print(f"{name} ...")
         failed += fn()
 

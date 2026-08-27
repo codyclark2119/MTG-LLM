@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from actions import legality, match_to_legal, parse_output, visible_answer  # noqa: E402
+from card_lookup import names_a_card  # noqa: E402
 from common import (  # noqa: E402
     CALIBRATED_JUDGE_ID,
     POSITIONS_PATH,
@@ -84,7 +85,7 @@ def build_position_context(pos: dict, card_index, embed_model, k_rules: int = 2)
     seen, texts = set(), []
     for name in position_card_names(pos):
         card, how = card_index.resolve(name)
-        if card and how == "exact" and card["name"] not in seen:
+        if card and names_a_card(how) and card["name"] not in seen:
             seen.add(card["name"])
             texts.append(card["text"])
     if texts:

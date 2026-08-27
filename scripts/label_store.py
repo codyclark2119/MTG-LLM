@@ -27,6 +27,7 @@ REJECTED_PATH = Path("data/gold/rejected.jsonl")
 # Re-exported, not redefined: one vocabulary, in common.py (Section 21.97).
 # `webui` imports them from here and keeps working.
 from common import CATEGORIES, DIFFICULTIES  # noqa: E402,F401
+from card_lookup import names_a_card  # noqa: E402
 DIFFICULTY_RANK = {"advanced": 0, "intermediate": 1, "basic": 2}
 
 
@@ -161,7 +162,7 @@ class Store:
         out = []
         for n in names:
             card, how = self.card_index.resolve(n)
-            out.append({"name": n, "ok": card is not None and how == "exact",
+            out.append({"name": n, "ok": card is not None and names_a_card(how),
                         "how": how, "resolved": card["name"] if card else None,
                         "text": (card or {}).get("text", "")[:400]})
         return out

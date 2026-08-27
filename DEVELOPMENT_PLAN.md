@@ -9146,3 +9146,80 @@ categories of position exist**. No constraint comes from this side: the card
 index holds 34,881 Oracle cards and every modern card tested resolves `exact`,
 so any real deck works. That is the point the user made about virtual clients
 generally — no collection to buy, unlike Arena.
+
+### 21.104 A double-faced card was not a card, and nine gates agreed
+
+The user supplied five 40-card welcome decks to record games with. Checking
+whether the cards resolve found something better than an answer about decks.
+
+**All 92 distinct cards resolve.** My first check said 7 did not, and that was
+my filter, not the data: I gated on `how == "exact"` and the seven are
+double-faced cards, indexed under `"Front // Back"` and resolving as
+`normalized`.
+
+```
+Gollum, Silent Slinker    -> Gollum, Silent Slinker // Meager Meal
+Smaug, the Great Calamity -> Smaug, the Great Calamity // Spew Flame
+Bofur, Reliable Guardian  -> Bofur, Reliable Guardian // Concerted Care
+```
+
+#### The bug under it
+
+`validate_position` does not skip a non-exact match, it **rejects** one:
+
+```python
+elif how != "exact":
+    problems.append(f"card {name!r} only resolves by {how} — use the exact name …")
+```
+
+So a board naming `Gollum, Silent Slinker` fails validation, and the fix it
+demands is `Gollum, Silent Slinker // Meager Meal` — a string **no game client,
+no deck list and no player ever writes**, which would then be rendered into the
+board the model reads. The suggested correction is worse than the error.
+
+884 of 34,881 cards are double-faced (2.5%), so this was a live trap for any
+position drawn from real play, and 7 of the user's 92 cards are in it.
+
+#### One name, two meanings, again
+
+Faces were already indexed — folded into `by_norm` beside the case- and
+apostrophe-normalized whole names. So `resolve` could not tell *you wrote a real
+name sloppily* from *you wrote one printed side of a two-sided card*, and both
+came back `normalized`. The two readings agree everywhere except on DFCs, which
+is this repo's most repeated failure shape (`PASS`, `CROSS_REF_RE`,
+`JUDGE_SYSTEM_PROMPT`, and now this).
+
+They are now separate indexes and separate answers, and the distinction is not
+strictness: a `normalized` hit *should* be corrected, because the exact string
+exists and costs nothing to write. A `face` hit should not, because the string
+already is a real printed card name.
+
+#### Nine gates, one predicate
+
+`how != "exact"` appeared in **six files and nine places** — `validate_position`,
+`timing_problems`, `mana_problems`, two more in `positions.py`,
+`eval_positions`, `label_store`, `validate_gold`, `ingest_qa_pastes`. Fixing the
+resolver alone would have left every one of them rejecting faces.
+
+They now call `card_lookup.names_a_card(how)`. A hardening reaching a subset of
+its callers is the bug this project has shipped five times (21.53, 21.54, 21.74),
+and the countermeasure is the same one: one function, and the direction of the
+next fix no longer matters.
+
+Note the two halves failed in *opposite* directions, which is why both were
+needed. `validate_position` rejected loudly. `timing_problems` and
+`mana_problems` returned `[]` and skipped — so a DFC silently disabled the
+timing and affordability checks for its position, and "no problems found" over
+a card nothing examined is 21.49's shape: it fails as a pass.
+
+#### Ambiguity is refused, not guessed
+
+Measured over the corpus: 1,771 face names, of which **2** are claimed by two
+different cards (`Fire` is a face of both `Fire // Ice` and `Start // Fire`;
+likewise `Start`) and **25** are also real single-faced cards (`Brainstorm`,
+`Ancestral Recall`, `Bind`). The first class resolves to **nothing** —
+`ambiguous-face` — and the second is handled by check order, whole names before
+faces, so `Brainstorm` is Brainstorm. 1,744 usable aliases.
+
+Same rule as ambiguous-prefix and as `find_players`: miss rather than guess,
+because a wrong card puts confidently incorrect text in front of the model.

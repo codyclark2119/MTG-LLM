@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from actions import (Action, DECLARATIONS, PHASE_NAMES,  # noqa: E402
                      parse_line)
+from card_lookup import names_a_card  # noqa: E402
 from common import (  # noqa: E402
     canonical_phase,
     parse_permanent_line,
@@ -194,7 +195,7 @@ def validate_position(pos: dict, card_index=None,
             card, how = card_index.resolve(name)
             if card is None:
                 problems.append(f"card not found in Oracle: {name!r} ({how})")
-            elif how != "exact":
+            elif not names_a_card(how):
                 problems.append(f"card {name!r} only resolves by {how} "
                                 f"— use the exact name {card['name']!r}")
 
@@ -266,7 +267,7 @@ def timing_problems(pos: dict, card_index=None) -> list[str]:
         if not isinstance(parsed, Action) or parsed.verb != "CAST" or not parsed.args:
             continue
         card, how = card_index.resolve(parsed.args[0])
-        if card is None or how != "exact":
+        if card is None or not names_a_card(how):
             continue  # the name check already reports this
         text, type_line = card.get("text") or "", card.get("type_line") or ""
         if "Instant" in type_line or "Flash" in text:
@@ -498,7 +499,7 @@ def tap_problems(pos: dict, actions, card_index=None) -> list[str]:
                        f"tapped {used[key]} times")
             continue
         card, how = card_index.resolve(name)
-        if card is None or how != "exact":
+        if card is None or not names_a_card(how):
             continue
         can = mana_abilities(card)
         if can is None:
@@ -552,7 +553,7 @@ def payment_problems(pos: dict, actions, card_index=None) -> list[str]:
     generic_total = 0
     for a in casts:
         card, how = card_index.resolve(a.args[0])
-        if card is None or how != "exact":
+        if card is None or not names_a_card(how):
             return []                    # an unknown card cannot be costed
         parsed = parse_mana(card.get("mana_cost") or "")
         if parsed is None:
@@ -752,7 +753,7 @@ def mana_problems(pos: dict, card_index=None) -> list[str]:
         if not isinstance(parsed, Action) or parsed.verb != "CAST" or not parsed.args:
             continue
         card, how = card_index.resolve(parsed.args[0])
-        if card is None or how != "exact":
+        if card is None or not names_a_card(how):
             continue
         cost = parse_mana(card.get("mana_cost") or "")
         if cost is None:

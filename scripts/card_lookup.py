@@ -32,6 +32,26 @@ from common import iter_jsonl, verify_card_pin
 
 BRACKET_RE = re.compile(r"\[\[(.*?)\]\]")
 
+# The `how` values that mean *this string legitimately names this card*, as
+# opposed to *I guessed which card you meant*. Nine call sites gate on
+# exactness; this is one tuple so a tenth cannot be written that disagrees, and
+# so a fix lands on all of them at once — a hardening reaching a subset of its
+# callers is this repo's most repeated bug (21.53, 21.54, 21.74).
+#
+# `face` earns its place here and `normalized` does not, and the difference is
+# not strictness. A `normalized` hit means the author wrote a real name badly:
+# the exact string exists, so asking for it costs nothing. A `face` hit means
+# they wrote a real, complete, PRINTED card name that happens to be one side of
+# a double-faced card. "Correcting" `Gollum, Silent Slinker` to
+# `Gollum, Silent Slinker // Meager Meal` would put a string on the board that
+# no game client, no deck list and no player ever writes (Section 21.104).
+CERTAIN_MATCHES = ("exact", "face")
+
+
+def names_a_card(how: str) -> bool:
+    """Did the string name this card, rather than merely point at it?"""
+    return how in CERTAIN_MATCHES
+
 
 def normalize(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
@@ -46,14 +66,31 @@ class CardIndex:
         verify_card_pin(chunks_path)
         self.by_name: dict[str, dict] = {}
         self.by_norm: dict[str, dict] = {}
+        # Faces of split/transform cards, kept in their OWN index rather than
+        # folded into `by_norm`. Both used to answer `normalized`, so a caller
+        # could not tell "you wrote the name sloppily" from "you wrote one side
+        # of a two-sided card" — one name for two meanings, and the gates that
+        # reject `normalized` were silently rejecting every DFC (21.104).
+        self.by_face: dict[str, dict] = {}
+        face_owners: dict[str, set[str]] = {}
         for c in iter_jsonl(chunks_path):
             name = c["name"]
             self.by_name[name] = c
             self.by_norm.setdefault(normalize(name), c)
-            # Index each face of a split/transform card under its own
-            # name too — players cite "Fire" not "Fire // Ice".
-            for face in name.split(" // "):
-                self.by_norm.setdefault(normalize(face), c)
+            if " // " in name:
+                # Players cite "Fire", not "Fire // Ice".
+                for face in name.split(" // "):
+                    key = normalize(face)
+                    face_owners.setdefault(key, set()).add(name)
+                    self.by_face.setdefault(key, c)
+        # Two faces claimed by different cards resolve to NEITHER: "Fire" is a
+        # face of both Fire // Ice and Start // Fire, and picking one silently
+        # would put the wrong card's text in front of the model. Measured: 2 of
+        # 1,771 face names. The same discipline as the ambiguous-prefix rule
+        # below, and as `find_players` missing rather than guessing.
+        self._ambiguous_faces = {k for k, v in face_owners.items() if len(v) > 1}
+        for key in self._ambiguous_faces:
+            self.by_face.pop(key, None)
         self._norm_keys = list(self.by_norm)
 
     @lru_cache(maxsize=4096)
@@ -65,6 +102,15 @@ class CardIndex:
         n = normalize(name)
         if n in self.by_norm:
             return self.by_norm[n], "normalized"
+
+        # A printed face. Checked AFTER whole names, so the 25 faces that are
+        # also real single-faced cards — "Brainstorm", "Ancestral Recall",
+        # "Bind" — resolve to the card actually named rather than to the
+        # two-sided one that happens to share a side's name.
+        if n in self.by_face:
+            return self.by_face[n], "face"
+        if n in self._ambiguous_faces:
+            return None, "ambiguous-face"
 
         # Short name: "Chatterfang" -> "Chatterfang, Squirrel General".
         # Only accept an unambiguous prefix hit, so "Ajani" (dozens of

@@ -31,6 +31,7 @@ from common import RULE_ID_EXACT_RE as CROSS_REF_RE
 # Re-exported, not redefined (Section 21.97). Previously a SET here and a LIST
 # in label_store — same members, two shapes, two places to edit.
 from common import CATEGORIES, DIFFICULTIES  # noqa: E402,F401
+from card_lookup import names_a_card  # noqa: E402
 REQUIRED = ["id", "question", "answer", "key_points", "rule_citations", "category", "difficulty", "source", "cr_version"]
 LIST_FIELDS = ["paraphrases", "key_points", "common_errors", "rule_citations", "cards"]
 
@@ -102,7 +103,7 @@ def validate(records: list[dict], valid_rule_ids: set[str], card_index) -> list[
                 card, how = card_index.resolve(name)
                 if card is None:
                     problems.append(f"[{rid}] card {name!r} did not resolve ({how})")
-                elif how != "exact":
+                elif not names_a_card(how):
                     problems.append(f"[{rid}] card {name!r} resolved only via {how} -> {card['name']!r}; use the exact name")
 
         kp = r.get("key_points") or []
