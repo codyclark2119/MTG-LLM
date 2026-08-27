@@ -9693,3 +9693,70 @@ Zero of these names appear in the 32 stored positions or in the recorded
 candidates. But the user's own Hobbit decks contain seven, recordings use modern
 cards, and `Everywhere` already cost 35 of 52 exported boards (21.106). This is
 the same class: a modern card whose shape our corpus flattened.
+
+### 21.112 One recorded game yields five boards with a real decision
+
+The pipeline ran end to end for the first time, on a human-vs-AI game (MAD bot,
+skill 10) with two 60-card constructed decks rather than the 40-card welcome
+decks of 21.106. **Zero collector errors, tokens flagged correctly.**
+
+```
+64 snapshots                      one board per step, 15 turns
+31 pass the shortlist filter      hand >= 2 cards AND >= 2 untapped permanents
+21 comparable                     8 lost to tokens, 2 to blind spots
+ 5 offer >= 2 distinct plays      the boards that ask something
+```
+
+| plays offered | boards |
+| --- | --- |
+| 0 | 5 |
+| 1 | 11 |
+| **2+** | **5** |
+
+The five:
+
+```
+turn 1  PLAY Ba Sing Se / PLAY Forest
+turn 3  CAST Llanowar Elves / PLAY Ba Sing Se / PLAY Forest
+turn 5  ATTACK Llanowar Elves / CAST Llanowar Elves / CAST Lumbering Worldwagon / PLAY Forest
+turn 7  ATTACK Llanowar Elves / CAST Glimpse the Core / CAST Lumbering Worldwagon / CAST Sapling Nursery
+turn 9  ATTACK Llanowar Elves / CAST Lumbering Worldwagon
+```
+
+And **five overstates it**: turn 1 is a choice between two untapped lands, which
+is a decision the way a coin flip is a decision. Three of the five (turns 5, 7,
+9) are boards worth asking about.
+
+#### What that costs
+
+At ~3-5 usable boards per game, reaching the ~40 positions blunder rate needs
+(README sizing) is **8-13 recorded games**, before any rubric is written. A game
+is roughly half an hour, so that is 4-6 hours of play plus authoring — against
+32 existing positions that already exist and, per 21.107, mostly still work.
+
+That reframes the plan. Recording is **not** a fast way to replace the set. It
+is a way to add boards whose provenance is unimpeachable, at roughly one
+position per ten minutes of play, and the honest comparison is against fixing
+what 21.109 identified: 12 of 28 boards pinned at the Gate 3 ceiling.
+
+#### The biggest recoverable loss is tokens
+
+**8 of 31 candidates (26%)** were excluded because a token was on the board and
+`CardTestPlayerAPIImpl` cannot place one (21.106). Those boards are fine — the
+recording is accurate — but the engine cannot be asked about them, so their
+`legal_actions` cannot be generated or checked. One deck making one Treefolk
+Token cost a quarter of the harvest, and modern decks make tokens constantly.
+
+That is the highest-value fix available: it is worth more than a better deck,
+and unlike deck choice it is a one-time cost.
+
+#### The decision window moved but did not widen
+
+21.108 measured turns 9-11 on welcome decks. With 60-card constructed decks it
+was **turns 3-7** — earlier, because the curve is real and Llanowar Elves
+accelerates — but the same size, 17 dense boards against 20. A faster deck moved
+the window rather than widening it; from turn 8 on, the hand was empty.
+
+So the density lever is **card advantage**, not curve. A deck that refills —
+draw spells, recursion — should hold the window open past the point where these
+two both ran out.
