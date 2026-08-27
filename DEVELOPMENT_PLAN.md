@@ -9818,6 +9818,11 @@ assembly does not contain and a redeploy therefore cannot overwrite.
 
 ### 21.114 A client NPE that was an operational mistake, not a bug
 
+> **WRONG, and corrected by 21.115.** The stale session was a plausible
+> coincidence, not the cause: the same NPE recurred on a FRESH client. The cause
+> is the client/server build mismatch this section dismissed at the bottom as
+> "the mismatch this did NOT turn out to be" — it did. Read 21.115.
+
 Reported mid-session: the client died with
 
 ```
@@ -9865,3 +9870,63 @@ compare card pools, and thirteen days of set implementations separate them.
 Nothing has been attributed to that yet; building the client from the same
 checkout is the way to remove the variable if an unexplained client failure
 recurs.
+
+### 21.115 Three creature types apart: the version check that cannot see a card pool
+
+21.114 blamed a stale session and was wrong. The same NPE recurred on a
+**freshly started client**, and the user supplied the pattern that solved it:
+both failures came from a *"choose a creature type"* effect — Lorwyn Eclipsed
+(a tribal set) and Secluded Courtyard (*"as this enters, choose a creature
+type"*).
+
+Measured directly, comparing `mage/constants/SubType.class` in the two jars:
+
+```
+client (2026-08-12 build):  545 SubType constants
+server (2026-08-25 build):  548
+in server but not client:   FEROZ, GREENSLEEVES, WORZEL
+```
+
+"Choose a creature type" is the one interaction that serialises the **entire
+SubType space** to the client. Three constants it cannot resolve, and the
+callback arrives `null` — hence
+
+```
+NullPointerException: Cannot invoke "GameClientMessage.getGameView()"
+because "message" is null
+```
+
+#### Why the version check let it through
+
+`MageVersion` compares major, minor, release and `releaseInfo`, and
+`MAGE_VERSION_RELEASE_INFO_MUST_BE_SAME` is true — so the handshake is strict.
+Both builds report `1.4.61` / `"V1"` and pass it.
+
+**A version string is not a content hash.** The number changes on release and
+the card pool changes every day, so two builds thirteen days apart are
+`compareTo() == 0` and disagree about what exists. Exactly the gap `CARD_PIN`
+exists to close on our side (21.110): a sha proves the corpus is the one the
+numbers were computed against, and a version string proves nothing of the kind.
+
+#### The diagnostic lesson, which is the one worth keeping
+
+21.114 had the right hypothesis written down and dismissed it — the section ends
+with *"the mismatch this did NOT turn out to be"* — because a simpler story fit
+the timeline. It fit because it was **constructed from the timeline**: the
+server had been restarted, so a session explanation was available, and the
+evidence for it was entirely circumstantial.
+
+What broke it was a *reproduction under a changed condition* (fresh client) and
+a **pattern across two instances** (both choice effects), neither of which came
+from the logs. The logs could not have settled it: the server logged nothing
+wrong, because from its side nothing was.
+
+Fixed by building the client from the same checkout, so both sides carry the
+same 548 — verified by comparing the enum in the two jars after deploying, and
+visible in the client's own startup: the rebuilt client imports **586 sets and
+92,134 cards** where the 2026-08-12 one had 584 and 92,030. A hundred-odd cards
+is what "the same version" covered.
+
+The launchers are `~/xmage-magicllm/magicllm-server.sh` and
+`magicllm-client.sh`, both outside any distribution zip so a redeploy cannot
+restore a stock one over them (21.113).
