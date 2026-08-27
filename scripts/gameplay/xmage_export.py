@@ -158,6 +158,27 @@ def _stop_at(add, step: str | None, phase: str, pos: dict) -> None:
     add("")
 
 
+def token_problems(pos: dict) -> list[str]:
+    """Tokens on the board, which the test framework cannot place.
+
+    `CardTestPlayerAPIImpl` has `assertTokenCount` and no way to CREATE one —
+    `addCard` takes a card name and a token is not a card, so the emitted test
+    dies with `Couldn't find a card: Everywhere`. Measured on the first
+    recording: **35 of 52** boards failed this way.
+
+    Reported rather than silently skipped, because a board missing a token is a
+    DIFFERENT board and its engine answer is about something else. `Everywhere`
+    is the case that proves it: a land token that taps for mana, so dropping it
+    changes which spells are castable. Third time the engine has been handed a
+    board the position does not describe (21.105 was combat state), and the
+    direction is always the same — the answer looks clean because the question
+    changed.
+    """
+    return [f"{b.get('card')!r} is a TOKEN; the test framework cannot place one, "
+            "so it is omitted and this board is not the position's board"
+            for b in (pos.get("battlefield") or []) if b.get("token")]
+
+
 def combat_problems(pos: dict) -> list[str]:
     """Attacking permanents the rules do not allow this board to have.
 
@@ -219,6 +240,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     # `None` means "there is no step this turn at which to ask about attacks".
     combat_step = "DECLARE_ATTACKERS" if combat_reachable(phase) else None
     problems.extend(combat_problems(pos))
+    problems.extend(token_problems(pos))
 
     lines: list[str] = []
     add = lines.append
@@ -260,8 +282,10 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     # Battlefield, grouped so repeated basics become one call with a count.
     for side in ("you", "opp"):
         who = _player(side)
+        # Tokens excluded: `addCard` needs a card name and a token is not a
+        # card. `token_problems` has already said so in the file's header.
         perms = [b for b in (pos.get("battlefield") or [])
-                 if b.get("controller") == side]
+                 if b.get("controller") == side and not b.get("token")]
         # Grouped by (card, tapped): the same card untapped and tapped are two
         # calls, because `tapped` is a per-call flag and not per-permanent.
         counts: dict[tuple[str, bool], int] = {}
@@ -426,7 +450,7 @@ def main() -> None:
     if not args.out:
         raise SystemExit("--out DIR or --position ID")
     args.out.mkdir(parents=True, exist_ok=True)
-    n_phase = n_combat = 0
+    n_phase = n_combat = n_token = 0
     for pos in positions:
         source, problems = emit(pos)
         (args.out / f"{class_name(pos['id'])}.java").write_text(source, encoding="utf-8")
@@ -439,10 +463,14 @@ def main() -> None:
             # coverage, which is the direction that reads as fine.
             n_phase += any("PhaseStep" in p for p in problems)
             n_combat += any("508.1" in p for p in problems)
+            n_token += any("is a TOKEN" in p for p in problems)
     print(f"{len(positions)} tests -> {args.out}")
     print(f"{n_phase} could not be mapped to an XMage PhaseStep. This was TEN "
           "before 21.102 canonicalized\nthe stored phases; what is left is the "
           "mulligan boards, which correctly have no step.")
+    if n_token:
+        print(f"{n_token} carry a TOKEN the framework cannot place, so the engine sees a\n"
+              "DIFFERENT board. Do not read their answers as being about the position.")
     if n_combat:
         print(f"{n_combat} state an ILLEGAL board — an attacker the active player "
               "does not control.\nThat is a defect in the position, not in the "
