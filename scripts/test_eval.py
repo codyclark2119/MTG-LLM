@@ -2158,6 +2158,68 @@ def test_card_face_names() -> int:
     return failed
 
 
+def test_engine_legal_actions() -> int:
+    """The engine's answer in the action grammar, and where it refuses.
+
+    The refusal is the half worth testing. On a blocking board the engine's
+    answer is not incomplete, it is EMPTY — and an empty `legal_actions` makes
+    the closed prompt say *"no legal plays are available; PASS is the only
+    response"*, which is false and scores every correct block illegal. A gap
+    that fills itself in with a confident wrong answer is 21.49's shape
+    (Section 21.105).
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent / "gameplay"))
+    from xmage_diff import (emitter_blind_spot, legal_actions_from_engine,
+                            _why_uncompared)
+
+    failed = 0
+    eng = {"PLAYABLE": {"Cast Shock"}, "ATTACKER": {"Centaur Courser"},
+           "BLOCKER": {"Wall of Omens"}}
+    targets = {"Cast Shock": ["Grizzly Bears", "PlayerB", "PlayerA"]}
+    got = legal_actions_from_engine(eng, targets)
+
+    failed += not check("one line per legal TARGET, not one per spell",
+                        sorted(a for a in got if a.startswith("CAST")),
+                        ["CAST Shock TARGET Grizzly Bears",
+                         "CAST Shock TARGET opponent", "CAST Shock TARGET you"])
+    # `match_to_legal` has no untargeted-CAST fallback the way it has for
+    # ATTACK, so an untargeted entry would score every correct targeted cast
+    # illegal — 21.61's shape.
+    failed += not check("never an untargeted cast when targets exist",
+                        "CAST Shock" in got, False)
+    failed += not check("the board's word for a player, not the engine's",
+                        any("TARGET PlayerB" in a for a in got), False)
+    failed += not check("attackers become ATTACK lines",
+                        "ATTACK Centaur Courser" in got, True)
+    # getAvailableBlockers is not phase-sensitive, so it cannot say blocking is
+    # legal NOW. Emitting it would assert something the engine did not say.
+    failed += not check("blockers are never emitted",
+                        any("BLOCK" in a for a in got), False)
+
+    failed += not check("a blocking board is refused",
+                        bool(emitter_blind_spot({"phase": "declare blockers step"})),
+                        True)
+    failed += not check("a mulligan is refused",
+                        bool(emitter_blind_spot({"phase": "opening hand"})), True)
+    failed += not check("an ordinary board is not refused",
+                        emitter_blind_spot({"phase": "precombat main step"}), "")
+
+    # Coverage: a board with nothing comparable must be NAMED, not counted as
+    # agreeing. "30 of 32 agree" counted eight such boards as agreeing.
+    failed += not check("blocks-only is reported as uncompared",
+                        "not compared" in _why_uncompared(
+                            {"phase": "declare blockers step",
+                             "legal_actions": ["BLOCK Fog Bank -> Grizzly Bears"]}),
+                        True)
+    failed += not check("an empty list is reported as uncompared",
+                        "no legal actions" in _why_uncompared(
+                            {"phase": "precombat main step", "legal_actions": []}),
+                        True)
+    return failed
+
+
 def main() -> None:
     failed = 0
     for name, fn in (("rubric_correctness", test_rubric_correctness),
@@ -2188,7 +2250,8 @@ def main() -> None:
                      ("turn_scenarios", test_turn_scenarios),
                      ("closed_no_play_position", test_closed_no_play_position),
                      ("behaviour_opening", test_behaviour_opening),
-                     ("card_face_names", test_card_face_names)):
+                     ("card_face_names", test_card_face_names),
+                     ("engine_legal_actions", test_engine_legal_actions)):
         print(f"{name} ...")
         failed += fn()
 

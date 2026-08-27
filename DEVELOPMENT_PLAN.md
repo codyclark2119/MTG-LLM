@@ -9223,3 +9223,92 @@ faces, so `Brainstorm` is Brainstorm. 1,744 usable aliases.
 
 Same rule as ambiguous-prefix and as `find_players`: miss rather than guess,
 because a wrong card puts confidently incorrect text in front of the model.
+
+### 21.105 "30 of 32 agree" counted 8 boards it never compared. 22 of 24 do
+
+Building the emit half of the pipeline — `import_game.py` leaves `legal_actions`
+empty and 21.103 says the existing path supplies it — found that the existing
+path could not, and then found why the number it reports was too kind.
+
+#### The denominator
+
+`claimed()` files a position's actions under PLAYABLE / ATTACKER / BLOCKER, and
+blocks are deliberately not compared. So a board whose `legal_actions` are
+**all blocks** contributes to neither column, has no problems, and counts as
+*agreeing*. Same for a mulligan, and for a board with no list at all.
+
+```
+24 of 32 positions were actually COMPARED, 22 of those agree
+2 disagree.
+8 contributed NOTHING to either column, and were previously counted as agreeing
+```
+
+Five blocking boards, two mulligans, one with no `legal_actions`. This is
+21.49's shape and `validate_position`'s own rule — *"no problems found" over a
+set nothing examined is the same defect as a gate verdict with no coverage* —
+applied everywhere in this repo except the newest instrument. The diff now
+prints coverage **before** the caveats, and names each uncompared board and why.
+
+The two real disagreements are unchanged: `pos-trigger-ordering-000{1,2}` and
+the castable Doom Blade.
+
+#### The blocking boards were exported as a different board
+
+Worse than uncounted. **Nine of thirty-two positions carry `attacking`
+permanents and `xmage_export` dropped the flag entirely** — it grouped
+permanents by `(card, tapped)` and nothing else. A board at declare blockers
+was handed to the engine with nobody attacking.
+
+So even the casts compared on those boards were compared against the wrong
+state, and the diff structurally could not notice, because the field that would
+have shown it is the one field it does not compare.
+
+Fixed by declaring the attacks for real — `attack(turn, playerB, "Grizzly
+Bears", playerA)` — which needs the turn to be the ACTIVE player's:
+`playerA` starts, so a board on the opponent's turn runs to turn 2. All nine
+blocking boards have `active_player: opp`, as they must.
+
+That immediately caught a position defect: **`sample-stage3-payment-0004` has
+YOUR creature attacking on the OPPONENT'S turn**, which only the active player
+may do (508.1). Reported, not emitted — `attack()` would fail at runtime, and
+silently dropping it would export a board missing the creature the position is
+about.
+
+#### Targets, because the grammar has them
+
+`legal_actions` names each targeting separately (`CAST Shock TARGET Grizzly
+Bears`), and `match_to_legal` has **no untargeted-CAST fallback** the way it has
+for ATTACK. So emitting `CAST Shock` would score every correct targeted cast
+illegal — 21.61's shape a fourth time, arriving as *"the model got worse at
+removal"*.
+
+The engine knows: `Target.possibleTargets(controllerId, ability, game)`. Asked
+per playable ability, it does real rules work — `Cast Doom Blade` offers Wall of
+Omens, Grizzly Bears and Nessian Asp and **not** the black creature.
+
+#### And where it must refuse
+
+Reproducing the 31 stored lists from the engine: 6 identical, 11 where the
+engine is a strict superset, 14 genuinely different. The 14 are almost all the
+emitter being blind, not the positions being wrong:
+
+| what | why the engine cannot say it |
+| --- | --- |
+| `BLOCK x -> y` | `getAvailableBlockers` is not phase-sensitive |
+| `ORDER TRIGGERS a, b` | not an `ActivatedAbility`, so `getPlayable` never sees it |
+| `KEEP` / `MULLIGAN` | before any step |
+| `ATTACK a, b` (a subset) | the engine lists attackers individually, not power sets |
+
+On those boards the engine's answer is not incomplete, it is **empty** — and an
+empty `legal_actions` makes the closed prompt say *"no legal plays are
+available; PASS is the only response"*. That is false about the board, and every
+correct block would score illegal against it. So `emitter_blind_spot` refuses by
+name rather than writing a confident wrong answer, and `emit_legal_actions`
+refuses a board that already has a list, so it can never quietly overwrite a
+curated field with a raw dump.
+
+The eleven supersets are the emitter working correctly and being *untrimmed*:
+it offers `CAST Shock TARGET you`, which is legal and which no one would do.
+`legal_actions` is a curated list — POSITIONS.md: *list only the plays that are
+genuinely available* — so the engine's answer is raw material, and the closed
+arm measures something different when handed thirty options.

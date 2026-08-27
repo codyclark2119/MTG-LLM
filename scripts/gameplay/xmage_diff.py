@@ -60,11 +60,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common import POSITIONS_PATH  # noqa: E402
+from common import POSITIONS_PATH, read_jsonl, write_jsonl_atomic  # noqa: E402
 from positions import load_positions  # noqa: E402
 from xmage_export import class_name  # noqa: E402
 
 _LINE = re.compile(r"(PLAYABLE|ATTACKER|BLOCKER): (.+)")
+# `TARGET: <ability label> | <target name>` — the ability is repeated so a
+# target can be tied back to the play it belongs to, since a board can offer two
+# spells with different legal targets.
+_TARGET = re.compile(r"TARGET: (.+?) \| (.+)")
+# The engine labels a cast `Cast Shock`; the grammar's verb is `CAST`.
+_ENGINE_VERB = {"cast": "CAST", "play": "PLAY", "activate": "ACTIVATE"}
 # A position's line is `VERB Card TARGET ...`; the engine says `Cast Card`.
 _ACTION = re.compile(r"^(CAST|PLAY|ACTIVATE|ATTACK|BLOCK)\s+([^,]+?)(?:\s+TARGET\s+|\s*->\s*|$)",
                      re.I)
@@ -85,6 +91,66 @@ def engine_answers(report: Path) -> dict[str, set[str]]:
     return out
 
 
+def engine_targets(report: Path) -> dict[str, list[str]]:
+    """{'Cast Shock': ['Grizzly Bears', 'PlayerB', ...]} from one report."""
+    out: dict[str, list[str]] = {}
+    try:
+        text = ET.parse(report).getroot().itertext()
+    except ET.ParseError:
+        return out
+    for chunk in text:
+        for line in chunk.splitlines():
+            m = _TARGET.search(line)
+            if m:
+                out.setdefault(m.group(1).strip(), []).append(m.group(2).strip())
+    return out
+
+
+# The export maps our sides onto XMage's fixtures — `you` is always playerA
+# (`xmage_export._player`) — so every engine report names players these two
+# ways and no others. A target that is a PLAYER must be rendered the way the
+# board names them, or `legal_actions` would carry a string the model never
+# sees.
+_ENGINE_PLAYERS = {"PlayerA": "you", "PlayerB": "opponent"}
+
+
+def legal_actions_from_engine(eng: dict[str, set[str]],
+                              targets: dict[str, list[str]]) -> list[str]:
+    """The engine's answer, written in this project's action grammar.
+
+    A DRAFT, and the distinction matters. `legal_actions` is a CURATED list —
+    POSITIONS.md says *list only the plays that are genuinely available*, and a
+    real board offers plays nobody would consider. The engine enumerates
+    everything legal, so this is the raw material a person trims, not a finished
+    field. An untrimmed list makes the closed arm a different task: the arm
+    exists to separate *not knowing what is possible* from *not knowing what is
+    good*, and handing it thirty options changes which of those is being asked.
+
+    Blocks are not emitted: `getAvailableBlockers` is not phase-sensitive
+    (see the module docstring), so it cannot say blocking is legal now.
+    """
+    out: list[str] = []
+    for label in sorted(eng["PLAYABLE"]):
+        head, _, rest = label.partition(" ")
+        verb = _ENGINE_VERB.get(head.lower())
+        if verb is None or not rest.strip():
+            continue
+        card = rest.strip()
+        names = targets.get(label) or []
+        if not names:
+            out.append(f"{verb} {card}")
+            continue
+        for target in sorted(set(names)):
+            # The board calls the other player "opponent"; the engine calls
+            # them by name. Rendering "PlayerB" would put a string in
+            # `legal_actions` that appears nowhere on the board the model reads.
+            shown = _ENGINE_PLAYERS.get(target, target)
+            out.append(f"{verb} {card} TARGET {shown}")
+    for creature in sorted(eng["ATTACKER"]):
+        out.append(f"ATTACK {creature}")
+    return out
+
+
 def claimed(pos: dict) -> dict[str, set[str]]:
     """The position's own legal_actions, grouped the way the engine groups them."""
     out = {"PLAYABLE": set(), "ATTACKER": set(), "BLOCKER": set()}
@@ -102,15 +168,139 @@ def claimed(pos: dict) -> dict[str, set[str]]:
     return out
 
 
+def emitter_blind_spot(pos: dict) -> str:
+    """Why this board's `legal_actions` must NOT be generated, or "".
+
+    The emitter can produce casts, activations and attacks. It cannot produce
+    blocks (`getAvailableBlockers` is not phase-sensitive, so it cannot say
+    blocking is legal now) or `ORDER TRIGGERS` (not an `ActivatedAbility`, so
+    `getPlayable` never reports it) or a mulligan (before any step).
+
+    On such a board the engine's answer is not *incomplete*, it is **empty** —
+    and writing an empty `legal_actions` is far worse than writing none. The
+    closed prompt then reads *"no legal plays are available; PASS is the only
+    response"*, which is a falsehood about the board, and every correct block
+    would score illegal against it. A gap that fills itself in with a confident
+    wrong answer is the shape this project keeps paying for (21.49, 21.61), so
+    the emitter refuses by name instead (Section 21.105).
+    """
+    from common import PRE_TURN_PHASE
+    phase = (pos.get("phase") or "").lower()
+    if PRE_TURN_PHASE in phase:
+        return "a mulligan — before any step, so the engine has nothing to answer"
+    if "declare blockers" in phase:
+        return ("a blocking board — blocks are the whole answer here and the "
+                "emitter cannot produce them")
+    return ""
+
+
+def emit_legal_actions(reports: Path, positions: Path, dry_run: bool = True) -> int:
+    """Fill in `legal_actions` from the engine. Returns boards changed.
+
+    The half `import_game.py` deliberately leaves empty. A recorded board has no
+    author to enumerate its plays, and hand-enumeration is the thing this whole
+    track exists because of — `timing_problems` and `mana_problems` were both
+    written because a person got a list wrong.
+
+    **Refuses a board that already has them.** Overwriting a hand-authored list
+    with a raw engine dump would silently replace a curated field with an
+    uncurated one, and the 32 stored positions would look untouched apart from a
+    field nobody re-reads. `--positions` is a candidates file in normal use;
+    pointing it at the gold set and having it quietly rewrite 31 of 32 boards is
+    the accident worth making impossible rather than warning about.
+    """
+    rows = read_jsonl(positions, missing_ok=True)
+    if not rows:
+        raise SystemExit(f"no positions in {positions}")
+
+    changed = skipped = no_report = 0
+    refused: list[tuple[str, str]] = []
+    for pos in rows:
+        report = reports / f"TEST-org.mage.test.magicllm.{class_name(pos['id'])}.xml"
+        if not report.exists():
+            no_report += 1
+            continue
+        if pos.get("legal_actions"):
+            skipped += 1
+            continue
+        blind = emitter_blind_spot(pos)
+        if blind:
+            refused.append((pos["id"], blind))
+            continue
+        actions = legal_actions_from_engine(engine_answers(report),
+                                            engine_targets(report))
+        pos["legal_actions"] = actions
+        # Says where the list came from, so a reviewer knows it is an engine
+        # dump rather than someone's judgement about what is worth offering.
+        pos["legal_actions_source"] = "xmage-engine (untrimmed)"
+        changed += 1
+        print(f"  {pos['id']}: {len(actions)} action(s)")
+        for a in actions[:6]:
+            print(f"        {a}")
+        if len(actions) > 6:
+            print(f"        … {len(actions) - 6} more")
+
+    print(f"\n{changed} board(s) filled, {skipped} already had a list "
+          f"(left alone), {no_report} had no engine report")
+    if refused:
+        print(f"\n{len(refused)} REFUSED — the engine cannot answer for these, and an\nempty legal_actions would tell the closed arm that PASS is the only play:")
+        for rid, why in refused:
+            print(f"  {rid}\n      {why}")
+    if changed:
+        print("\nThis is an UNTRIMMED engine dump. `legal_actions` is a curated "
+              "list —\nPOSITIONS.md: *list only the plays that are genuinely "
+              "available* — and the\nclosed arm measures something different "
+              "when handed thirty options.")
+    if dry_run:
+        print(f"\n(dry run — {positions} not written)")
+        return changed
+    write_jsonl_atomic(positions, rows)
+    print(f"\n-> {positions}")
+    return changed
+
+
+def _why_uncompared(pos: dict) -> str:
+    """Why a board contributed nothing to the comparison.
+
+    Named reasons rather than a count, because the three are different
+    problems: a mulligan is outside what an engine query can mean, blocks are a
+    gap in the QUERY, and an empty list is a gap in the POSITION.
+    """
+    from common import PRE_TURN_PHASE
+    actions = pos.get("legal_actions") or []
+    if not actions:
+        return "the position lists no legal actions at all"
+    if PRE_TURN_PHASE in (pos.get("phase") or "").lower():
+        return "a mulligan decision — before any step, so there is nothing to ask"
+    verbs = {a.strip().split(" ", 1)[0].upper() for a in actions}
+    if verbs <= {"BLOCK"}:
+        return ("only BLOCK actions, and blocks are not compared "
+                "(getAvailableBlockers is not phase-sensitive)")
+    if verbs <= {"ORDER"}:
+        return ("only ORDER TRIGGERS, which is not an ActivatedAbility so "
+                "getPlayable cannot report it")
+    return f"no comparable action ({', '.join(sorted(verbs))})"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--reports", type=Path, required=True)
     ap.add_argument("--positions", type=Path, default=POSITIONS_PATH)
+    ap.add_argument("--emit-legal-actions", action="store_true",
+                    help="write the engine's answer INTO --positions as "
+                         "`legal_actions`. For imported drafts, which have "
+                         "none; refuses a board that already carries them.")
+    ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    n_checked = n_clean = 0
+    if args.emit_legal_actions:
+        emit_legal_actions(args.reports, args.positions, dry_run=args.dry_run)
+        return
+
+    n_checked = n_clean = n_compared = 0
     findings: list[tuple[str, list[str]]] = []
+    uncompared: list[tuple[str, str]] = []
     for pos in load_positions(args.positions):
         report = args.reports / f"TEST-org.mage.test.magicllm.{class_name(pos['id'])}.xml"
         if not report.exists():
@@ -136,16 +326,38 @@ def main() -> None:
             findings.append((pos["id"], problems))
         else:
             n_clean += 1
+        # COVERAGE, not agreement. A board whose `legal_actions` are all blocks
+        # or a mulligan contributes nothing to either column: `claimed` files
+        # them under BLOCKER or drops them, and neither is compared. It then
+        # counts as "agrees", which is 21.49's shape — no problems found over a
+        # board nothing examined (Section 21.105).
+        if mine["PLAYABLE"] or mine["ATTACKER"] or eng_cards or eng["ATTACKER"]:
+            n_compared += 1
+        else:
+            uncompared.append((pos["id"], _why_uncompared(pos)))
 
-    print(f"{n_checked} positions checked against the engine, {n_clean} agree\n")
+    print(f"{n_compared} of {n_checked} positions were actually COMPARED, "
+          f"{n_clean - len(uncompared)} of those agree\n")
     for rid, problems in findings:
         print(f"  {rid}")
         for p in problems:
             print(f"      {p}")
     print(f"\n{len(findings)} disagree.")
-    print("Blocks are not compared: getAvailableBlockers is not phase-sensitive, so a")
-    print("BLOCKER line means 'could block something', not 'blocking is legal now'.")
-    print("Targets are not compared either — the engine names a spell once.")
+
+    # Coverage before caveats. "30 of 32 agree" counted every board with nothing
+    # to compare as agreeing, which is the same defect as a gate verdict with no
+    # coverage: no problems found over a set nothing examined (21.105). The
+    # denominator is the finding here, so it goes first and by name.
+    if uncompared:
+        print(f"\n{len(uncompared)} contributed NOTHING to either column, and "
+              "were previously counted\nas agreeing:")
+        for rid, why in uncompared:
+            print(f"  {rid}\n      {why}")
+
+    print("\nWhat is out of scope, and why:")
+    print("  blocks   — getAvailableBlockers is not phase-sensitive, so a BLOCKER")
+    print("             line means 'could block something', not 'legal now'")
+    print("  targets  — compared on the CARD only; the engine names a spell once")
 
 
 if __name__ == "__main__":

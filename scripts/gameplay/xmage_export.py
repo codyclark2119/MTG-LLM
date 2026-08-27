@@ -127,20 +127,76 @@ def combat_reachable(phase: str) -> bool:
     return here is not None and here <= PHASE_ORDER.index("DECLARE_ATTACKERS")
 
 
+def active_turn(pos: dict) -> int:
+    """Which TEST turn belongs to the position's active player.
+
+    playerA starts, so playerA's turns are odd and playerB's are even. A board
+    on the opponent's turn — every blocking position is — must therefore run to
+    turn 2, or the attack it describes cannot be scripted: only the active
+    player declares attackers (508.1).
+
+    This is NOT the position's own `turn`, which is descriptive. `setStopAt`
+    SIMULATES, so `setStopAt(7, …)` played six turns on top of the board and
+    asked about the result (Section 21.100). Two is the smallest number that
+    makes the opponent active.
+    """
+    return 2 if pos.get("active_player") == "opp" else 1
+
+
 def _stop_at(add, step: str | None, phase: str, pos: dict) -> None:
     """Emit the `setStopAt` / `execute` pair shared by both query methods."""
     if step:
-        # Turn 1, NOT the position's own turn number. `setStopAt` SIMULATES up to
-        # that turn rather than jumping to it, so `setStopAt(7, ...)` played six
-        # turns of draws on top of the board and asked about the result. The
-        # position's `turn` is descriptive — it says what turn the board
-        # represents, not how many turns to play first (Section 21.100).
+        turn = active_turn(pos)
         add(f"        // position says turn {pos.get('turn')}; the board is placed"
-            " directly, so stop at 1")
-        add(f"        setStopAt(1, PhaseStep.{step});")
+            " directly, so the")
+        add(f"        // number here is only whose turn it is — "
+            f"{'playerB' if turn == 2 else 'playerA'} is active on turn {turn}.")
+        add(f"        setStopAt({turn}, PhaseStep.{step});")
     else:
         add(f"        // no PhaseStep mapping for {phase!r} — set this by hand")
     add("        execute();")
+    add("")
+
+
+def combat_problems(pos: dict) -> list[str]:
+    """Attacking permanents the rules do not allow this board to have.
+
+    Only the ACTIVE player declares attackers (508.1). Computed separately from
+    the emission below so the problem reaches the file's header, which is
+    written before the board — a generated test that states its own defect is
+    the point of returning problems rather than raising.
+    """
+    active = pos.get("active_player") or "you"
+    return [f"{b.get('card')!r} is attacking but is controlled by "
+            f"{b.get('controller')!r} while {active!r} is the active player — "
+            "only the active player declares attackers (508.1)"
+            for b in (pos.get("battlefield") or [])
+            if b.get("attacking") and b.get("controller") != active]
+
+
+def _combat(add, pos: dict) -> None:
+    """Script the attacks the board says are already declared.
+
+    Without this, a board at declare blockers exports with NOBODY attacking, so
+    the engine is asked about a different board than the position describes —
+    and the diff could not see it, because it does not compare blocks. Nine of
+    thirty-two positions carry `attacking` permanents (Section 21.105).
+
+    An attacker the active player does not control is skipped, not scripted:
+    `attack()` would fail at runtime. `combat_problems` has already said so.
+    """
+    active = pos.get("active_player") or "you"
+    attackers = [b for b in (pos.get("battlefield") or [])
+                 if b.get("attacking") and b.get("controller") == active]
+    if not attackers:
+        return
+    turn = active_turn(pos)
+    attacker_side = _player(active)
+    defender_side = _player("opp" if active == "you" else "you")
+    add(f"        // {len(attackers)} attacking creature(s): DECLARED, not placed")
+    add("        // as a flag — a board at declare blockers has to be in combat.")
+    for b in attackers:
+        add(f'        attack({turn}, {attacker_side}, "{b["card"]}", {defender_side});')
     add("")
 
 
@@ -162,6 +218,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
         problems.append(f"no PhaseStep for phase {raw_phase!r}")
     # `None` means "there is no step this turn at which to ask about attacks".
     combat_step = "DECLARE_ATTACKERS" if combat_reachable(phase) else None
+    problems.extend(combat_problems(pos))
 
     lines: list[str] = []
     add = lines.append
@@ -254,6 +311,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
                 "  // filler: count is real, contents are not")
 
     add("")
+    _combat(add, pos)
 
     # --- the two query methods, each on its own copy of the board -----------
     add = lines.append
@@ -269,14 +327,43 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     # appear here at any step. The first clean run reported only `Cast Shock`
     # for a board that also lists `ATTACK Centaur Courser`, and that read as the
     # position being wrong; it was the query being one-sided (21.100).
-    add("        playerA.getPlayable(currentGame, true).stream()")
     # Mana abilities are excluded: `legal_actions` enumerates PLAYS, and the
     # grammar handles mana separately through TAP lines. Leaving them in makes
     # every land a false difference — the first run reported `{T}: Add {G}.`
     # against a position that correctly does not list it.
-    add('                .map(Object::toString)')
-    add('                .filter(s -> !s.startsWith("{T}: Add"))')
-    add('                .forEach(s -> System.out.println("PLAYABLE: " + s));')
+    #
+    # Each playable is followed by its POSSIBLE TARGETS. `legal_actions` names
+    # each targeting separately (`CAST Shock TARGET Grizzly Bears`), and
+    # `match_to_legal` has no untargeted-CAST fallback the way it has for
+    # ATTACK — so an untargeted entry would score every correct targeted cast
+    # illegal, which is 21.61's shape a fourth time. The engine knows the legal
+    # targets; guessing them here would be inventing a format again (21.102).
+    add("        for (mage.abilities.ActivatedAbility ability "
+        ": playerA.getPlayable(currentGame, true)) {")
+    add("            String label = ability.toString();")
+    add('            if (label.startsWith("{T}: Add")) {')
+    add("                continue;")
+    add("            }")
+    add('            System.out.println("PLAYABLE: " + label);')
+    add("            for (mage.target.Target target : ability.getTargets()) {")
+    add("                for (java.util.UUID id : target.possibleTargets("
+        "playerA.getId(), ability, currentGame)) {")
+    add("                    String name = null;")
+    add("                    mage.game.permanent.Permanent p = "
+        "currentGame.getPermanent(id);")
+    add("                    if (p != null) {")
+    add("                        name = p.getName();")
+    add("                    } else if (currentGame.getPlayer(id) != null) {")
+    add("                        name = currentGame.getPlayer(id).getName();")
+    add("                    } else if (currentGame.getCard(id) != null) {")
+    add("                        name = currentGame.getCard(id).getName();")
+    add("                    }")
+    add("                    if (name != null) {")
+    add('                        System.out.println("TARGET: " + label + " | " + name);')
+    add("                    }")
+    add("                }")
+    add("            }")
+    add("        }")
     # Not phase-sensitive — it returned the same creature at a main phase and at
     # declare blockers — so it says "could block something", not "blocking is
     # legal now". Printed for the record; `xmage_diff` does not compare it.
@@ -339,17 +426,27 @@ def main() -> None:
     if not args.out:
         raise SystemExit("--out DIR or --position ID")
     args.out.mkdir(parents=True, exist_ok=True)
-    n_problem = 0
+    n_phase = n_combat = 0
     for pos in positions:
         source, problems = emit(pos)
         (args.out / f"{class_name(pos['id'])}.java").write_text(source, encoding="utf-8")
         if problems:
-            n_problem += 1
             print(f"  {pos['id']}: " + "; ".join(problems))
+            # Counted apart because they mean opposite things. A phase with no
+            # PhaseStep is a limit of the EXPORT — a mulligan is not a step, and
+            # never will be. An illegal attacker is a defect in the POSITION.
+            # One number covering both would report a data defect as tooling
+            # coverage, which is the direction that reads as fine.
+            n_phase += any("PhaseStep" in p for p in problems)
+            n_combat += any("508.1" in p for p in problems)
     print(f"{len(positions)} tests -> {args.out}")
-    print(f"{n_problem} could not be mapped to an XMage PhaseStep. This was TEN "
+    print(f"{n_phase} could not be mapped to an XMage PhaseStep. This was TEN "
           "before 21.102 canonicalized\nthe stored phases; what is left is the "
           "mulligan boards, which correctly have no step.")
+    if n_combat:
+        print(f"{n_combat} state an ILLEGAL board — an attacker the active player "
+              "does not control.\nThat is a defect in the position, not in the "
+              "export.")
 
 
 if __name__ == "__main__":
