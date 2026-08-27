@@ -158,25 +158,106 @@ def _stop_at(add, step: str | None, phase: str, pos: dict) -> None:
     add("")
 
 
+def token_class_name(card: str) -> str:
+    """`Treefolk Token` -> `RecTreefolkToken`, a nested class name."""
+    parts = [p for p in _SAFE.split(card) if p]
+    return "Rec" + "".join(p[:1].upper() + p[1:] for p in parts)
+
+
 def token_problems(pos: dict) -> list[str]:
-    """Tokens on the board, which the test framework cannot place.
+    """Tokens this board carries that CANNOT be faithfully rebuilt.
 
-    `CardTestPlayerAPIImpl` has `assertTokenCount` and no way to CREATE one —
-    `addCard` takes a card name and a token is not a card, so the emitted test
-    dies with `Couldn't find a card: Everywhere`. Measured on the first
-    recording: **35 of 52** boards failed this way.
+    A token is not a card, so `addCard` cannot place one and the emitted test
+    used to die with `Couldn't find a card: Everywhere` — 35 of 52 boards on the
+    first recording, then 8 of 31 excluded on the second. Nor does the name
+    identify it: 796 token classes exist and five are Treefolk, so
+    "Treefolk Token" does not say which.
 
-    Reported rather than silently skipped, because a board missing a token is a
-    DIFFERENT board and its engine answer is about something else. `Everywhere`
-    is the case that proves it: a land token that taps for mana, so dropping it
-    changes which spells are castable. Third time the engine has been handed a
-    board the position does not describe (21.105 was combat state), and the
-    direction is always the same — the answer looks clean because the question
-    changed.
+    So the collector records the characteristics and this rebuilds the token as
+    a nested `TokenImpl` subclass (Section 21.113). Types, subtypes, colours and
+    P/T reconstruct exactly — they are recorded as enum `name()`s, so there is no
+    spelling table to drift.
+
+    ABILITIES DO NOT. Nothing here can turn "{T}: Add {G}" back into Java, and a
+    land token that taps for mana is precisely the case where a missing ability
+    changes which spells are castable. So a token carrying rules text is
+    REPORTED, exactly as before — the board is still not the position's board,
+    and pretending otherwise would re-create the bug this fixes with a rebuilt
+    token instead of an absent one.
+
+    A token with no rules text rebuilds faithfully and is no longer a problem.
     """
-    return [f"{b.get('card')!r} is a TOKEN; the test framework cannot place one, "
-            "so it is omitted and this board is not the position's board"
-            for b in (pos.get("battlefield") or []) if b.get("token")]
+    out = []
+    for b in pos.get("battlefield") or []:
+        if not b.get("token"):
+            continue
+        rules = b.get("token_rules") or []
+        if rules:
+            out.append(f"{b.get('card')!r} is a TOKEN with abilities this cannot "
+                       f"rebuild ({'; '.join(rules)[:80]}) — the engine sees a "
+                       "different board")
+        elif not b.get("token_types"):
+            out.append(f"{b.get('card')!r} is a TOKEN recorded before its "
+                       "characteristics were captured, so it cannot be rebuilt")
+    return out
+
+
+def rebuildable_tokens(pos: dict) -> list[dict]:
+    """Token permanents this export can reconstruct, in board order."""
+    return [b for b in (pos.get("battlefield") or [])
+            if b.get("token") and b.get("token_types") and not (b.get("token_rules") or [])]
+
+
+def _token_classes(add, pos: dict) -> None:
+    """One nested `TokenImpl` subclass per distinct rebuildable token.
+
+    Nested rather than added to the checkout: a token shape belongs to the board
+    that recorded it, and a shared class would need a registry keyed by a name
+    that does not identify a token anyway.
+    """
+    seen: dict[str, dict] = {}
+    for b in rebuildable_tokens(pos):
+        seen.setdefault(b["card"], b)
+    for card, b in seen.items():
+        cls = token_class_name(card)
+        add("")
+        add(f"    /** Rebuilt from the recording: {card}. */")
+        add(f"    public static final class {cls} extends TokenImpl {{")
+        add(f"        public {cls}() {{")
+        # The description is free text and XMage rejects one starting with an
+        # indefinite article (TokenImpl's own constructor check), so it is built
+        # from the P/T rather than copied from anywhere.
+        desc = f"{b.get('power', 0)}/{b.get('toughness', 0)} token"
+        add(f'            super("{card}", "{desc}");')
+        for t in b.get("token_types") or []:
+            add(f"            cardType.add(CardType.{t});")
+        for s in b.get("token_subtypes") or []:
+            add(f"            subtype.add(SubType.{s});")
+        for c in b.get("token_colors") or []:
+            setter = {"W": "setWhite", "U": "setBlue", "B": "setBlack",
+                      "R": "setRed", "G": "setGreen"}[c]
+            add(f"            color.{setter}(true);")
+        add(f"            power = new MageInt({b.get('power', 0)});")
+        add(f"            toughness = new MageInt({b.get('toughness', 0)});")
+        add("        }")
+        add(f"        private {cls}(final {cls} t) {{ super(t); }}")
+        add(f"        public {cls} copy() {{ return new {cls}(this); }}")
+        add("    }")
+
+
+def _place_tokens(add, pos: dict) -> None:
+    """Put the rebuilt tokens onto the battlefield, tapped/attacking as recorded."""
+    toks = rebuildable_tokens(pos)
+    if not toks:
+        return
+    add(f"        // {len(toks)} rebuilt token(s) — a token cannot be addCard'd")
+    for b in toks:
+        who = _player(b.get("controller") or "you")
+        cls = token_class_name(b["card"])
+        add(f"        new {cls}().putOntoBattlefield(1, currentGame, null, "
+            f"{who}.getId(), {str(bool(b.get('tapped'))).lower()}, "
+            f"{str(bool(b.get('attacking'))).lower()});")
+    add("")
 
 
 def combat_problems(pos: dict) -> list[str]:
@@ -246,7 +327,11 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     add = lines.append
     add("package org.mage.test.magicllm;")
     add("")
+    add("import mage.MageInt;")
+    add("import mage.constants.CardType;")
     add("import mage.constants.PhaseStep;")
+    add("import mage.constants.SubType;")
+    add("import mage.game.permanent.token.TokenImpl;")
     add("import mage.constants.Zone;")
     add("import org.junit.Test;")
     add("import org.mage.test.serverside.base.CardTestPlayerBase;")
@@ -335,6 +420,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
                 "  // filler: count is real, contents are not")
 
     add("")
+    _place_tokens(add, pos)
     _combat(add, pos)
 
     # --- the two query methods, each on its own copy of the board -----------
@@ -416,6 +502,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
         add('                .forEach(p -> System.out.println("ATTACKER: " + p.getName()));')
         add("    }")
 
+    _token_classes(add, pos)
     add("}")
     add("")
     add("/* The position's own legal_actions, for comparison:")

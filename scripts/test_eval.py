@@ -2158,6 +2158,60 @@ def test_card_face_names() -> int:
     return failed
 
 
+def test_token_rebuild() -> int:
+    """A token can be rebuilt from characteristics, or refused (Section 21.113).
+
+    `addCard` takes a card name and a token is not a card, so a board carrying
+    one could not be handed to the engine at all — 8 of 31 boards on the second
+    recording. The name does not identify it either: 796 token classes exist and
+    five are Treefolk.
+
+    Types, subtypes, colours and P/T rebuild exactly. ABILITIES do not, and a
+    land token that taps for mana is the case where that changes which spells are
+    castable — so a token with rules text stays a reported problem rather than
+    being rebuilt into a different board.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent / "gameplay"))
+    from xmage_export import token_problems, rebuildable_tokens, token_class_name
+
+    failed = 0
+    vanilla = {"controller": "you", "card": "Treefolk Token", "token": True,
+               "power": 2, "toughness": 5, "token_types": ["CREATURE"],
+               "token_subtypes": ["TREEFOLK"], "token_colors": ["G"],
+               "token_rules": []}
+    with_ability = {**vanilla, "card": "Everywhere", "token_types": ["LAND"],
+                    "token_subtypes": [], "token_colors": [],
+                    "token_rules": ["{T}: Add one mana of any color."]}
+    unrecorded = {"controller": "you", "card": "Old Token", "token": True}
+
+    failed += not check("a vanilla token is no longer a problem",
+                        token_problems({"battlefield": [vanilla]}), [])
+    failed += not check("...and is rebuildable",
+                        len(rebuildable_tokens({"battlefield": [vanilla]})), 1)
+
+    probs = token_problems({"battlefield": [with_ability]})
+    failed += not check("a token WITH abilities is still a problem", len(probs), 1)
+    failed += not check("...and says the engine sees a different board",
+                        "different board" in probs[0], True)
+    failed += not check("...and is not rebuilt",
+                        rebuildable_tokens({"battlefield": [with_ability]}), [])
+
+    # A recording made before characteristics were captured cannot be rebuilt
+    # either, and must say so rather than emitting an empty token.
+    failed += not check("a token recorded without characteristics is refused",
+                        len(token_problems({"battlefield": [unrecorded]})), 1)
+    failed += not check("...and is not rebuilt",
+                        rebuildable_tokens({"battlefield": [unrecorded]}), [])
+
+    failed += not check("class names are java-safe",
+                        token_class_name("Treefolk Token"), "RecTreefolkToken")
+    failed += not check("...including punctuation",
+                        token_class_name("Zombie Army"), "RecZombieArmy")
+    return failed
+
+
 def test_multi_face_layouts() -> int:
     """Six `//` layouts, and they do not behave alike (Section 21.111).
 
@@ -2345,7 +2399,8 @@ def main() -> None:
                      ("card_face_names", test_card_face_names),
                      ("engine_legal_actions", test_engine_legal_actions),
                      ("token_permanents", test_token_permanents),
-                     ("multi_face_layouts", test_multi_face_layouts)):
+                     ("multi_face_layouts", test_multi_face_layouts),
+                     ("token_rebuild", test_token_rebuild)):
         print(f"{name} ...")
         failed += fn()
 

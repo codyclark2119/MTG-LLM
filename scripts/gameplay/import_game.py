@@ -122,6 +122,14 @@ def to_position(snap: dict, sides: dict[str, str], index: int) -> dict:
         # and the engine's own `isToken()` is recorded instead (Section 21.106).
         if perm.get("token"):
             entry["token"] = True
+            # The characteristics needed to REBUILD it, since a token cannot be
+            # looked up by name (796 token classes, five of them Treefolk).
+            # `token_rules` rides along so the export can tell a vanilla token —
+            # rebuildable exactly — from one whose abilities it would silently
+            # drop (Section 21.113).
+            for k in ("token_types", "token_subtypes", "token_colors", "token_rules"):
+                if perm.get(k):
+                    entry[k] = list(perm[k])
         if perm.get("tapped"):
             entry["tapped"] = True
         if perm.get("attacking"):

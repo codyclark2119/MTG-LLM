@@ -9760,3 +9760,58 @@ the window rather than widening it; from turn 8 on, the hand was empty.
 So the density lever is **card advantage**, not curve. A deck that refills —
 draw spells, recursion — should hold the window open past the point where these
 two both ran out.
+
+### 21.113 Tokens rebuilt from characteristics, and the ones that must not be
+
+21.112 measured the biggest recoverable loss in the recording pipeline: **8 of
+31 boards (26%)** excluded because a token was on them. `addCard` takes a card
+NAME and a token is not a card, so those boards could not be handed to the
+engine at all.
+
+The name cannot fix it either. XMage has **796 token classes** and five are
+Treefolk, so `"Treefolk Token"` does not say which one — and `TokenImpl` is
+abstract, so there is nothing generic to instantiate.
+
+#### Record the shape, rebuild the token
+
+The collector now records, per token: `token_types`, `token_subtypes`,
+`token_colors`, `token_rules`. Types and subtypes are stored as the enum
+**`name()`**, so the export emits `SubType.TREEFOLK` with no spelling table
+between them — the same reason the phase vocabulary mirrors XMage's enum rather
+than paraphrasing it (21.102).
+
+The export emits one nested `TokenImpl` subclass per distinct token and places
+it with `putOntoBattlefield(1, game, null, controllerId, tapped, attacking)`,
+which carries the recorded tapped and attacking state. Verified by running:
+
+```
+=== pos-tokentest-0001 @DECLARE_ATTACKERS ===
+ATTACKER: Treefolk Token
+BLOCKER: Treefolk Token
+PLAYABLE: Cast Llanowar Elves
+```
+
+The rebuilt token is a real permanent the engine will attack and block with.
+
+#### Abilities are not rebuilt, and that stays a refusal
+
+Nothing here can turn `"{T}: Add one mana of any color."` back into Java. A land
+token that taps for mana is exactly the case where a missing ability changes
+which spells are castable — `Everywhere` again (21.106).
+
+So a token carrying rules text is still **reported as a problem** and still not
+rebuilt. Rebuilding it would re-create the bug this fixes, with a wrong token
+instead of an absent one, and the wrong version is worse: an absent token is
+visibly missing and a vanilla stand-in looks correct.
+
+A token recorded before this change has no characteristics at all and is refused
+for a third, separate reason. The existing two recordings are in that state.
+
+#### An operational trap that cost two restarts
+
+`startServer.sh` ships **inside** `mage-server.zip`. Deploying a new build
+unzips over it and restores the stock version — relative jar path, no
+`--add-opens`, no collector flags — so the server fails with
+`Unable to access jarfile ./lib/...` and the fix looks like a path bug rather
+than a clobbered file. The launcher is now `magicllm-server.sh`, a name the
+assembly does not contain and a redeploy therefore cannot overwrite.
