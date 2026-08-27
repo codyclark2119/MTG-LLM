@@ -9815,3 +9815,53 @@ unzips over it and restores the stock version — relative jar path, no
 `Unable to access jarfile ./lib/...` and the fix looks like a path bug rather
 than a clobbered file. The launcher is now `magicllm-server.sh`, a name the
 assembly does not contain and a redeploy therefore cannot overwrite.
+
+### 21.114 A client NPE that was an operational mistake, not a bug
+
+Reported mid-session: the client died with
+
+```
+NullPointerException: Cannot invoke "mage.view.GameClientMessage.getGameView()"
+because "message" is null
+    at mage.client.remote.CallbackClientImpl.lambda$onCallback$3
+```
+
+The stack is entirely client-side, which makes the collector the obvious
+suspect and the wrong one. Timeline from the two logs:
+
+| time | event |
+| --- | --- |
+| 14:24 | client started |
+| **16:06** | **server restarted** to deploy the token fix (21.113) |
+| 16:25 | client reconnected *"with restored session"* |
+| 16:30:41 | game started; one snapshot written — turn 1, hands 7/7 |
+| 16:30:50 | client NPE |
+
+The server dealt a correct game and the collector recorded it: **zero collector
+errors that day**, and the one snapshot is well-formed. The only
+`magic-llm positions: snapshot failed` lines in the whole server log are from
+2026-08-26 and are the `getCards(null)` bug 21.106 already fixed.
+
+XMage restores a session **by id**, so a client holding an id from a dead server
+process reconnects to a new one that has never heard of it. The game then runs
+server-side while the client's first callback arrives null.
+
+Two things worth keeping. **A client-side stack trace is not evidence of a
+client-side cause** — here the cause was neither side's code but the order the
+two processes were restarted in. And the failure is silent on the half that
+matters: the server logged nothing wrong, because from its point of view nothing
+was.
+
+The operational rule is now in the launcher: restarting the server requires
+restarting the client.
+
+#### The mismatch this did NOT turn out to be
+
+Worth recording since it was the first hypothesis and remains a live risk. The
+server is built from the 2026-08-25 checkout and the client is the installed
+2026-08-12 build. The version handshake passes — both are `1.4.61` / `"V1"`, and
+`MageVersion` compares major/minor/release/releaseInfo — but it does **not**
+compare card pools, and thirteen days of set implementations separate them.
+Nothing has been attributed to that yet; building the client from the same
+checkout is the way to remove the variable if an unexplained client failure
+recurs.
