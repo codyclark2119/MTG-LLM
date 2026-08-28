@@ -507,10 +507,19 @@ comparable to one after it on blunder rate**; `gameplay_fingerprint` catches a
 prompt edit, not a rubric that grew.
 
 Worse, the halves **rank the arms differently**: `base_closed` is the best arm
-on the headline (58%) and the worst on strategy alone (46% vs 35%/38%), because
-declining to play commits no enumerated *strategy* — 21.58's blindness, which
-entry 1 exists to close. The report prints all three columns; **Gate 3 is
-deliberately not redefined** (B3's call, like `only_pass`).
+on the headline (54%) and ties or loses on strategy (39% vs 32%), because its
+advantage is protocol compliance (36% vs 75-89%) rather than play. The report
+prints all three columns.
+
+**Blunder rate is MEASURED, NOT GATED** — B3's decision, Section 21.122. Three
+findings retired the 25% bar rather than moving it: the metric selects the arm
+*handed* its legal actions; the rate corrects from 54% to **~70%** once
+reweighted for the judge's unreliable clean verdicts (21.81); and **12 of 28
+boards are pinned** at the ceiling, so the effective n is 16 (21.109). Nothing
+supported a threshold at any value, so there is no PASS/FAIL — `gate3_blunder`
+still computes the rate and both reports print it beside the strategy column and
+the headroom. `GATE3_REFERENCE_BLUNDER` is the retired bar, kept only so the
+reports can say how far the arms sit from it.
 
 **A turn scenario is a sequence, and it is teacher-forced** (`gameplay/turns.py`,
 21.71). The board advances on the **reference** line, never on what the model

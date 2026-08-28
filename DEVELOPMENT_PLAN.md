@@ -5422,6 +5422,10 @@ The verdict column compares PASS/FAIL. On the real 32B-vs-Mistral comparison:
 
 ```
 | 3 — blunder ≤25% | 42% (base_closed) FAIL | 26% (base_cards_open) FAIL | agree |
+
+*(That row is how the gate read when this section was written. Blunder rate is
+measured and no longer gated — Section 21.122 — so a current report prints the
+two rates and their spread instead of two verdicts.)*
 ```
 
 It says **agree** — both FAIL — while the two judges name *different best arms*.
@@ -10269,3 +10273,75 @@ That is worth keeping as a method: when a derived field cannot be checked agains
 anything, the cheapest validation is a small number of cases someone can
 independently identify. The same argument as adjudication for judge calls
 (21.57), one level down.
+
+### 21.122 B3 resolved: blunder rate is measured, not gated
+
+The open question since the judge work: the 25% Gate 3 bar was set when blunder
+rate was read by a judge that fired at 75% of clean answers, and the instrument
+has changed underneath it. Resolved by the user (B3): **no threshold, at any
+value.** The rate is reported; nothing passes or fails on it.
+
+Three findings retired the bar rather than moved it.
+
+#### The metric selects the arm handed the answer
+
+Split three ways on the n=32 run, basic+intermediate, 32B judge:
+
+| arm | headline | strategy | protocol | only-PASS |
+| --- | --- | --- | --- | --- |
+| **base_closed** | **54%** | 39% | **36%** | 4% |
+| base_cards_open | 82% | 39% | 79% | 11% |
+| base_open | 86% | **32%** | 75% | 25% |
+| base_open_think | 89% | 46% | 75% | 14% |
+| ft_cards_open | 96% | **32%** | 89% | 4% |
+
+`base_closed` wins the headline by 28 points and **ties or loses on strategy**
+(39% against 32%). Its entire advantage is protocol: 36% against 75–89%. It is
+the arm *given* its legal actions, so it has fewer opportunities to name a play
+that is not available — and `PROTOCOL_ERRORS` entered `errors_made` in 21.76.
+
+So the gate was substantially a protocol-compliance measure wearing the name of
+a play-quality one, and it would have crowned the arm that was handed the answer
+key. Note this is **not** 21.58's do-nothing confound: `only_pass` is 4% for
+`base_closed`, the lowest of the five.
+
+#### The number is wrong in a known direction
+
+Reweighting for the judge's unreliable clean verdicts (21.81) moves the best arm
+from **54% to ~70%**. A bar the arms are 29 points from becomes one they are 45
+points from — and the correction is largest exactly where the judge calls
+answers clean most often, which is the arm the gate selects.
+
+#### And 41% of the boards cannot move it
+
+12 of 28 pinned, every one at all-blundered, so the effective n is 16 (21.109).
+
+#### What changed
+
+`gate3_blunder` is unchanged and still computes the rate. What went is the
+verdict: the single-judge report prints the rate beside the strategy column and
+the headroom, and the two-judge comparison prints **both rates and their
+spread** rather than two PASS/FAILs and a reversal flag. The spread is what the
+reversal check was proxying for, and it stays informative at every distance from
+the retired bar rather than only near it.
+
+`GATE3_MAX_BLUNDER` is now `GATE3_REFERENCE_BLUNDER` — the same 0.25, kept so
+the reports can say how far the arms sit from the bar that used to exist. The
+rename is the point: a constant named `MAX` invites a comparison, and there is
+no longer a comparison to make.
+
+Gates 1 and 2 are untouched. Gate 1 comes from the action parser and never sees
+the judge; Gate 2 measures discrimination, which is exactly what a set with 12
+pinned boards needs reported.
+
+#### Why not the other options
+
+Redefining on strategy alone was the near miss. It measures the right thing —
+but the strategy rates are 32–46%, so a 25% bar still fails everything, and
+picking a new number would be arbitrary. Raising the bar to current performance
+makes the gate a moving target that certifies whatever the model does. Keeping
+25% as an aspiration leaves a FAIL that carries no information about progress.
+
+Measuring without gating keeps every number and drops only the claim the
+evidence does not support. It also matches how `only_pass` is already handled:
+reported, not gated, pending a reason to gate.

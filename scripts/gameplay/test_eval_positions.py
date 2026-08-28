@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from eval_positions import (  # noqa: E402
     GATE2_MIN_FRACTION,
     GATE2_MIN_SPREAD,
-    GATE3_MAX_BLUNDER,
+    GATE3_REFERENCE_BLUNDER,
     gate2_discrimination,
     gate3_blunder,
     unearned_action_points,
@@ -162,7 +162,7 @@ def test_gate3() -> int:
                         (None, 1.0))
     failed += not check("empty input -> no arm", gate3_blunder([], ARMS), (None, 1.0))
 
-    failed += not check("threshold is 25%", GATE3_MAX_BLUNDER, 0.25)
+    failed += not check("threshold is 25%", GATE3_REFERENCE_BLUNDER, 0.25)
     return failed
 
 

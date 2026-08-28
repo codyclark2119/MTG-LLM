@@ -237,11 +237,13 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
                  f"{'**REVERSES**' if g2a != g2b else 'agree'} |")
 
     (arm_a, r3a), (arm_b, r3b) = gate3_blunder(rows_a, arms), gate3_blunder(rows_b, arms)
-    p3a, p3b = r3a <= GATE3_MAX_BLUNDER, r3b <= GATE3_MAX_BLUNDER
-    lines.append(f"| 3 — blunder ≤{GATE3_MAX_BLUNDER:.0%} | {r3a:.0%} ({arm_a}) "
-                 f"{'PASS' if p3a else 'FAIL'} | {r3b:.0%} ({arm_b}) "
-                 f"{'PASS' if p3b else 'FAIL'} | "
-                 f"{'**REVERSES**' if p3a != p3b else 'agree'} |")
+    # Blunder rate is measured, not gated (21.122), so there is no verdict to
+    # reverse. The SPREAD replaces it: that is what the reversal check was
+    # proxying for, and it stays informative at every distance from the retired
+    # bar rather than only near it.
+    swing = abs(r3a - r3b)
+    lines.append(f"| blunder rate (not gated) | {r3a:.0%} ({arm_a}) | "
+                 f"{r3b:.0%} ({arm_b}) | {swing:.0%} apart |")
 
     # The same headroom line the single-judge report prints. Both writers, because
     # a hardening landing on one of two report paths is this project's most
@@ -251,8 +253,8 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
     for label, rows_j in (("judge A", rows_a), ("judge B", rows_b)):
         mv, pin, n_g3 = gate3_headroom(rows_j, arms)
         if pin:
-            lines.append(f"\n> **{label}: {pin} of {n_g3} boards cannot move Gate 3** — "
-                         f"every arm agrees on them, leaving n={mv} doing the work.")
+            lines.append(f"\n> **{label}: {pin} of {n_g3} boards cannot move the blunder "
+                         f"rate** — every arm agrees on them, leaving n={mv} doing the work.")
 
     # Agreeing is not the same as being stable. Gate 3 currently agrees only
     # because both judges land far from the threshold; the SWING between them
@@ -270,18 +272,16 @@ def compare_judges(path_a: Path, path_b: Path, report_out: Path) -> None:
         lines.append(
             f"\n> **The two judges name different best arms.** `{path_a.stem}` puts "
             f"`{arm_a}` in front at {r3a:.0%}; `{path_b.stem}` puts `{arm_b}` in front at "
-            f"{r3b:.0%}. The verdict column above compares PASS/FAIL and therefore reads "
-            "\"agree\" — but if this gate ever passes, the two judges would be passing "
-            "different arms. Read the ranking, not only the verdict (Section 21.52).")
+            f"{r3b:.0%}. The rate is close under both, so a spread column alone would "
+            "look like agreement — while the two judges disagree about which arm is "
+            "winning. Read the ranking, not only the number (Section 21.52).")
 
-    swing = abs(r3a - r3b)
-    if p3a == p3b and swing > GATE3_MAX_BLUNDER / 2:
+    if swing > GATE3_REFERENCE_BLUNDER / 2:
         lines.append(
-            f"\n> **Gate 3 agrees but is not stable.** The two judges are {swing:.0%} apart "
-            f"on the same answers, against a {GATE3_MAX_BLUNDER:.0%} threshold. It returns "
-            "the same verdict only because both land far from the line — the agreement is a "
-            "fact about how far the model is from passing, not about the metric. Expect it "
-            "to reverse as soon as an arm gets close.")
+            f"\n> **The two judges are {swing:.0%} apart on blunder rate**, on identical "
+            f"answers. There is no verdict to reverse — the rate is measured rather than "
+            "gated (21.122) — but a spread this wide is the reason it is not gated: any "
+            "threshold between the two numbers would be decided by the choice of judge.")
 
     # The parser can ARBITRATE, which no other comparison in this project can.
     #
@@ -721,7 +721,18 @@ def _write_results(results: list[dict], out: Path) -> None:
 
 GATE2_MIN_SPREAD = 0.5      # points on the 1-5 correctness scale
 GATE2_MIN_FRACTION = 0.50   # of judged positions
-GATE3_MAX_BLUNDER = 0.25    # best arm, basic+intermediate positions
+# Blunder rate is MEASURED, NOT GATED (B3's decision, Section 21.122). Kept as
+# the reference value the 25% bar used to be, because the reports quote it when
+# saying how far the arms sit from it — but nothing returns PASS or FAIL now.
+#
+# Three findings retired the bar rather than moved it. The metric selects the arm
+# HANDED the legal actions: `base_closed` reads 54% on the headline while tying
+# or losing on strategy (39% against 32%), its advantage being protocol
+# compliance (36% against 75-89%) after PROTOCOL_ERRORS entered `errors_made` in
+# 21.76. The rate corrects to ~70% once reweighted for the judge's unreliable
+# clean verdicts (21.81). And 12 of 28 boards are pinned at the ceiling, so the
+# effective n is 16 (21.109).
+GATE3_REFERENCE_BLUNDER = 0.25
 
 
 _CARD_INDEX = None
@@ -1363,20 +1374,26 @@ def _write_report(results, positions, arm_names, closed_arms, args,
 
     easy = [r for r in results if r["difficulty"] in ("basic", "intermediate")]
     best_arm, best_rate = gate3_blunder(results, arm_names)
-    g3 = best_arm is not None and best_rate <= GATE3_MAX_BLUNDER
     movable, pinned, n_g3 = gate3_headroom(results, arm_names)
-    lines.append(f"\n**Gate 3 — blunder rate ≤{GATE3_MAX_BLUNDER:.0%} on basic+intermediate: "
-                 f"{'PASS' if g3 else 'FAIL'}.** Best arm `{best_arm}` at {best_rate:.0%} "
-                 f"over {len(easy)} positions."
-                 + (" Seed fixtures cannot settle this gate — it needs judge-authored positions."
+    lines.append(f"\n**Blunder rate — MEASURED, not gated** (B3, Section 21.122). "
+                 f"Lowest arm `{best_arm}` at {best_rate:.0%} over {len(easy)} "
+                 f"basic+intermediate positions; the retired bar was "
+                 f"{GATE3_REFERENCE_BLUNDER:.0%}."
+                 + (" Seed fixtures cannot settle this — it needs judge-authored positions."
                     if seeded else ""))
+    lines.append(
+        "\n> No PASS/FAIL, because nothing supports a threshold at any value. The "
+        "lowest arm is\n> the one HANDED its legal actions, and it wins on protocol "
+        "compliance rather than\n> play — read the strategy column beside this, not "
+        "this number alone. Reweighting\n> for the judge's unreliable clean verdicts "
+        "(21.81) moves the best arm from 54% to ~70%.")
     # HEADROOM, printed with the gate and never after the caveats. A board every
     # arm blunders on cannot lower the rate and one no arm blunders on cannot
     # raise it, so the denominator overstates what the gate was measured on —
     # the same defect as an agreement figure with no coverage (21.105, 21.109).
     if pinned:
         lines.append(
-            f"\n> **{pinned} of {n_g3} boards cannot move this gate** — every arm "
+            f"\n> **{pinned} of {n_g3} boards cannot move this rate** — every arm "
             f"agrees on them, so only **{movable}** are doing work. Read the rate "
             f"against n={movable}, not n={n_g3}. A board pinned at all-blundered "
             "says the set is too hard for these arms; one pinned at all-clean says "
