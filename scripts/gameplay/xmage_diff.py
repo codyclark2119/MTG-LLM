@@ -52,6 +52,7 @@ Usage:
 """
 
 import argparse
+import collections
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -69,6 +70,8 @@ _LINE = re.compile(r"(PLAYABLE|ATTACKER|BLOCKER): (.+)")
 # target can be tied back to the play it belongs to, since a board can offer two
 # spells with different legal targets.
 _TARGET = re.compile(r"TARGET: (.+?) \| (.+)")
+# `PERM: <name> <p>/<t>[ tapped]` — the board AS THE ENGINE BUILT IT.
+_PERM = re.compile(r"PERM: (.+?) (-?\d+)/(-?\d+)( tapped)?$")
 # The engine labels a cast `Cast Shock`; the grammar's verb is `CAST`.
 _ENGINE_VERB = {"cast": "CAST", "play": "PLAY", "activate": "ACTIVATE"}
 # A position's line is `VERB Card TARGET ...`; the engine says `Cast Card`.
@@ -150,6 +153,47 @@ def legal_actions_from_engine(eng: dict[str, set[str]],
         out.append(f"ATTACK {creature}")
     return out
 
+
+
+
+def board_fidelity(report: Path, pos: dict) -> list[str]:
+    """Ways the board the ENGINE built differs from the one recorded.
+
+    The general form of every bug in this thread. Combat state (21.105), tokens
+    (21.106), card faces (21.111) and permanent state (21.116) were all the same
+    failure — the engine was handed a different board and nothing said so — and
+    each was found only after it had cost something.
+
+    Predicting which state classes matter is a list that grows every set. Asking
+    the engine what it actually built is one check that covers all of them,
+    including the ones nobody has thought of yet.
+
+    Compares names, counts and P/T. A difference means the engine's answer is
+    about a board the position does not describe, whatever the reason.
+    """
+    engine = collections.Counter()
+    try:
+        text = "".join(ET.parse(report).getroot().itertext())
+    except ET.ParseError:
+        return ["the engine report did not parse"]
+    for line in text.splitlines():
+        m = _PERM.search(line.strip())
+        if m:
+            engine[(m.group(1), f"{m.group(2)}/{m.group(3)}")] += 1
+    if not engine:
+        return []          # a run predating the readback; not a difference
+
+    recorded = collections.Counter()
+    for b in pos.get("battlefield") or []:
+        # A land records 0/0 and the engine agrees, so no special case is needed.
+        recorded[(b.get("card"), f"{b.get('power', 0)}/{b.get('toughness', 0)}")] += 1
+
+    out = []
+    for key, n in (recorded - engine).items():
+        out.append(f"recorded {n}x {key[0]!r} {key[1]} that the engine did not build")
+    for key, n in (engine - recorded).items():
+        out.append(f"the engine built {n}x {key[0]!r} {key[1]} that was not recorded")
+    return out
 
 def claimed(pos: dict) -> dict[str, set[str]]:
     """The position's own legal_actions, grouped the way the engine groups them."""
@@ -301,6 +345,7 @@ def main() -> None:
     n_checked = n_clean = n_compared = 0
     findings: list[tuple[str, list[str]]] = []
     uncompared: list[tuple[str, str]] = []
+    unfaithful: list[str] = []
     for pos in load_positions(args.positions):
         report = args.reports / f"TEST-org.mage.test.magicllm.{class_name(pos['id'])}.xml"
         if not report.exists():
@@ -308,6 +353,16 @@ def main() -> None:
         n_checked += 1
         eng, mine = engine_answers(report), claimed(pos)
         problems: list[str] = []
+
+        # FIDELITY FIRST. If the engine built a different board, its answer is
+        # about something else and comparing legal_actions to it is meaningless —
+        # so this is reported and the board contributes to neither column, rather
+        # than producing a legality "disagreement" that is really a setup bug.
+        infidelity = board_fidelity(report, pos)
+        if infidelity:
+            findings.append((pos["id"], [f"BOARD DIFFERS: {x}" for x in infidelity]))
+            unfaithful.append(pos["id"])
+            continue
 
         # Casts: the engine prints "Cast Shock", we claim the card name.
         eng_cards = {re.sub(r"^(Cast|Play|Activate)\s+", "", s, flags=re.I).strip()
@@ -343,6 +398,10 @@ def main() -> None:
         for p in problems:
             print(f"      {p}")
     print(f"\n{len(findings)} disagree.")
+    if unfaithful:
+        print(f"\n{len(unfaithful)} of those are BOARD MISMATCHES, not legality\n"
+              "disagreements — the engine built something the recording does not\n"
+              "describe, so nothing about their legal_actions was tested.")
 
     # Coverage before caveats. "30 of 32 agree" counted every board with nothing
     # to compare as agreeing, which is the same defect as a gate verdict with no

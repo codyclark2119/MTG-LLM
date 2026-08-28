@@ -2212,6 +2212,50 @@ def test_token_rebuild() -> int:
     return failed
 
 
+def test_board_fidelity() -> int:
+    """The engine reports the board it built, and we check it (Section 21.117).
+
+    The general form of combat state (21.105), tokens (21.106), faces (21.111)
+    and permanent state (21.116): the engine was handed a different board and
+    nothing said so. Predicting which state classes matter is a list that grows
+    every set; asking what was actually built covers all of them.
+    """
+    import sys as _sys, tempfile, os
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent / "gameplay"))
+    from xmage_diff import board_fidelity
+
+    failed = 0
+    xml = ("<testsuite><testcase><system-out>"
+           "PERM: Forest 0/0\nPERM: Grizzly Bears 4/4 tapped\n"
+           "</system-out></testcase></testsuite>")
+    with tempfile.TemporaryDirectory() as d:
+        f = _Path(d) / "r.xml"
+        f.write_text(xml, encoding="utf-8")
+        same = {"battlefield": [{"card": "Forest", "power": 0, "toughness": 0},
+                                {"card": "Grizzly Bears", "power": 4, "toughness": 4}]}
+        failed += not check("a faithful rebuild reports nothing",
+                            board_fidelity(f, same), [])
+        # Base P/T instead of the recorded 4/4 — counters not applied.
+        wrong = {"battlefield": [{"card": "Forest", "power": 0, "toughness": 0},
+                                 {"card": "Grizzly Bears", "power": 2, "toughness": 2}]}
+        failed += not check("a wrong P/T is caught", len(board_fidelity(f, wrong)), 2)
+        # A permanent the engine could not place at all.
+        missing = {"battlefield": [{"card": "Forest", "power": 0, "toughness": 0},
+                                   {"card": "Grizzly Bears", "power": 4, "toughness": 4},
+                                   {"card": "Treefolk Token", "power": 2, "toughness": 5}]}
+        failed += not check("a missing permanent is caught",
+                            len(board_fidelity(f, missing)), 1)
+        # A report with no PERM lines predates the readback and is NOT a
+        # difference — absence of evidence must not read as a mismatch.
+        old = _Path(d) / "old.xml"
+        old.write_text("<testsuite><testcase><system-out>PLAYABLE: Cast Shock"
+                       "</system-out></testcase></testsuite>", encoding="utf-8")
+        failed += not check("a pre-readback report is not a mismatch",
+                            board_fidelity(old, same), [])
+    return failed
+
+
 def test_permanent_state_refusals() -> int:
     """A permanent is not a card name plus tapped (Section 21.116).
 
@@ -2233,9 +2277,13 @@ def test_permanent_state_refusals() -> int:
     failed += not check("a chosen value is refused",
                         len(probs({"battlefield": [
                             {"card": "Secluded Courtyard", "chosen": ["type=Elf"]}]})), 1)
-    failed += not check("counters are refused",
-                        len(probs({"battlefield": [
-                            {"card": "Bears", "counters": {"+1/+1": 2}}]})), 1)
+    # Counters are NOT refused — `addCounters` + `CounterType.findByName` rebuild
+    # them, which matters because they are the largest class (10.6% of cards,
+    # 28% of recorded permanents). Refusing them would have cost more yield than
+    # tokens did (Section 21.117).
+    failed += not check("counters are rebuilt, not refused",
+                        probs({"battlefield": [
+                            {"card": "Bears", "counters": {"+1/+1": 2}}]}), [])
     failed += not check("attachments are refused",
                         len(probs({"battlefield": [
                             {"card": "Angel", "attachments": ["Pacifism"]}]})), 1)
@@ -2443,7 +2491,8 @@ def main() -> None:
                      ("token_permanents", test_token_permanents),
                      ("multi_face_layouts", test_multi_face_layouts),
                      ("token_rebuild", test_token_rebuild),
-                     ("permanent_state", test_permanent_state_refusals)):
+                     ("permanent_state", test_permanent_state_refusals),
+                     ("board_fidelity", test_board_fidelity)):
         print(f"{name} ...")
         failed += fn()
 

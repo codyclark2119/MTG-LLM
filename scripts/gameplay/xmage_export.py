@@ -290,15 +290,50 @@ def permanent_state_problems(pos: dict) -> list[str]:
         if b.get("attachments"):
             out.append(f"{card!r} has {', '.join(b['attachments'])} attached; "
                        "attachments are not reproduced")
-        if b.get("counters"):
-            pretty = ", ".join(f"{n}x {k}" for k, n in b["counters"].items())
-            out.append(f"{card!r} has counters ({pretty}) which addCard cannot place")
+        # Counters are NOT refused. `addCounters(turn, step, player, cardName,
+        # CounterType, count)` exists in the test API and `CounterType.findByName`
+        # resolves the recorded name, so this rebuilds — which matters because
+        # counters are the largest class by far: 10.6% of cards and **28% of
+        # recorded permanents**. Refusing them would have cost more yield than
+        # tokens did.
+        #
+        # Whether `findByName` knows a given name is not predictable from here
+        # without copying the enum, and a copied enum is a table that drifts. So
+        # the emitted Java calls it directly: an unknown name returns null and
+        # the test fails, which the diff already treats as an excluded board.
+        # Loud and self-correcting, rather than a second list to maintain.
         if b.get("face_down"):
             out.append(f"{card!r} is FACE DOWN — a 2/2 with no abilities, not the "
                        "card it will turn into")
         if b.get("phased_in") is False:
             out.append(f"{card!r} is PHASED OUT and is not on the battlefield")
     return out
+
+
+
+def _counters(add, pos: dict) -> None:
+    """Restore counters recorded on permanents.
+
+    `addCounters` is scheduled like a player action — (turn, step, player, card,
+    type, count) — so it runs during the simulated turn rather than at setup.
+    That is why it goes in beside the combat declarations rather than with
+    `addCard`.
+
+    `CounterType.findByName` does the name lookup inside the engine, so there is
+    no counter-name table on this side to drift (Section 21.117).
+    """
+    withc = [b for b in (pos.get("battlefield") or []) if b.get("counters")]
+    if not withc:
+        return
+    step = phase_step(canonical_phase(pos.get("phase") or "") or "") or "PRECOMBAT_MAIN"
+    turn = active_turn(pos)
+    add(f"        // counters recorded on {len(withc)} permanent(s)")
+    for b in withc:
+        who = _player(b.get("controller") or "you")
+        for name, count in b["counters"].items():
+            add(f'        addCounters({turn}, PhaseStep.{step}, {who}, "{b["card"]}",')
+            add(f'                CounterType.findByName("{name}"), {count});')
+    add("")
 
 
 def combat_problems(pos: dict) -> list[str]:
@@ -371,6 +406,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     add("")
     add("import mage.MageInt;")
     add("import mage.constants.CardType;")
+    add("import mage.counters.CounterType;")
     add("import mage.constants.PhaseStep;")
     add("import mage.constants.SubType;")
     add("import mage.game.permanent.token.TokenImpl;")
@@ -463,6 +499,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
 
     add("")
     _place_tokens(add, pos)
+    _counters(add, pos)
     _combat(add, pos)
 
     # --- the two query methods, each on its own copy of the board -----------
@@ -474,6 +511,15 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     lines.extend(board)
     _stop_at(add, step, phase, pos)
     add(f'        System.out.println("=== {pos["id"]} ===");')
+    # The board AS THE ENGINE BUILT IT, so the rebuild can be checked against
+    # the recording instead of trusted. Every fix in this thread — combat state,
+    # tokens, counters — was a case of handing the engine a different board and
+    # not finding out. One readback catches all of them and any future one
+    # (Section 21.117).
+    add("        currentGame.getBattlefield().getAllActivePermanents().forEach(p ->")
+    add('                System.out.println("PERM: " + p.getName() + " "'
+        ' + p.getPower().getValue() + "/" + p.getToughness().getValue()')
+    add('                        + (p.isTapped() ? " tapped" : "")));')
     # `getPlayable` returns List<ActivatedAbility>, and DECLARING AN ATTACK IS
     # NOT AN ACTIVATED ABILITY — it is a turn-based action — so attacks cannot
     # appear here at any step. The first clean run reported only `Cast Shock`

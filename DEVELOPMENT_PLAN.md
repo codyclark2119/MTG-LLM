@@ -9993,3 +9993,62 @@ That trades yield for honesty, and the yield cost is real — on a counters-heav
 deck it could exceed the 26% tokens were costing. The alternative is a board
 that answers a different question, which this project has now paid for four
 times (21.105 combat state, 21.106 tokens, 21.111 faces, 21.115 subtypes).
+
+### 21.117 Ask the engine what it built, instead of predicting what it cannot
+
+21.116 traded yield for honesty: every permanent carrying counters, an
+attachment, a chosen value, a face-down state or phasing was refused. Two
+follow-ups, and the second supersedes the approach.
+
+#### Counters are rebuilt, not refused
+
+`CardTestPlayerAPIImpl.addCounters(turn, step, player, cardName, CounterType,
+count)` exists, and `CounterType.findByName` resolves the recorded name inside
+the engine — so there is no counter-name table on this side to drift, the same
+reason `SubType.name()` is recorded rather than paraphrased (21.102, 21.113).
+
+That matters more than the other classes combined: counters are **10.6% of
+cards and 28% of recorded permanents**. Refusing them would have cost more yield
+than tokens did.
+
+Whether `findByName` knows a given name is not predictable from Python without
+copying the enum, so the emitted Java calls it directly: an unknown name returns
+null, `addCounters` throws, the test fails, and the diff already excludes a
+failed board. Loud and self-correcting rather than a second list to maintain.
+
+Verified by running — base 2/2, recorded 4/4, engine built:
+
+```
+PERM: Grizzly Bears 4/4
+```
+
+#### The readback, which is the actual fix
+
+That `PERM:` line is new, and it changes the shape of the problem. Every bug in
+this thread has been the same one:
+
+| | the engine was handed |
+| --- | --- |
+| 21.105 | a board with nobody attacking |
+| 21.106 | a board missing a token |
+| 21.111 | a card face that is never cast |
+| 21.116 | a permanent without its counters or chosen type |
+
+Four instances, each found only after it had cost something, and each fixed by
+adding a class to a list of things to check for. **That list grows every set.**
+`prepare` was two sets old and unknown to this project; the next mechanic will
+be too.
+
+So the emitted test now prints the board **as the engine actually built it**,
+and `board_fidelity` compares it to the recording — names, counts and P/T. A
+difference means the engine's answer is about a board the position does not
+describe, *whatever the reason*, including reasons nobody has thought of.
+
+The diff reports those separately and excludes them from both columns, because a
+setup mismatch is not a legality disagreement and counting it as one would put a
+harness bug in the findings — 21.5's shape, which this project has been caught by
+before.
+
+A report with no `PERM:` lines predates the readback and is **not** treated as a
+mismatch: absence of evidence must not read as evidence of difference. That is
+the same rule as `protocol_findings` returning None for an undecidable entry.
