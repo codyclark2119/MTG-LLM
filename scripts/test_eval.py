@@ -2302,6 +2302,30 @@ def test_game_end_records() -> int:
     return failed
 
 
+def test_permanent_pt_shapes() -> int:
+    """One P/T parser for two storage shapes (Section 21.124).
+
+    A position stores `pt` as the STRING "1/1" and omits it for a land; a raw
+    collector snapshot stores integer `power`/`toughness`. Both reach the same
+    consumers, and reading the wrong one silently yields 0/0 — which cost twice
+    in one session: 17 false mismatches from `board_fidelity`, and a 1/1 Faerie
+    token rebuilt as a 0/0 that state-based actions would have killed on sight.
+    """
+    from common import permanent_pt
+    failed = 0
+    failed += not check("the `pt` string is parsed", permanent_pt({"pt": "1/1"}), (1, 1))
+    failed += not check("integer fields still work",
+                        permanent_pt({"power": 4, "toughness": 3}), (4, 3))
+    failed += not check("a land with neither is 0/0",
+                        permanent_pt({"card": "Forest"}), (0, 0))
+    failed += not check("`pt` wins when both are present",
+                        permanent_pt({"pt": "9/9", "power": 0, "toughness": 0}), (9, 9))
+    # A malformed value must not raise into a caller mid-export.
+    failed += not check("a malformed pt is 0/0, not an exception",
+                        permanent_pt({"pt": "weird"}), (0, 0))
+    return failed
+
+
 def test_board_fidelity() -> int:
     """The engine reports the board it built, and we check it (Section 21.117).
 
@@ -2598,6 +2622,7 @@ def main() -> None:
                      ("multi_face_layouts", test_multi_face_layouts),
                      ("token_rebuild", test_token_rebuild),
                      ("permanent_state", test_permanent_state_refusals),
+                     ("permanent_pt", test_permanent_pt_shapes),
                      ("board_fidelity", test_board_fidelity),
                      ("game_end_records", test_game_end_records)):
         print(f"{name} ...")

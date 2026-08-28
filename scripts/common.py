@@ -453,6 +453,30 @@ PHASE_NAMES = tuple(sorted(
 PHASE_ORDER = tuple(row[0] for row in PHASE_STEPS)
 
 
+
+def permanent_pt(perm: dict) -> tuple[int, int]:
+    """A battlefield entry's power and toughness, however it stores them.
+
+    A position stores `pt` as the STRING "1/1" and omits it for a land, because
+    a rendered board must not claim a Mountain is a 0/0. A raw collector
+    snapshot stores integer `power` and `toughness`. Both shapes reach the same
+    consumers, and reading the wrong one silently yields 0/0.
+
+    That cost twice in one session: `board_fidelity` reported 17 boards as
+    mismatched because every permanent compared as 0/0 (21.123), and the token
+    rebuild emitted a 1/1 Faerie as a **0/0**, which state-based actions would
+    have killed on the spot. Second occurrence is why this lives here rather
+    than in either caller (Section 21.124).
+    """
+    pt = perm.get("pt")
+    if pt:
+        try:
+            a, _, b = str(pt).partition("/")
+            return int(a), int(b)
+        except ValueError:
+            return 0, 0
+    return int(perm.get("power") or 0), int(perm.get("toughness") or 0)
+
 def phase_step(text: str) -> str | None:
     """Any spelling of a step -> its XMage enum name, or None.
 

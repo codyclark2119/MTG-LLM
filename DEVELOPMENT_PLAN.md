@@ -10401,3 +10401,65 @@ A land that is currently a creature cannot be rebuilt by `addCard`, which places
 the printed card. Nothing in the pipeline knew that until the readback said so —
 and it is precisely the class of state 21.116 enumerated and could not have
 finished enumerating. The readback found it without being told to look.
+
+### 21.124 Keyword tokens rebuilt, one P/T parser, and the deck that animates lands
+
+Three findings from squeezing the counters-heavy game for validation.
+
+#### Keyword abilities rebuild; real text still refuses
+
+15 boards were excluded because one Treefolk Token has `reach`. Keyword
+abilities are singletons — `ReachAbility.getInstance()` — so a token whose
+abilities are ALL keywords rebuilds exactly. Recorded rule texts are plain
+lowercase words: `flying` (43), `reach` (12), `indestructible` (3).
+
+`_KEYWORD_ABILITY` is **a table on our side**, which this file otherwise avoids
+on principle (`CounterType.findByName`, `SubType.name()`, `PHASE_STEPS`). It is
+here because the engine offers no rule-text lookup — no Keyword enum, no
+`Ability.byRule` — and every entry was checked against the checkout rather than
+assumed. **`MenaceAbility` is not a singleton**, so it takes its constructor;
+guessing would have compiled to nothing.
+
+A token whose ability is real text still refuses. `{T}: Add one mana of any
+color` cannot be rebuilt, and a vanilla stand-in for it is 21.113's mistake with
+a keyword instead of a token.
+
+#### The same P/T bug, in a second place
+
+21.123 fixed `board_fidelity` reading `power` from records that store the string
+`pt`. The token rebuild had **the same bug**: a 1/1 Faerie was emitted as
+
+```java
+super("Faerie Token", "0/0 token");
+power = new MageInt(0);
+```
+
+A 0/0 creature dies to state-based actions the moment it enters, so the rebuilt
+board would have been missing the token entirely — while looking correct in the
+generated source.
+
+Second occurrence is why `permanent_pt` now lives in `common.py` and all three
+callers use it. Fixing 21.123 in place and moving on would have left this one,
+which is this project's most repeated bug in its purest form: the same defect,
+two callers, one fixed.
+
+#### 18 usable boards, and 17 lost to the deck
+
+```
+51 candidates -> 22 comparable -> 18 with >=2 distinct plays
+excluded: 17 board mismatch, 8 test failure, 4 blind spot
+```
+
+**Every one of the 17 mismatches is an animated land** — `Ba Sing Se 2/2`,
+`Forest 9/9`, `Forest 15/15` — recorded as creatures and rebuilt as lands,
+because `addCard` places the printed card and the animation came from a resolved
+ability. Not fixable without replaying the game.
+
+That is deck guidance, not a tooling gap: **a deck that animates lands makes a
+third of its boards unusable for engine validation.** The boards are still real
+and still renderable — they just cannot have their `legal_actions` generated or
+checked.
+
+Yield across the three measurements: **5** (21.112, welcome decks) -> **16**
+(21.123, after the P/T fix) -> **18**. Roughly 2-3 games for ~40 positions,
+against the 8-13 estimated before any of this.

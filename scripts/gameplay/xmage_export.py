@@ -73,7 +73,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common import (PHASE_ORDER, POSITIONS_PATH,  # noqa: E402
-                    canonical_phase, phase_index, phase_step)
+                    canonical_phase, permanent_pt, phase_index, phase_step)
 from positions import load_positions  # noqa: E402
 
 # --- The two mappings this repo cannot verify -------------------------------
@@ -158,6 +158,45 @@ def _stop_at(add, step: str | None, phase: str, pos: dict) -> None:
     add("")
 
 
+# Keyword abilities a rebuilt token can carry, as the exact Java that creates
+# one. Rule text -> expression, and fully qualified so no import management is
+# needed in the emitted file.
+#
+# THIS IS A TABLE ON OUR SIDE, which the rest of this file avoids on principle
+# (`CounterType.findByName`, `SubType.name()`, `common.PHASE_STEPS`). It is here
+# because the engine offers no rule-text-to-ability lookup: there is no Keyword
+# enum and no `Ability.byRule`. Verified against the checkout rather than
+# assumed — every entry below was checked for `getInstance()`, and **Menace is
+# not a singleton**, so it takes its constructor.
+#
+# Anything not listed REFUSES the board (Section 21.124). A token whose ability
+# is real text — "{T}: Add one mana of any color" — cannot be rebuilt at all,
+# and a vanilla stand-in for it would be the 21.113 mistake with a keyword
+# instead of a token.
+_KEYWORD_ABILITY = {
+    "flying": "mage.abilities.keyword.FlyingAbility.getInstance()",
+    "reach": "mage.abilities.keyword.ReachAbility.getInstance()",
+    "trample": "mage.abilities.keyword.TrampleAbility.getInstance()",
+    "vigilance": "mage.abilities.keyword.VigilanceAbility.getInstance()",
+    "haste": "mage.abilities.keyword.HasteAbility.getInstance()",
+    "lifelink": "mage.abilities.keyword.LifelinkAbility.getInstance()",
+    "deathtouch": "mage.abilities.keyword.DeathtouchAbility.getInstance()",
+    "first strike": "mage.abilities.keyword.FirstStrikeAbility.getInstance()",
+    "double strike": "mage.abilities.keyword.DoubleStrikeAbility.getInstance()",
+    "defender": "mage.abilities.keyword.DefenderAbility.getInstance()",
+    "hexproof": "mage.abilities.keyword.HexproofAbility.getInstance()",
+    "indestructible": "mage.abilities.keyword.IndestructibleAbility.getInstance()",
+    "flash": "mage.abilities.keyword.FlashAbility.getInstance()",
+    "shroud": "mage.abilities.keyword.ShroudAbility.getInstance()",
+    "menace": "new mage.abilities.keyword.MenaceAbility()",
+}
+
+
+def token_keyword(rule: str) -> str | None:
+    """The Java for a token's keyword ability, or None if it is not a keyword."""
+    return _KEYWORD_ABILITY.get((rule or "").strip().lower().rstrip("."))
+
+
 def token_class_name(card: str) -> str:
     """`Treefolk Token` -> `RecTreefolkToken`, a nested class name."""
     parts = [p for p in _SAFE.split(card) if p]
@@ -191,10 +230,16 @@ def token_problems(pos: dict) -> list[str]:
     for b in pos.get("battlefield") or []:
         if not b.get("token"):
             continue
-        rules = b.get("token_rules") or []
-        if rules:
+        # Only rules that are NOT rebuildable keywords refuse. `flying`, `reach`
+        # and `indestructible` are singletons the emitted class can add, and
+        # those three alone accounted for 15 excluded boards in one game
+        # (Section 21.124). A rule that is real text — "{T}: Add one mana of any
+        # color" — still refuses, because a token missing it is a different
+        # board and a vanilla stand-in looks correct.
+        unknown = [r for r in (b.get("token_rules") or []) if not token_keyword(r)]
+        if unknown:
             out.append(f"{b.get('card')!r} is a TOKEN with abilities this cannot "
-                       f"rebuild ({'; '.join(rules)[:80]}) — the engine sees a "
+                       f"rebuild ({'; '.join(unknown)[:80]}) — the engine sees a "
                        "different board")
         elif not b.get("token_types"):
             out.append(f"{b.get('card')!r} is a TOKEN recorded before its "
@@ -204,8 +249,14 @@ def token_problems(pos: dict) -> list[str]:
 
 def rebuildable_tokens(pos: dict) -> list[dict]:
     """Token permanents this export can reconstruct, in board order."""
-    return [b for b in (pos.get("battlefield") or [])
-            if b.get("token") and b.get("token_types") and not (b.get("token_rules") or [])]
+    out = []
+    for b in pos.get("battlefield") or []:
+        if not (b.get("token") and b.get("token_types")):
+            continue
+        rules = b.get("token_rules") or []
+        if all(token_keyword(r) for r in rules):
+            out.append(b)
+    return out
 
 
 def _token_classes(add, pos: dict) -> None:
@@ -227,7 +278,8 @@ def _token_classes(add, pos: dict) -> None:
         # The description is free text and XMage rejects one starting with an
         # indefinite article (TokenImpl's own constructor check), so it is built
         # from the P/T rather than copied from anywhere.
-        desc = f"{b.get('power', 0)}/{b.get('toughness', 0)} token"
+        tp, tt = permanent_pt(b)
+        desc = f"{tp}/{tt} token"
         add(f'            super("{card}", "{desc}");')
         for t in b.get("token_types") or []:
             add(f"            cardType.add(CardType.{t});")
@@ -237,8 +289,10 @@ def _token_classes(add, pos: dict) -> None:
             setter = {"W": "setWhite", "U": "setBlue", "B": "setBlack",
                       "R": "setRed", "G": "setGreen"}[c]
             add(f"            color.{setter}(true);")
-        add(f"            power = new MageInt({b.get('power', 0)});")
-        add(f"            toughness = new MageInt({b.get('toughness', 0)});")
+        for r in b.get("token_rules") or []:
+            add(f"            addAbility({token_keyword(r)});")
+        add(f"            power = new MageInt({tp});")
+        add(f"            toughness = new MageInt({tt});")
         add("        }")
         add(f"        private {cls}(final {cls} t) {{ super(t); }}")
         add(f"        public {cls} copy() {{ return new {cls}(this); }}")
