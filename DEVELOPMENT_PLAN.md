@@ -10092,3 +10092,66 @@ duplicate boards among 66 snapshots** and was right — that game played to a
 conclusion, so no post-end log messages arrived. The check was sound and the
 condition that triggers the bug was simply absent, which is 21.5's shape once
 more: a defect whose visibility depends on how the run happened to end.
+
+### 21.119 A cold image cache reads as a failing network
+
+Reported: the server dropped the client *"almost once per move"*, with
+`The connection to the server was lost. Reconnect?` — reconnecting worked every
+time. Nothing to do with the collector: **zero collector errors**, and the
+server log was 85 lines with no stack traces.
+
+The server log said `LOST CONNECTION (bad network) - steve`, from
+`Main$MageServerConnectionListener.handleConnectionException` on `[Timer-0]` —
+the lease timer. And the timing was the tell:
+
+```
+01:11:36 connected -> 01:11:56 LOST   (20s)
+01:11:58 connected -> 01:12:18 LOST   (20s)
+```
+
+Exactly twenty seconds, every time. A flaky network is irregular; a fixed
+interval is a timer firing.
+
+#### The cause
+
+| | `plugins/images` |
+| --- | --- |
+| the installed client, used for weeks | **4.1 GB** |
+| the client built in 21.115 | **13 MB** |
+
+A cold client downloads card art **on demand, on the Event Dispatch Thread** —
+the same thread that answers the server's keepalive. Every new card stalls the
+EDT, the lease period elapses with no response, and the server drops the
+session. Hence *once per move*: a move reveals a card, the card triggers a
+download.
+
+So building a matching client to fix 21.115 introduced this, and the symptom
+named the wrong subsystem. `(bad network)` is XMage's own wording for "no
+response in time", which is true and points away from the cause.
+
+#### Preserved across rebuilds
+
+The user's question — can the symbols and images survive a rebuild — is the
+durable half. Deploying is `unzip -o` over the install directory, which wipes:
+
+- `plugins/images` — 4.2 GB of card art, **and the symbols**, which are a
+  subdirectory of it rather than a separate cache;
+- `db/` — 294 MB card database;
+- `config/` — preferences, including the server address.
+
+`~/xmage-magicllm/redeploy.sh` now moves those three aside, unzips, and moves
+them back. A move rather than a copy: 4.2 GB copied twice per deploy is a minute
+of disk for nothing, and a move is atomic on one volume.
+
+Client start-up: **12 seconds cold, 5 seconds warm**.
+
+#### Two diagnostic notes
+
+The machine's LAN address had changed under DHCP (192.168.1.4 to .67) between
+sessions, which briefly looked like the client was on another device. Worth
+checking before reading anything into an address.
+
+And this is the second failure in two days where a client-side symptom named the
+wrong subsystem — 21.115's NPE was a card-pool mismatch, this one a cold cache,
+and both presented as connection faults. When the client reports a connection
+problem, the connection is the last thing to suspect.
