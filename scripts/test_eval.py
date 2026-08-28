@@ -2336,6 +2336,22 @@ def test_board_fidelity() -> int:
                                    {"card": "Treefolk Token", "power": 2, "toughness": 5}]}
         failed += not check("a missing permanent is caught",
                             len(board_fidelity(f, missing)), 1)
+        # A position stores P/T as the STRING `pt`, and omits it for a land.
+        # Reading `power`/`toughness` with a default of 0 made every permanent
+        # compare as 0/0 and reported 17 boards as mismatched on the first real
+        # run (Section 21.123).
+        as_stored = {"battlefield": [{"card": "Forest"},
+                                     {"card": "Grizzly Bears", "pt": "4/4"}]}
+        failed += not check("a position's `pt` string is read",
+                            board_fidelity(f, as_stored), [])
+        # A land with no `pt` is 0/0 to the engine too, so omitting it is not a
+        # difference — but a land that has BECOME a creature carries a pt and
+        # must be caught, which is what the animated lands in the recording were.
+        animated = {"battlefield": [{"card": "Forest", "pt": "9/9"},
+                                    {"card": "Grizzly Bears", "pt": "4/4"}]}
+        failed += not check("an animated land IS a difference",
+                            len(board_fidelity(f, animated)), 2)
+
         # A report with no PERM lines predates the readback and is NOT a
         # difference — absence of evidence must not read as a mismatch.
         old = _Path(d) / "old.xml"

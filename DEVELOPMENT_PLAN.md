@@ -10345,3 +10345,59 @@ makes the gate a moving target that certifies whatever the model does. Keeping
 Measuring without gating keeps every number and drops only the claim the
 evidence does not support. It also matches how `only_pass` is already handled:
 reported, not gated, pending a reason to gate.
+
+### 21.123 The fidelity check's first run: 17 false positives, then 16 usable boards
+
+The first game recorded with everything instrumented — 63 boards over 16 turns,
+a real loss at −21 life, **counters on 165 permanents**, zero duplicates.
+Counters at that density is exactly the case 21.116 would have refused and
+21.117 rebuilt.
+
+The new `board_fidelity` check then excluded **17 of 26** boards it looked at.
+Which was itself a bug.
+
+#### The check read a key the writer never sets
+
+A position stores P/T as the **string** `pt` — `"1/1"` — and `import_game` omits
+it entirely when zero, so a rendered board does not claim a Mountain is a 0/0.
+`board_fidelity` read `b.get("power", 0)`, a key candidates never carry, so
+**every permanent compared as 0/0**:
+
+```
+recorded 1x 'Llanowar Elves' 0/0 that the engine did not build
+the engine built 1x 'Llanowar Elves' 1/1 that was not recorded
+```
+
+21.49's shape — a check reading a default as a value — with one difference that
+mattered: it failed **loudly**, as 17 impossible mismatches, rather than as a
+pass. That is the only reason it was caught in the same hour it shipped, and it
+is the argument for checks that fail toward noise rather than toward silence.
+
+#### The yield, before and after
+
+| | before the fix | after |
+| --- | --- | --- |
+| comparable boards | 9 | **20** |
+| **≥2 distinct plays** | 6 | **16** |
+| board mismatches | 17 | 6 |
+
+**Sixteen boards with a real decision from one game**, against the 5 measured in
+21.112. That changes the arithmetic behind the plan: ~40 positions is **2-3
+games**, not 8-13.
+
+The remaining exclusions are honest ones: 15 tokens refused (the Treefolk Token
+has `reach`, and only keyword-free tokens rebuild exactly), 8 test failures, 6
+real mismatches, 2 blind spots.
+
+#### The six real mismatches are animated lands
+
+```
+recorded 'Ba Sing Se' 2/2  — the engine built a land
+recorded 'Forest'    9/9   — the engine built a land
+recorded 'Lumbering Worldwagon' 4/4 vs engine 5/4
+```
+
+A land that is currently a creature cannot be rebuilt by `addCard`, which places
+the printed card. Nothing in the pipeline knew that until the readback said so —
+and it is precisely the class of state 21.116 enumerated and could not have
+finished enumerating. The readback found it without being told to look.

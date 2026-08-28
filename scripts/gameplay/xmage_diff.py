@@ -156,6 +156,29 @@ def legal_actions_from_engine(eng: dict[str, set[str]],
 
 
 
+def _recorded_pt(perm: dict) -> str:
+    """A permanent's P/T as the position stores it.
+
+    A position stores `pt` as the STRING "1/1" and omits it entirely for a
+    land, because `import_game` only writes it when non-zero — a rendered board
+    must not claim a Mountain is a 0/0.
+
+    Reading `power`/`toughness` with a default of 0 instead made every permanent
+    compare as `0/0`, so the fidelity check reported 17 boards as mismatched on
+    its first real run and named `Llanowar Elves 0/0` against the engine's
+    `1/1`. A check that reads a key the writer never sets, and treats the
+    default as a value, is 21.49's shape — except this one failed loudly rather
+    than as a pass, which is the only reason it was caught the same hour
+    (Section 21.123).
+    """
+    pt = perm.get("pt")
+    if pt:
+        return str(pt)
+    if perm.get("power") is not None or perm.get("toughness") is not None:
+        return f"{perm.get('power', 0)}/{perm.get('toughness', 0)}"
+    return "0/0"          # a land, which the engine also reports as 0/0
+
+
 def board_fidelity(report: Path, pos: dict) -> list[str]:
     """Ways the board the ENGINE built differs from the one recorded.
 
@@ -185,8 +208,7 @@ def board_fidelity(report: Path, pos: dict) -> list[str]:
 
     recorded = collections.Counter()
     for b in pos.get("battlefield") or []:
-        # A land records 0/0 and the engine agrees, so no special case is needed.
-        recorded[(b.get("card"), f"{b.get('power', 0)}/{b.get('toughness', 0)}")] += 1
+        recorded[(b.get("card"), _recorded_pt(b))] += 1
 
     out = []
     for key, n in (recorded - engine).items():
