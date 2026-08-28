@@ -2244,16 +2244,35 @@ def test_game_end_records() -> int:
     failed += not check("...and says the outcome is not evidence",
                         "OUTCOME is not" in end_summary(end), True)
 
-    played = {**end, "winner": "steve",
-              "players": [{"name": "steve", "life": 7, "timer_timeout": False,
-                           "idle_timeout": False, "quit": False, "left": False}]}
-    failed += not check("a played-out game says so",
-                        "played out" in end_summary(played), True)
+    # A played-out game: one player eliminated, one alive. The `winner` field is
+    # deliberately WRONG here, because the engine writes it too early — the first
+    # real end record said "Game is a draw" with a player dead at -1 life
+    # (Section 21.120). The summary must ignore it and derive from `lost`.
+    played = {**end, "winner": "Game is a draw",
+              "players": [{"name": "steve", "life": 25, "lost": False,
+                           "timer_timeout": False, "idle_timeout": False,
+                           "quit": False, "left": False},
+                          {"name": "Computer 2", "life": -1, "lost": True,
+                           "timer_timeout": False, "idle_timeout": False,
+                           "quit": False, "left": True}]}
+    summary = end_summary(played)
+    failed += not check("a played-out game says so", "played out" in summary, True)
+    failed += not check("...naming the winner from `lost`, not `winner`",
+                        "steve won" in summary, True)
+    failed += not check("...and does not repeat the wrong winner field",
+                        "draw" in summary, False)
     conceded = {**end,
                 "players": [{"name": "steve", "life": 7, "timer_timeout": False,
                              "idle_timeout": False, "quit": True, "left": False}]}
     failed += not check("a concession is distinguished from a timeout",
                         "concession" in end_summary(conceded), True)
+    # Nobody eliminated and no timeout is not a win for anyone — say so rather
+    # than inventing a winner.
+    unclear = {**end, "players": [{"name": "steve", "life": 20, "lost": False,
+                                   "timer_timeout": False, "idle_timeout": False,
+                                   "quit": False, "left": False}]}
+    failed += not check("an unresolved game is not given a winner",
+                        "unclear" in end_summary(unclear), True)
     # A recording made before end records existed must say so rather than
     # implying the game played out.
     failed += not check("a missing end record is not silence",

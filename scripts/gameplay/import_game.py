@@ -104,19 +104,39 @@ def end_summary(end: dict) -> str:
     are real and usable; the outcome is not evidence about the line that was
     played, and a game that ends on the clock stops mid-turn with both players
     alive rather than at a resolution.
+
+    **`winner` is NOT read**, because it is written too early to be true. The
+    engine sets it in `findWinnersAndLosers()`, which also calls `player.won()`
+    — and the first real end record had `winner: "Game is a draw"` with one
+    player dead at -1 life, flagged `lost`, and the survivor NOT flagged `won`.
+    That combination is only possible if `onGameEnd` fired before the winner was
+    decided (Section 21.120).
+
+    So the outcome is derived from the fields that ARE set by then: `lost`,
+    `left`, `quit`, the timeout flags and life totals. Deriving from what is
+    true beats reading a field that is merely present.
     """
     if not end:
         return "no end record — a recording made before the collector wrote one"
-    clock = [p["name"] for p in end.get("players") or []
-             if p.get("timer_timeout") or p.get("idle_timeout")]
-    quit_ = [p["name"] for p in end.get("players") or [] if p.get("quit") or p.get("left")]
-    winner = end.get("winner") or "(none)"
+    players = end.get("players") or []
+    turn = end.get("turn")
+    clock = [p["name"] for p in players if p.get("timer_timeout") or p.get("idle_timeout")]
+    quit_ = [p["name"] for p in players if p.get("quit")]
+    lost = [p["name"] for p in players if p.get("lost")]
+    alive = [p["name"] for p in players if not p.get("lost")]
+
     if clock:
-        return (f"ended on the CLOCK at turn {end.get('turn')} ({', '.join(clock)} "
-                f"timed out) — boards are real, the OUTCOME is not")
+        return (f"ended on the CLOCK at turn {turn} ({', '.join(clock)} timed out)"
+                " — boards are real, the OUTCOME is not")
     if quit_:
-        return f"ended by concession/quit at turn {end.get('turn')} ({', '.join(quit_)})"
-    return f"played out to turn {end.get('turn')}, winner {winner}"
+        return f"ended by concession at turn {turn} ({', '.join(quit_)} quit)"
+    if len(lost) == 1 and len(alive) == 1:
+        dead = next(p for p in players if p.get("lost"))
+        return (f"played out to turn {turn} — {alive[0]} won, {lost[0]} lost "
+                f"at {dead['life']} life")
+    if not lost:
+        return f"ended at turn {turn} with nobody eliminated — outcome unclear"
+    return f"ended at turn {turn}; lost: {', '.join(lost)}"
 
 
 def to_position(snap: dict, sides: dict[str, str], index: int) -> dict:

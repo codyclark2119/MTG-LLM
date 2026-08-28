@@ -10155,3 +10155,64 @@ And this is the second failure in two days where a client-side symptom named the
 wrong subsystem — 21.115's NPE was a card-pool mismatch, this one a cold cache,
 and both presented as connection faults. When the client reports a connection
 problem, the connection is the last thing to suspect.
+
+### 21.120 The end record's first use found one of its own fields unreliable
+
+The first fully-instrumented recording — token characteristics, permanent state,
+end records, all live at once. It worked:
+
+```
+33 boards + 1 end record
+counters captured on 24 permanents
+chosen   captured on 14
+duplicate boards: 0          (the 21.118 fix holding)
+```
+
+And the end record immediately earned its place by contradicting itself:
+
+```
+END RECORD: turn 10, winner 'Game is a draw'
+   Computer 2   life  -1   ['lost', 'left']
+   steve        life  25   [(none)]
+```
+
+A draw, with one player dead at **-1 life** and flagged `lost`. The user won
+that game.
+
+#### Why `winner` is wrong at that moment
+
+`GameImpl.findWinnersAndLosers()` both sets `winnerId` **and** calls
+`player.won(this)` on the survivor. Our record shows `steve` with `won: false`,
+so that method had not run when `onGameEnd` fired — `winnerId` was still null,
+and `getWinner()` returns the literal string `"Game is a draw"` for a null
+winner.
+
+So the field is not merely stale, it is **confidently wrong in a specific
+direction**: every game we record will claim a draw unless the winner happens to
+be decided first.
+
+#### Derive from what is set, not from what is present
+
+`lost`, `left`, `quit`, the timeout flags and life totals were all correct in
+the same record — they are set as the game plays, not at the end. `end_summary`
+now ignores `winner` entirely and derives the outcome from those:
+
+```
+game f8300987: played out to turn 10 — steve won, Computer 2 lost at -1 life
+game 53737496: ended by concession at turn 2 (steve quit)
+game 46d26625: played out to turn 4 — Computer 2 won, steve lost at 19 life
+```
+
+The raw field is still written to the JSONL — removing it would hide the
+evidence for this section — but nothing reads it.
+
+Worth naming the shape, because it is the fourth version of it here: a field
+that EXISTS and is populated is not thereby true. `getWinner()` never returns
+null and never errors; it returns a plausible sentence. The same trap as a
+version string that compares equal across different card pools (21.115) and a
+`mana_cost` that is `None` for two layouts meaning different things (21.111) —
+the value is present, well-formed, and answering a question you did not ask.
+
+An unresolved game now says *"outcome unclear"* rather than being assigned a
+winner, on the same principle that a check which cannot run must not report an
+answer.
