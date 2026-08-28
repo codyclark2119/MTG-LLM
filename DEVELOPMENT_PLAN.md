@@ -10216,3 +10216,56 @@ the value is present, well-formed, and answering a question you did not ask.
 An unresolved game now says *"outcome unclear"* rather than being assigned a
 winner, on the same principle that a check which cannot run must not report an
 answer.
+
+### 21.121 Life, not `left`, separates a real loss from an abandoned game
+
+21.120 replaced the unreliable `winner` field with a derivation from `lost`,
+`left` and `quit` — and the derivation was wrong in the same direction. It
+reported
+
+```
+game 46d26625: played out to turn 4 — Computer 2 won, steve lost at 19 life
+```
+
+for a game the user identified as **abandoned**: it was the session interrupted
+by the cold-cache disconnects of 21.119. Nothing in the data said so; the user
+did.
+
+#### Three games, and the flag that discriminates nothing
+
+| game | loser | life | quit | left | actually |
+| --- | --- | --- | --- | --- | --- |
+| f8300987 | Computer 2 | **-1** | no | yes | died |
+| 53737496 | steve | 20 | yes | yes | conceded |
+| 46d26625 | steve | **19** | no | yes | **abandoned** |
+
+`left` is true on all three, **including the genuine loss**, because a player
+leaves the table after losing normally. It looks like the abandonment flag and
+carries no information at all.
+
+**Life is the discriminator.** A player flagged `lost` at positive life did not
+die; something removed them from the game. The rule is now: `life <= 0` is a
+real loss, `quit` is a concession, and `lost` at positive life without `quit` is
+an abandoned game whose outcome is not evidence.
+
+#### The limit, stated rather than papered over
+
+A loss by **decking or poison** also leaves the loser at positive life and will
+be reported as abandoned. Nothing in the end record separates them. The last
+board's `library_count` would settle decking and is deliberately not read —
+adding a dependency from the end record to the board stream for a case that has
+not occurred is a coupling with no evidence behind it. Written down so the wrong
+answer is a known one.
+
+#### The lesson, which is about evidence rather than code
+
+Twice now a plausible outcome has been derived from fields that were present and
+insufficient — `getWinner()` in 21.120, `left` here — and both times the error
+was invisible in the data. What settled it was **the user naming a game they
+remembered**. Three recordings with known ground truth was enough to find a
+discriminator that four fields of flags could not.
+
+That is worth keeping as a method: when a derived field cannot be checked against
+anything, the cheapest validation is a small number of cases someone can
+independently identify. The same argument as adjudication for judge calls
+(21.57), one level down.

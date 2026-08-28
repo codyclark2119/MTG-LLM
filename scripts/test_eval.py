@@ -2266,6 +2266,28 @@ def test_game_end_records() -> int:
                              "idle_timeout": False, "quit": True, "left": False}]}
     failed += not check("a concession is distinguished from a timeout",
                         "concession" in end_summary(conceded), True)
+    # LIFE separates a real loss from an abandoned game; `left` does not, because
+    # it is true for the loser of a played-out game too. Confirmed against three
+    # recordings the user could identify (Section 21.121).
+    abandoned = {**end, "players": [
+        {"name": "steve", "life": 19, "lost": True, "left": True, "quit": False,
+         "timer_timeout": False, "idle_timeout": False},
+        {"name": "Computer 2", "life": 20, "lost": False, "left": False,
+         "quit": False, "timer_timeout": False, "idle_timeout": False}]}
+    failed += not check("a loser at POSITIVE life is abandoned, not beaten",
+                        "ABANDONED" in end_summary(abandoned), True)
+    failed += not check("...and is not called a win for the survivor",
+                        "won" in end_summary(abandoned), False)
+    # The same shape with the loser dead is a real result, and `left` is true in
+    # BOTH — which is exactly why it cannot be the discriminator.
+    beaten = {**end, "players": [
+        {"name": "Computer 2", "life": -1, "lost": True, "left": True,
+         "quit": False, "timer_timeout": False, "idle_timeout": False},
+        {"name": "steve", "life": 25, "lost": False, "left": False,
+         "quit": False, "timer_timeout": False, "idle_timeout": False}]}
+    failed += not check("a loser at zero or less really lost",
+                        "played out" in end_summary(beaten), True)
+
     # Nobody eliminated and no timeout is not a win for anyone — say so rather
     # than inventing a winner.
     unclear = {**end, "players": [{"name": "steve", "life": 20, "lost": False,

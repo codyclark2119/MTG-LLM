@@ -115,6 +115,15 @@ def end_summary(end: dict) -> str:
     So the outcome is derived from the fields that ARE set by then: `lost`,
     `left`, `quit`, the timeout flags and life totals. Deriving from what is
     true beats reading a field that is merely present.
+
+    **LIFE, not `left`, separates a real loss from an abandoned game.** `left` is
+    true for the loser of a played-out game too — a player leaves the table after
+    losing — so it discriminates nothing. A loser at positive life did not die.
+
+    Known limit: a loss by DECKING or poison also leaves the loser at positive
+    life and would be reported as abandoned here. Nothing in the end record
+    separates them; the last board's `library_count` could, and is not read
+    (Section 21.121).
     """
     if not end:
         return "no end record — a recording made before the collector wrote one"
@@ -132,6 +141,15 @@ def end_summary(end: dict) -> str:
         return f"ended by concession at turn {turn} ({', '.join(quit_)} quit)"
     if len(lost) == 1 and len(alive) == 1:
         dead = next(p for p in players if p.get("lost"))
+        # LIFE is the discriminator, not `left`. Confirmed against three
+        # recordings the user could identify: the genuine loss had the loser at
+        # -1, the concession at 20, and an ABANDONED game at 19. `left` was true
+        # on all three, including the real one, because a player leaves the
+        # table after losing normally (Section 21.121).
+        if dead.get("life", 0) > 0:
+            return (f"ABANDONED at turn {turn} — {lost[0]} is flagged lost at "
+                    f"{dead['life']} life, having taken no lethal damage. Not a "
+                    "played-out result; the boards are real, the outcome is not.")
         return (f"played out to turn {turn} — {alive[0]} won, {lost[0]} lost "
                 f"at {dead['life']} life")
     if not lost:
