@@ -10052,3 +10052,43 @@ before.
 A report with no `PERM:` lines predates the readback and is **not** treated as a
 mismatch: absence of evidence must not read as evidence of difference. That is
 the same rule as `protocol_findings` returning None for an undecidable entry.
+
+### 21.118 A clock loss is not a game loss, and it left a duplicate board
+
+The user, after a game: *"another thing to look out for in the log analysis is
+losses based on timeout."* Two defects, one cause.
+
+#### Nothing recorded how a game ended
+
+`onGameEnd` cleared a map and wrote nothing, so a game decided on the clock was
+indistinguishable from one played to a win. XMage distinguishes them precisely —
+`hasTimerTimeout()`, `hasIdleTimeout()`, `hasQuit()`, `hasLeft()`, `hasWon()`,
+`hasLost()`, `getWinner()` — and we simply were not asking.
+
+The collector now writes one `record: game_end` line per game carrying all of
+it. `split_records` keeps it out of the board stream, because it has no
+battlefield and `to_position` would emit an empty one.
+
+**The boards from a timeout game are real and usable; the OUTCOME is not.** A
+clock loss says nothing about the line that was played, and if game outcome ever
+becomes a signal — "this line won" — a timeout would poison it silently.
+
+#### The duplicate board, which is the same bug from the other end
+
+A timeout game ends mid-turn, and the recording showed it: turn 12
+`PRECOMBAT_MAIN` twice, byte-identical, both players alive at 11 and 7.
+
+`snapshotIfNewStep` skips when the (turn, step, active player) key matches the
+previous one — and `onGameEnd` **removed** that key. So the next log message
+found no previous key, treated the final board as a new step, and wrote it
+again. One duplicate in 51 snapshots, in the one place a duplicate is least
+visible: the end, where the game has stopped changing anyway.
+
+A `finished` set now suppresses snapshots after the end, and `onGameStart`
+clears it so a reused game id still records.
+
+Worth noting the earlier measurement that missed this. 21.108 reported **0
+duplicate boards among 66 snapshots** and was right — that game played to a
+conclusion, so no post-end log messages arrived. The check was sound and the
+condition that triggers the bug was simply absent, which is 21.5's shape once
+more: a defect whose visibility depends on how the run happened to end.

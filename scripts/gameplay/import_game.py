@@ -81,6 +81,44 @@ def load_snapshots(root: Path) -> list[dict]:
     return out
 
 
+def split_records(snaps: list[dict]) -> tuple[list[dict], dict[str, dict]]:
+    """(board snapshots, game_id -> end record).
+
+    The collector writes one `record: game_end` line per game alongside the
+    boards. It is not a board and must never become a position — it has no
+    battlefield, and `to_position` would emit an empty one.
+    """
+    boards, ends = [], {}
+    for s in snaps:
+        if s.get("record") == "game_end":
+            ends[s.get("game_id")] = s
+        else:
+            boards.append(s)
+    return boards, ends
+
+
+def end_summary(end: dict) -> str:
+    """One line describing how a game finished, for the import report.
+
+    A CLOCK loss is not a game loss (Section 21.118). The boards leading to one
+    are real and usable; the outcome is not evidence about the line that was
+    played, and a game that ends on the clock stops mid-turn with both players
+    alive rather than at a resolution.
+    """
+    if not end:
+        return "no end record — a recording made before the collector wrote one"
+    clock = [p["name"] for p in end.get("players") or []
+             if p.get("timer_timeout") or p.get("idle_timeout")]
+    quit_ = [p["name"] for p in end.get("players") or [] if p.get("quit") or p.get("left")]
+    winner = end.get("winner") or "(none)"
+    if clock:
+        return (f"ended on the CLOCK at turn {end.get('turn')} ({', '.join(clock)} "
+                f"timed out) — boards are real, the OUTCOME is not")
+    if quit_:
+        return f"ended by concession/quit at turn {end.get('turn')} ({', '.join(quit_)})"
+    return f"played out to turn {end.get('turn')}, winner {winner}"
+
+
 def to_position(snap: dict, sides: dict[str, str], index: int) -> dict:
     """One snapshot -> one position draft in this project's schema.
 
@@ -228,6 +266,9 @@ def main() -> None:
     snaps = load_snapshots(args.snapshots)
     if not snaps:
         raise SystemExit(f"no snapshots under {args.snapshots}")
+    snaps, ends = split_records(snaps)
+    if not snaps:
+        raise SystemExit(f"only end records under {args.snapshots}, no boards")
 
     names = sorted({p.get("name") for s in snaps for p in (s.get("players") or [])
                     if p.get("name")})
@@ -242,6 +283,8 @@ def main() -> None:
     sides = {n: ("you" if n == you_name else "opp") for n in names}
 
     print(f"{len(snaps)} snapshots from {args.snapshots}")
+    for gid in sorted({s.get("game_id") for s in snaps}):
+        print(f"  game {str(gid)[:8]}: {end_summary(ends.get(gid))}")
     print(f"  players: {', '.join(f'{n} -> {s}' for n, s in sides.items())}")
 
     kept = [s for s in snaps if not args.interesting or is_interesting(s, you_name)]

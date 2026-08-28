@@ -2212,6 +2212,55 @@ def test_token_rebuild() -> int:
     return failed
 
 
+def test_game_end_records() -> int:
+    """A clock loss is not a game loss (Section 21.118).
+
+    The collector writes one `record: game_end` line per game. It is not a board
+    and must never become a position — `to_position` would emit an empty
+    battlefield for it.
+
+    A game decided on the clock stops mid-turn with both players alive. The
+    boards leading to it are real and usable; the OUTCOME is not evidence about
+    the line that was played, which is the distinction the summary has to make.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent / "gameplay"))
+    from import_game import split_records, end_summary
+
+    failed = 0
+    board = {"game_id": "g1", "turn": 3, "step": "DRAW", "battlefield": [], "players": []}
+    end = {"game_id": "g1", "record": "game_end", "turn": 12, "winner": "",
+           "players": [{"name": "steve", "life": 7, "timer_timeout": True,
+                        "idle_timeout": False, "quit": False, "left": False},
+                       {"name": "Computer 2", "life": 11, "timer_timeout": False,
+                        "idle_timeout": False, "quit": False, "left": False}]}
+    boards, ends = split_records([board, end])
+    failed += not check("the end record is not a board", len(boards), 1)
+    failed += not check("...and is filed by game id", "g1" in ends, True)
+
+    failed += not check("a clock loss is named as one",
+                        "CLOCK" in end_summary(end), True)
+    failed += not check("...and says the outcome is not evidence",
+                        "OUTCOME is not" in end_summary(end), True)
+
+    played = {**end, "winner": "steve",
+              "players": [{"name": "steve", "life": 7, "timer_timeout": False,
+                           "idle_timeout": False, "quit": False, "left": False}]}
+    failed += not check("a played-out game says so",
+                        "played out" in end_summary(played), True)
+    conceded = {**end,
+                "players": [{"name": "steve", "life": 7, "timer_timeout": False,
+                             "idle_timeout": False, "quit": True, "left": False}]}
+    failed += not check("a concession is distinguished from a timeout",
+                        "concession" in end_summary(conceded), True)
+    # A recording made before end records existed must say so rather than
+    # implying the game played out.
+    failed += not check("a missing end record is not silence",
+                        "no end record" in end_summary(None), True)
+    return failed
+
+
 def test_board_fidelity() -> int:
     """The engine reports the board it built, and we check it (Section 21.117).
 
@@ -2492,7 +2541,8 @@ def main() -> None:
                      ("multi_face_layouts", test_multi_face_layouts),
                      ("token_rebuild", test_token_rebuild),
                      ("permanent_state", test_permanent_state_refusals),
-                     ("board_fidelity", test_board_fidelity)):
+                     ("board_fidelity", test_board_fidelity),
+                     ("game_end_records", test_game_end_records)):
         print(f"{name} ...")
         failed += fn()
 
