@@ -130,6 +130,16 @@ def to_position(snap: dict, sides: dict[str, str], index: int) -> dict:
             for k in ("token_types", "token_subtypes", "token_colors", "token_rules"):
                 if perm.get(k):
                     entry[k] = list(perm[k])
+        # State `addCard(name)` cannot reproduce, carried so the export can
+        # REFUSE the board rather than rebuild it wrong (Section 21.116).
+        for k in ("counters", "attachments", "chosen"):
+            if perm.get(k):
+                entry[k] = perm[k]
+        for k in ("face_down", "transformed"):
+            if perm.get(k):
+                entry[k] = True
+        if perm.get("phased_in") is False:
+            entry["phased_in"] = False
         if perm.get("tapped"):
             entry["tapped"] = True
         if perm.get("attacking"):

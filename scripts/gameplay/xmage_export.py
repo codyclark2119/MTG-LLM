@@ -260,6 +260,47 @@ def _place_tokens(add, pos: dict) -> None:
     add("")
 
 
+def permanent_state_problems(pos: dict) -> list[str]:
+    """Board state `addCard(name)` cannot reproduce (Section 21.116).
+
+    A permanent is not a card name plus tapped. Four kinds of state change what
+    the engine will answer and none of them survive `addCard`:
+
+    - a CHOSEN value — Secluded Courtyard's creature type decides which mana it
+      makes, and the choice lives in the game state rather than on the permanent;
+    - ATTACHMENTS — an Aura or Equipment grants abilities and changes P/T;
+    - FACE-DOWN — a morph is a 2/2 with no abilities, not the card it will
+      become;
+    - PHASED OUT — the permanent is not on the battlefield at all.
+
+    Counters are reported only when they are the reason the P/T diverges,
+    because `putOntoBattlefield` cannot take counters either and a 4/4 rebuilt
+    as a 2/2 is a different board.
+
+    Reported, never silently rebuilt. That is the rule the token work settled
+    (21.113): a wrong permanent looks correct and an absent one does not, so the
+    only safe options are reproduce it exactly or refuse the board.
+    """
+    out = []
+    for b in pos.get("battlefield") or []:
+        card = b.get("card")
+        if b.get("chosen"):
+            out.append(f"{card!r} carries a CHOSEN value ({', '.join(b['chosen'])}) "
+                       "which lives in the game state and cannot be replayed")
+        if b.get("attachments"):
+            out.append(f"{card!r} has {', '.join(b['attachments'])} attached; "
+                       "attachments are not reproduced")
+        if b.get("counters"):
+            pretty = ", ".join(f"{n}x {k}" for k, n in b["counters"].items())
+            out.append(f"{card!r} has counters ({pretty}) which addCard cannot place")
+        if b.get("face_down"):
+            out.append(f"{card!r} is FACE DOWN — a 2/2 with no abilities, not the "
+                       "card it will turn into")
+        if b.get("phased_in") is False:
+            out.append(f"{card!r} is PHASED OUT and is not on the battlefield")
+    return out
+
+
 def combat_problems(pos: dict) -> list[str]:
     """Attacking permanents the rules do not allow this board to have.
 
@@ -322,6 +363,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     combat_step = "DECLARE_ATTACKERS" if combat_reachable(phase) else None
     problems.extend(combat_problems(pos))
     problems.extend(token_problems(pos))
+    problems.extend(permanent_state_problems(pos))
 
     lines: list[str] = []
     add = lines.append

@@ -9930,3 +9930,66 @@ is what "the same version" covered.
 The launchers are `~/xmage-magicllm/magicllm-server.sh` and
 `magicllm-client.sh`, both outside any distribution zip so a redeploy cannot
 restore a stock one over them (21.113).
+
+### 21.116 A permanent is not a card name plus tapped
+
+Prompted by the user after 21.115: *"choosing a creature type is a very common
+variable for kindred decks and there are other similar style value choices we
+need to assure are handled correctly."* An audit of what the engine tracks on a
+permanent against what the collector records and the export can rebuild.
+
+The collector recorded: name, controller, tapped, attacking, sick, P/T, token.
+Everything below changes what the engine answers and none of it survived
+`addCard(name)`.
+
+| unrecorded state | cards | why it matters |
+| --- | --- | --- |
+| +1/+1 or -1/-1 counters | **10.6%** | P/T; `addCard` gives the printed body |
+| Auras | 3.7% | grant and remove abilities |
+| other counters (loyalty, charge…) | 2.0% | loyalty gates planeswalker abilities |
+| Equipment | 1.9% | grants abilities, changes P/T |
+| **chosen value** (type/colour/name) | **0.9%** | decides what mana a land makes |
+| face-down (morph/manifest/disguise) | 0.9% | it is a 2/2 with no abilities |
+| phased out | 0.2% | the permanent is not there at all |
+
+#### The empirical number is much worse than the corpus rate
+
+Across the four recordings so far: **150 of 538 creature permanents (28%) have a
+P/T that differs from the printed card.** Five cards account for all of it —
+`Marauding Mako` 47 times, `Textbook Tabulator` 43 (base 0/3, recorded 1/4).
+
+So more than a quarter of recorded creatures would be rebuilt wrong by name
+alone, and nothing said so. The corpus rate says a mechanic is *rare*; the
+recordings say the cards that have it are *played repeatedly*.
+
+#### The chosen value is the one that already broke a game
+
+`ChooseCreatureTypeEffect` stores its result in the **game state**, not on the
+permanent:
+
+```java
+game.getState().setValue(source.getSourceId() + "_type", SubType.byDescription(...));
+```
+
+So two Secluded Courtyards with identical names, types and P/T make different
+mana, and nothing the collector read could tell them apart. That is 21.115's
+failure from the other direction: there it broke the client, here it would have
+silently produced a board where the engine reports the wrong castable spells.
+
+Recorded now by probing the known suffixes (`_type`, `_color`, `_name`,
+`_cardName`, `_subtype`). There is **no registry of suffixes**, so an effect
+using another one stays invisible — which is exactly why the export refuses on
+what it sees rather than assuming absence means nothing was chosen.
+
+#### Rebuild what is exact, refuse the rest
+
+The rule the token work settled (21.113) generalises: a wrong permanent looks
+correct and an absent one does not, so the only safe options are reproduce it
+exactly or refuse the board. Tokens are rebuilt because their characteristics
+are fully recorded; none of the state above is, so `permanent_state_problems`
+reports and the board is marked as one the engine cannot be asked about.
+
+That trades yield for honesty, and the yield cost is real — on a counters-heavy
+deck it could exceed the 26% tokens were costing. The alternative is a board
+that answers a different question, which this project has now paid for four
+times (21.105 combat state, 21.106 tokens, 21.111 faces, 21.115 subtypes).

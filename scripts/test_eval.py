@@ -2212,6 +2212,48 @@ def test_token_rebuild() -> int:
     return failed
 
 
+def test_permanent_state_refusals() -> int:
+    """A permanent is not a card name plus tapped (Section 21.116).
+
+    Four kinds of state change what the engine answers and none survive
+    `addCard`. The chosen creature type is the one that already broke a game:
+    Secluded Courtyard's choice decides which mana it makes, and it lives in the
+    GAME STATE rather than on the permanent.
+
+    Measured: 28% of creature permanents across four recordings already have a
+    P/T that differs from the printed card, so more than a quarter would be
+    rebuilt wrong from the name alone.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent / "gameplay"))
+    from xmage_export import permanent_state_problems as probs
+
+    failed = 0
+    failed += not check("a chosen value is refused",
+                        len(probs({"battlefield": [
+                            {"card": "Secluded Courtyard", "chosen": ["type=Elf"]}]})), 1)
+    failed += not check("counters are refused",
+                        len(probs({"battlefield": [
+                            {"card": "Bears", "counters": {"+1/+1": 2}}]})), 1)
+    failed += not check("attachments are refused",
+                        len(probs({"battlefield": [
+                            {"card": "Angel", "attachments": ["Pacifism"]}]})), 1)
+    failed += not check("face-down is refused",
+                        len(probs({"battlefield": [
+                            {"card": "X", "face_down": True}]})), 1)
+    failed += not check("phased out is refused",
+                        len(probs({"battlefield": [
+                            {"card": "X", "phased_in": False}]})), 1)
+    # phased_in TRUE is the normal case and must not fire — the check is on the
+    # absence of presence, which is easy to invert.
+    failed += not check("a phased-IN permanent is fine",
+                        probs({"battlefield": [{"card": "X", "phased_in": True}]}), [])
+    failed += not check("an ordinary permanent is fine",
+                        probs({"battlefield": [{"card": "Forest", "tapped": True}]}), [])
+    return failed
+
+
 def test_multi_face_layouts() -> int:
     """Six `//` layouts, and they do not behave alike (Section 21.111).
 
@@ -2400,7 +2442,8 @@ def main() -> None:
                      ("engine_legal_actions", test_engine_legal_actions),
                      ("token_permanents", test_token_permanents),
                      ("multi_face_layouts", test_multi_face_layouts),
-                     ("token_rebuild", test_token_rebuild)):
+                     ("token_rebuild", test_token_rebuild),
+                     ("permanent_state", test_permanent_state_refusals)):
         print(f"{name} ...")
         failed += fn()
 
