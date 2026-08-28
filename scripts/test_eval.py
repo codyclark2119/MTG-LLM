@@ -2302,6 +2302,52 @@ def test_game_end_records() -> int:
     return failed
 
 
+def test_rubric_task_export() -> int:
+    """Recorded boards become tasks the DEPLOYED rubric form already serves.
+
+    No fourth authoring view: `/rubric` collects key_points and common_errors
+    against a `question`, and its CSS is `pre-wrap`, so a rendered board shows
+    as a board. The author and the model then read the SAME string, which is
+    what stops a rubric being written against a different board than the one
+    evaluated (Section 21.125).
+    """
+    import sys as _sys, json, tempfile
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent / "gameplay"))
+    from import_game import export_rubric_tasks
+    from common import CR_VERSION
+
+    failed = 0
+    draft = {"id": "pos-recorded-abc-0001", "category": "", "difficulty": "",
+             "turn": 3, "phase": "precombat main step", "active_player": "you",
+             "priority": "you", "cr_version": CR_VERSION,
+             "players": {"you": {"life": 20, "hand": ["Shock"], "library_count": 30},
+                         "opp": {"life": 20, "hand_count": 4, "library_count": 30}},
+             "battlefield": [{"controller": "you", "card": "Mountain"}],
+             "graveyards": {}, "key_points": [], "common_errors": []}
+    with tempfile.TemporaryDirectory() as d:
+        out = _Path(d) / "tasks.json"
+        n = export_rubric_tasks([draft], out)
+        failed += not check("one board, one task", n, 1)
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        failed += not check("declared as rubric work", payload["kind"], "rubric")
+        task = payload["tasks"][0]
+        failed += not check("the board is the question",
+                            "Turn 3" in task["question"], True)
+        failed += not check("...rendered, not raw json",
+                            "Mountain" in task["question"], True)
+        # 14.6 measured machine drafts at r=+0.30 against hand-written +0.62, and
+        # a recorded board has no answer to split anyway. Shipping a generated
+        # draft would put 21.98's caveat back into the one part of the pipeline
+        # meant to escape it.
+        failed += not check("no machine draft is shipped", task["draft"], [])
+        failed += not check("category is left for the author", task["category"], "")
+        # The form's contract: these keys must exist or it renders nothing.
+        for k in ("id", "answer", "url", "in_gold", "card_slots"):
+            failed += not check(f"task carries {k}", k in task, True)
+    return failed
+
+
 def test_permanent_pt_shapes() -> int:
     """One P/T parser for two storage shapes (Section 21.124).
 
@@ -2622,6 +2668,7 @@ def main() -> None:
                      ("multi_face_layouts", test_multi_face_layouts),
                      ("token_rebuild", test_token_rebuild),
                      ("permanent_state", test_permanent_state_refusals),
+                     ("rubric_task_export", test_rubric_task_export),
                      ("permanent_pt", test_permanent_pt_shapes),
                      ("board_fidelity", test_board_fidelity),
                      ("game_end_records", test_game_end_records)):

@@ -10463,3 +10463,63 @@ checked.
 Yield across the three measurements: **5** (21.112, welcome decks) -> **16**
 (21.123, after the P/T fix) -> **18**. Roughly 2-3 games for ~40 positions,
 against the 8-13 estimated before any of this.
+
+### 21.125 The authoring path, built out of the form that already existed
+
+The recording pipeline ended in a dead end: 18 usable boards a game, and
+`validate_position` correctly refusing every one of them for having no rubric
+(21.103 leaves it empty on purpose). Nothing could attach one — `#/position`
+authors a board and rubric together from scratch, `#/reference` authors a LINE
+for an existing board, and neither takes "here is a real board, write its
+rubric".
+
+#### No fourth view
+
+`rubric_server.py` already has `/rubric`: it collects `key_points` and
+`common_errors` against a `question`, and its CSS is already `pre-wrap`. So a
+recorded board becomes a task by **rendering it into `question`** with the same
+`render_position` the model reads.
+
+That last point is the reason to do it this way rather than build a board-aware
+view. The author and the model then see the *same string*, so a rubric cannot be
+written against a different board than the one evaluated — which is the failure
+21.105, 21.106 and 21.116 all were, in the other half of the pipeline.
+
+Verified end to end against a running server: `/rubric` 200, `/api/tasks` lists
+5, `/api/task/<id>` returns the rendered board with `draft: []`, a POST to
+`/api/submit` stores the rubric, and the ingest merges it.
+
+`draft` ships **empty**. The rules flow sends a machine sentence-split of the
+answer to argue with; a recorded board has no answer yet, and 14.6 measured
+machine drafts at r = +0.30 against hand-written +0.62. A generated draft here
+would put 21.98's caveat straight back into the one part of the pipeline meant
+to escape it.
+
+#### What the ingest may and may not touch
+
+`--ingest-rubrics` merges `key_points`, `common_errors` and attribution. **It
+does not rewrite the board.** The board came from a played game, and editing it
+would destroy the only property recording exists to provide; a wrong board is
+dropped, not fixed.
+
+`category` and `difficulty` come from the command line, not the form. They are a
+claim about what the board *asks*, and a wrong category silently changes what
+`label_store` stratified sampling draws.
+
+#### Splitting, because `--ingest` refuses a file whole
+
+That rule is right for a hand-written drafts file: a malformed record means the
+batch was not reviewed. It is wrong for incremental authoring, where one
+finished rubric would be blocked by four unstarted ones. So complete boards are
+split into `<candidates>_ready.jsonl` and the rest stay put. Both behaviours
+keep their meaning.
+
+Measured on the first pass: 1 rubric authored, 1 board split out, **0 problems**
+from `validate_position`, and `--ingest --dry-run` parsed it. The gold set is
+untouched — promotion is still a separate, deliberate act.
+
+#### What this unblocks
+
+B5's missing number. Sourcing is now ~18 boards a game; authoring cost has never
+been measured, and it is the number the gameplay track's budget actually turns
+on. Two or three rubrics through this path give it.

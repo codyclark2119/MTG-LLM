@@ -48,13 +48,14 @@ Usage:
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common import (PHASE_STEPS, POSITIONS_PATH, CR_VERSION,  # noqa: E402
-                    read_jsonl, write_jsonl_atomic)
+                    read_jsonl, render_position, write_jsonl_atomic)
 
 # XMage enum name -> the phase spelling this project stores. Both sides of this
 # come from `common.PHASE_STEPS`, which mirrors `mage.constants.PhaseStep`, so
@@ -284,6 +285,51 @@ def is_interesting(snap: dict, you_name: str) -> bool:
     return bool(untapped)
 
 
+
+def export_rubric_tasks(drafts: list[dict], out_path: Path) -> int:
+    """Write recorded boards as tasks the DEPLOYED rubric form can author.
+
+    The form already exists. `rubric_server.py`'s `/rubric` view collects
+    `key_points` and `common_errors` against a `question`, and its CSS is
+    already `pre-wrap`, so a rendered board displays as a board. Reusing it
+    beats a fourth authoring view: it is deployed, it has been used, and its
+    submission path, attribution and duplicate handling are all tested.
+
+    So a board becomes a task by RENDERING it into `question` — the same
+    `render_position` the model reads, which means the author and the model see
+    the same board and a rubric cannot be written against a different one.
+
+    `draft` is deliberately EMPTY. The rules flow ships a machine sentence-split
+    of the answer to argue with; a recorded board has no answer yet, and 14.6
+    measured machine drafts at r = +0.30 against hand-written +0.62. Shipping a
+    generated draft here would put 21.98's caveat straight back into the one
+    part of the pipeline that was going to escape it.
+
+    Self-contained, like every other task file: no gold set, no candidates, no
+    corpora (Section 21.125).
+    """
+    tasks = []
+    for d in drafts:
+        tasks.append({
+            "id": d["id"],
+            # The author sets these; the board cannot state what it ASKS.
+            "category": d.get("category") or "",
+            "difficulty": d.get("difficulty") or "",
+            "question": render_position(d),
+            "answer": "",
+            "draft": [],
+            "url": "",
+            "in_gold": False,
+            "card_slots": {},
+        })
+    payload = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "kind": "rubric", "count": len(tasks), "tasks": tasks}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
+                        encoding="utf-8")
+    return len(tasks)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -298,6 +344,9 @@ def main() -> None:
     ap.add_argument("--interesting", action="store_true",
                     help="shortlist only — see is_interesting, it is not a judgement")
     ap.add_argument("--limit", type=int, default=0, help="keep at most N drafts")
+    ap.add_argument("--export-rubric-tasks", type=Path, metavar="OUT",
+                    help="write the drafts as a tasks.json the deployed "
+                         "rubric form can author key_points/common_errors against")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -345,6 +394,11 @@ def main() -> None:
     print("  key_points / common_errors -> authored in the rubric form")
     print("  category / difficulty      -> a claim about what the board asks")
 
+    if args.export_rubric_tasks:
+        n = export_rubric_tasks(drafts, args.export_rubric_tasks)
+        print(f"\n{n} board(s) -> {args.export_rubric_tasks}")
+        print("Serve with: python scripts/rubric_server.py --tasks "
+              f"{args.export_rubric_tasks}  then open #/rubric")
     if args.dry_run:
         print(f"\n(dry run — {args.out} not written)")
         return

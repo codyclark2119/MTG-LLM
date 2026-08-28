@@ -876,6 +876,96 @@ _PHASE_FILES = ("positions.jsonl", "positions_seed.jsonl", "turn_scenarios.jsonl
                 "position_samples_stage3_payment_batch2.jsonl")
 
 
+
+def ingest_rubrics(submissions: Path, candidates: Path, category: str = "",
+                   difficulty: str = "", dry_run: bool = True) -> int:
+    """Merge rubrics authored in the deployed form back onto recorded boards.
+
+    The last gap in the recording pipeline. A recorded board is a real board
+    with no rubric, `validate_position` correctly refuses it, and until now
+    nothing could attach one — so 18 usable boards a game were reaching a dead
+    end (Section 21.125).
+
+    The board is NOT rewritten. Only `key_points`, `common_errors` and the
+    authoring metadata are merged, because the board came from a played game and
+    editing it would break the one property recording exists to provide. If a
+    board is wrong, it is dropped, not fixed.
+
+    `category` and `difficulty` come from the command line rather than the form:
+    they are a claim about what the board ASKS, the form does not collect them,
+    and a wrong category silently changes what stratified sampling draws.
+    A board still missing either is left in the candidates file and reported —
+    promotion refuses it downstream anyway, and refusing here too would hide
+    the rubric work already done on it.
+    """
+    subs = [s for s in read_jsonl(submissions, missing_ok=True) if s.get("id")]
+    if not subs:
+        raise SystemExit(f"no submissions in {submissions}")
+    rows = read_jsonl(candidates, missing_ok=True)
+    if not rows:
+        raise SystemExit(f"no candidates in {candidates}")
+
+    # Last submission per id wins: the form allows re-submission, and an author
+    # correcting their own rubric is the normal case.
+    latest: dict[str, dict] = {}
+    for s in subs:
+        latest[s["id"]] = s
+
+    merged = incomplete = 0
+    by_id = {r["id"]: r for r in rows}
+    for rid, s in latest.items():
+        row = by_id.get(rid)
+        if row is None:
+            print(f"  ? {rid}: no such candidate — skipped")
+            continue
+        kp = [x for x in (s.get("key_points") or []) if x.strip()]
+        ce = [x for x in (s.get("common_errors") or []) if x.strip()]
+        if len(kp) < 2 or not ce:
+            print(f"  ? {rid}: rubric is incomplete ({len(kp)} points, {len(ce)} errors)")
+            continue
+        row["key_points"] = kp
+        row["common_errors"] = ce
+        row["rubric_source"] = "authored"
+        row["rubric_author"] = s.get("author", "")
+        if category:
+            row["category"] = category
+        if difficulty:
+            row["difficulty"] = difficulty
+        # `answer` is required by the validator and is the prose correct line.
+        # Seeded from the key points rather than left empty: an author who has
+        # written the points has said what the answer is, and an empty required
+        # field would fail promotion for a rubric that is actually complete.
+        if not row.get("answer"):
+            row["answer"] = " ".join(kp)
+        merged += 1
+        if not (row.get("category") and row.get("difficulty")):
+            incomplete += 1
+            print(f"  ! {rid}: merged, but still needs "
+                  f"{'category' if not row.get('category') else 'difficulty'}")
+    print(f"\n{merged} rubric(s) merged into {candidates.name}"
+          + (f", {incomplete} still missing category/difficulty" if incomplete else ""))
+    # Complete boards are split OUT rather than promoted in place. `--ingest`
+    # refuses a file whole — the right rule for a hand-written drafts file,
+    # where a malformed record means the batch was not reviewed — but authoring
+    # a recording is incremental, so one finished rubric would be blocked by
+    # four unstarted ones. Splitting keeps both behaviours honest.
+    ready = [r for r in rows if not validate_position(r, None, None)]
+    rest = [r for r in rows if validate_position(r, None, None)]
+    ready_path = candidates.with_name(candidates.stem + "_ready.jsonl")
+    print(f"{len(ready)} board(s) now pass validation and are ready to promote")
+    if dry_run:
+        print("(dry run — nothing written)")
+        return merged
+    write_jsonl_atomic(candidates, rest)
+    if ready:
+        write_jsonl_atomic(ready_path, ready)
+        print(f"-> {ready_path}")
+        print("Promote with: python scripts/gameplay/positions.py --ingest "
+              f"{ready_path} --dry-run")
+    print(f"-> {candidates}  ({len(rest)} still unauthored)")
+    return merged
+
+
 def canonicalize_phases(dry_run: bool = True) -> int:
     """Rewrite every stored `phase` to XMage's spelling. Returns records changed.
 
@@ -1138,6 +1228,14 @@ def main() -> None:
                         metavar="FILE",
                         help="promote whole scenarios from a submissions log "
                              "(every step parser-validated, refused whole)")
+    parser.add_argument("--ingest-rubrics", type=Path, default=None,
+                        metavar="SUBMISSIONS",
+                        help="merge rubrics authored in the form onto recorded "
+                             "candidates (--candidates, --category, --difficulty)")
+    parser.add_argument("--candidates", type=Path,
+                        default=POSITIONS_PATH.parent / "position_candidates_recorded.jsonl")
+    parser.add_argument("--category", default="")
+    parser.add_argument("--difficulty", default="")
     parser.add_argument("--canonicalize-phases", action="store_true",
                         help="rewrite every stored `phase` to XMage's spelling "
                              "(Section 21.102); use with --dry-run first")
@@ -1178,6 +1276,11 @@ def main() -> None:
         rule_ids = load_rule_ids()
     except Exception as exc:  # rules corpus not built yet — skip, don't fail
         print(f"(skipping citation checks: {exc})")
+
+    if args.ingest_rubrics:
+        ingest_rubrics(args.ingest_rubrics, args.candidates,
+                       args.category, args.difficulty, dry_run=args.dry_run)
+        return
 
     if args.canonicalize_phases:
         canonicalize_phases(dry_run=args.dry_run)
