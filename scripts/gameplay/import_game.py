@@ -19,11 +19,21 @@ It does not write the gold set, and it never can — `--out` defaults to a
 candidates file. Promotion stays local and reviewed, which is what makes "gold"
 mean *a person looked at this* (the rubric server's first invariant).
 
-It does not fill `legal_actions`. The engine can answer that, but the path that
-asks it is already built and validated (`xmage_export.py` emits a JUnit test per
-board, `xmage_diff.py` reads the answer back, 30 of 32 agree). A second way to
-compute one field is how two copies drift, so a draft carries no
-`legal_actions` and the existing path supplies them.
+It does not compute `legal_actions` itself. The engine answers that, through
+the same validated path this has always used (`xmage_export.py` emits a JUnit
+test per board, `xmage_diff.py` reads the answer back — 22 of 24 agree on the
+original set, Section 21.105). A second way to compute one field is how two
+copies drift, so this never re-implements that logic — it just runs it.
+
+By default (Section 21.128), `--snapshots` runs that path automatically via
+`run_xmage_validation.sh` right after writing the candidates file, since most
+new boards now come from recorded games rather than hand-authoring, and
+re-running the five-step sequence by hand for every batch does not scale.
+Pass `--no-xmage-validation` to skip it — a draft with no `legal_actions` is
+still honest and authorable, just not scorable yet (21.126) — or if a JDK,
+Maven, or the `magefree/mage` checkout are not set up on this machine, in
+which case the script says so and this continues without them rather than
+failing the import.
 
 It does not fill `key_points` or `common_errors`. Those are the rubric, they are
 what a person authors in the form, and a machine-drafted rubric is half of what
@@ -47,6 +57,7 @@ Usage:
 
 import argparse
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -364,6 +375,28 @@ def export_rubric_tasks(drafts: list[dict], out_path: Path) -> int:
     return len(tasks)
 
 
+def run_xmage_validation(candidates: Path, export_tasks: Path | None) -> None:
+    """Shell out to the orchestration script that fills `legal_actions`.
+
+    Never re-implements `xmage_export.py`/`xmage_diff.py` here — that would be
+    a second copy of the same computation, exactly what this module's
+    docstring says to avoid. A missing JDK/Maven/checkout is reported and
+    skipped rather than failing the import: the candidates file this writes
+    is already valid and authorable without `legal_actions` (Section 21.126).
+    """
+    script = Path(__file__).parent / "run_xmage_validation.sh"
+    cmd = [str(script), str(candidates)]
+    if export_tasks:
+        cmd += ["--export-tasks", str(export_tasks)]
+    print(f"\n==> running xmage validation ({script.name})")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        print(f"xmage validation did not complete (exit {result.returncode}); "
+              "the candidates file above is still valid and authorable, just "
+              "not yet scorable. Re-run manually once fixed:\n  "
+              + " ".join(cmd))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -388,6 +421,16 @@ def main() -> None:
     ap.add_argument("--export-rubric-tasks", type=Path, metavar="OUT",
                     help="write the drafts as a tasks.json the deployed "
                          "rubric form can author key_points/common_errors against")
+    ap.add_argument("--run-xmage-validation", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="after --snapshots writes the candidates file, run "
+                         "run_xmage_validation.sh to fill legal_actions "
+                         "(Section 21.128). On by default since most new "
+                         "boards now come from recorded games; pass "
+                         "--no-run-xmage-validation to skip (e.g. no JDK/Maven "
+                         "set up, or you want a fast import). Never runs with "
+                         "--dry-run or alongside --export-from, which touches "
+                         "no snapshot and writes no candidates file.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -467,6 +510,9 @@ def main() -> None:
     print(f"\n-> {args.out}")
     print("This is a CANDIDATES file. Nothing promotes it to the gold set but a "
           "person reviewing it.")
+
+    if args.run_xmage_validation:
+        run_xmage_validation(args.out, args.export_rubric_tasks)
 
 
 if __name__ == "__main__":
