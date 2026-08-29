@@ -55,7 +55,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common import (PHASE_STEPS, POSITIONS_PATH, CR_VERSION,  # noqa: E402
-                    read_jsonl, render_position, write_jsonl_atomic)
+                    PROTOCOL_ERRORS, read_jsonl, render_position,
+                    write_jsonl_atomic)
 
 # XMage enum name -> the phase spelling this project stores. Both sides of this
 # come from `common.PHASE_STEPS`, which mirrors `mage.constants.PhaseStep`, so
@@ -307,6 +308,25 @@ def export_rubric_tasks(drafts: list[dict], out_path: Path) -> int:
 
     Self-contained, like every other task file: no gold set, no candidates, no
     corpora (Section 21.125).
+
+    EACH TASK DECLARES ITSELF A POSITION (`kind: "position"`), because reusing
+    the rules form silently handed the author the wrong three things (21.126).
+    A rules task has a verified answer to write a rubric against; a board has
+    none, so the "this is correct, do not re-adjudicate" card asserted an empty
+    string was correct. A rules `key_points` is a set of claims; a position's is
+    the correct LINE. And a position's `common_errors` is unioned with
+    `PROTOCOL_ERRORS` before either the judge or the human form sees it
+    (`eval_positions` line 552, `adjudicate.task_for`), so an author who cannot
+    see those ten entries writes an eleventh that duplicates one — and since the
+    judge returns error NUMBERS, the duplicate lands in the STRATEGY half of the
+    split `score_run` reads, where no parser confirms it. 21.75 was the judge
+    having a rubric the form lacked; this is the form needing a rubric the judge
+    already has.
+
+    They ride ON THE TASK rather than being imported by the form, so the file
+    stays the self-contained thing `rubric_server` is built to read, and a task
+    exported today keeps showing the ten entries it was authored against even
+    after `PROTOCOL_ERRORS` grows.
     """
     tasks = []
     for d in drafts:
@@ -321,7 +341,21 @@ def export_rubric_tasks(drafts: list[dict], out_path: Path) -> int:
             "url": "",
             "in_gold": False,
             "card_slots": {},
+            "kind": "position",
+            "protocol_errors": list(PROTOCOL_ERRORS),
+            # Shown so the author knows whether the board is even scorable yet.
+            # A board with no list scores every correct play ILLEGAL and fires
+            # protocol entry 3 (verified by running, 21.126) — the rubric is
+            # still valid, because `render_position` ignores the field, but the
+            # board is not promotable until the engine path fills it in.
+            "legal_actions": list(d.get("legal_actions") or []),
         })
+    # The FILE kind stays "rubric" and the TASK kind is "position". They answer
+    # different questions: the file's picks which form and which submission
+    # shape (a position rubric is collected by `/rubric` exactly as a rules one
+    # is), the task's picks the framing inside that form. Declaring the file a
+    # position made `load_tasks` refuse it outright — caught by running the
+    # server, not by `--help`, which is the whole reason that rule exists.
     payload = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                "kind": "rubric", "count": len(tasks), "tasks": tasks}
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -333,8 +367,15 @@ def export_rubric_tasks(drafts: list[dict], out_path: Path) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--snapshots", type=Path, required=True,
+    ap.add_argument("--snapshots", type=Path,
                     help="directory the collector wrote, or one .jsonl file")
+    ap.add_argument("--export-from", type=Path, metavar="CANDIDATES",
+                    help="re-export tasks.json from an EXISTING candidates file "
+                         "instead of re-deriving from snapshots. Use this whenever "
+                         "the form changes under work already in progress: ids stay "
+                         "byte-identical, so submissions still key (Section 21.126). "
+                         "Re-deriving cannot promise that — --as and --interesting "
+                         "both change which boards get which number.")
     ap.add_argument("--out", type=Path,
                     default=POSITIONS_PATH.parent / "position_candidates_recorded.jsonl",
                     help="candidates file; NEVER the gold set")
@@ -350,6 +391,26 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
+    # Re-export only. Reads what was already written, touches no snapshot, and
+    # writes no candidates file — the boards are not being re-derived, only the
+    # form's copy of them refreshed.
+    if args.export_from:
+        if not args.export_rubric_tasks:
+            raise SystemExit("--export-from needs --export-rubric-tasks OUT")
+        drafts = read_jsonl(args.export_from)
+        if not drafts:
+            raise SystemExit(f"no candidates in {args.export_from}")
+        n = export_rubric_tasks(drafts, args.export_rubric_tasks)
+        have = sum(1 for d in drafts if d.get("legal_actions"))
+        print(f"{n} board(s) re-exported -> {args.export_rubric_tasks}")
+        print(f"  ids unchanged, so submissions already collected still key")
+        print(f"  legal_actions present on {have}/{n}"
+              + ("" if have == n else "  <- the rest cannot be SCORED yet; "
+                                      "the rubric work is still valid"))
+        return
+
+    if not args.snapshots:
+        raise SystemExit("--snapshots is required (or --export-from to re-export)")
     snaps = load_snapshots(args.snapshots)
     if not snaps:
         raise SystemExit(f"no snapshots under {args.snapshots}")

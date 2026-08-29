@@ -56,7 +56,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 # The only project imports, all pure python — see the module docstring.
 from common import (ACTION_GRAMMAR, PHASE_NAMES,  # noqa: E402
                     POSITION_CATEGORIES, POSITION_REVIEW_KINDS,
-                    lint_common_errors, stray_names,
+                    lint_common_errors, protocol_restatements, stray_names,
                     templatize, untemplatize, verdict_is_current)
 
 # One writer at a time. Submissions append, and two contributors finishing a
@@ -791,6 +791,11 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
                              f"carries information.")
         warnings = lint_common_errors({"answer": t.get("answer", ""),
                                        "key_points": kp, "common_errors": ce})
+        # Only on a board. A rules question's `common_errors` never meets
+        # `PROTOCOL_ERRORS`, so there is nothing to duplicate (Section 21.126),
+        # and the entries the task carries are the ones this author was shown.
+        if t.get("kind") == "position":
+            warnings += protocol_restatements(ce)
         stray = stray_names(t.get("question", ""), t.get("answer", ""), kp + ce,
                             list((t.get("card_slots") or {}).values()))
         if stray:
@@ -1216,8 +1221,34 @@ async function open(id){
     '<div class="meta">' + esc(t.category) + ' &middot; ' + esc(t.difficulty) +
       (t.url ? ' &middot; <a href="' + esc(t.url) + '" target="_blank" rel="noopener">source</a>' : '') +
       '</div>' +
-    '<div class="card"><h3>Verified answer &mdash; this is correct, do not re-adjudicate</h3>' +
-      '<div class="answer">' + esc(t.answer) + '</div></div>' +
+    // A board has no verified answer to argue with — the rules flow's whole
+    // premise. Asserting an empty string "is correct" is worse than showing
+    // nothing, so a position gets the board's own status instead (21.126).
+    (t.kind === 'position'
+      ? '<div class="card"><h3>This is a board, not a rules question</h3>' +
+        '<div class="hint">There is no reference answer: you are writing what the ' +
+        'right LINE is. <b>Key points</b> = the plays a correct answer must make, ' +
+        'in order. <b>Common errors</b> = the strategy mistakes a real player makes ' +
+        'on this board.</div>' +
+        ((t.legal_actions && t.legal_actions.length)
+          ? '<div class="draft">' + t.legal_actions.map(a => '• ' + esc(a)).join('\n') +
+            '</div>'
+          : '<div class="hint" style="color:#c0392b">No <code>legal_actions</code> yet &mdash; ' +
+            'the engine path fills these in. Your rubric is still valid (the rendered ' +
+            'board does not change), but this board cannot be scored until it has them.' +
+            '</div>') +
+        '</div>'
+      : '<div class="card"><h3>Verified answer &mdash; this is correct, do not re-adjudicate</h3>' +
+        '<div class="answer">' + esc(t.answer) + '</div></div>') +
+    ((t.protocol_errors && t.protocol_errors.length)
+      ? '<div class="card"><h3>Already covered &mdash; do not restate these</h3>' +
+        '<div class="hint">The judge is given your errors <b>plus</b> these ' +
+        t.protocol_errors.length + '. Repeating one here creates two entries for one ' +
+        'mistake, and the copy is scored as a strategy error that no parser checks.</div>' +
+        '<div class="draft">' +
+        t.protocol_errors.map((e, i) => (i + 1) + '. ' + esc(e)).join('\n') +
+        '</div></div>'
+      : '') +
     (t.draft && t.draft.length
       ? '<div class="card"><h3>Machine draft</h3><div class="draft"><span class="lbl">' +
         'Read-only. A sentence-split of the answer, shown so you can see what to avoid: ' +
@@ -1232,16 +1263,31 @@ async function open(id){
         'this question, which RulesGuru builds on different cards.</div></div>'
       : '') +
     '<div class="card"><h3>Key points</h3>' +
-      '<div class="hint">The claims a correct answer must make. One checkable ' +
-      'assertion each; 2–4 sharp points beat 5–8 soft ones. Never a bare ' +
-      '&ldquo;Yes&rdquo; or &ldquo;No&rdquo;.</div>' +
+      '<div class="hint">' + (t.kind === 'position'
+        ? 'The plays a correct answer must make, one per point, in order. Name the ' +
+          'card and what it does &mdash; &ldquo;Casts Requiting Hex on Mudbutton ' +
+          'Cursetosser&rdquo;, not &ldquo;removes the blocker&rdquo;. A board asks ' +
+          'ONE question: the median line is 4.5 actions but only 1.5 plays, so if ' +
+          'you are writing plays in two phases this is two positions.'
+        : 'The claims a correct answer must make. One checkable ' +
+          'assertion each; 2–4 sharp points beat 5–8 soft ones. Never a bare ' +
+          '&ldquo;Yes&rdquo; or &ldquo;No&rdquo;.') + '</div>' +
       '<div id="kp"></div>' +
       '<button class="addbtn" type="button" id="addkp">+ key point</button></div>' +
     '<div class="card"><h3>Common errors</h3>' +
-      '<div class="hint">The mistakes a real player makes &mdash; traps, not negations ' +
-      'of the points above. Lead with what makes it wrong: an error that opens with ' +
-      'words also true of the correct answer gets matched before the judge reaches ' +
-      'the part that matters.</div>' +
+      '<div class="hint">' + (t.kind === 'position'
+        ? 'STRATEGY mistakes only &mdash; a legal play that wins less. Everything ' +
+          'protocol-shaped is already covered above. Write each as a CLAIM a wrong ' +
+          'answer could assert (&ldquo;Requiting Hex should be held for the bigger ' +
+          'threat&rdquo;), not as narration of a move (&ldquo;Casts Requiting ' +
+          'Hex&hellip;&rdquo;) &mdash; the judge is asked which of these the answer ' +
+          'asserted, and all 32 stored positions are written this way. Lead with ' +
+          'what makes it wrong, so the judge cannot match the opening before it ' +
+          'reaches the qualifier.'
+        : 'The mistakes a real player makes &mdash; traps, not negations ' +
+          'of the points above. Lead with what makes it wrong: an error that opens with ' +
+          'words also true of the correct answer gets matched before the judge reaches ' +
+          'the part that matters.') + '</div>' +
       '<div id="ce"></div>' +
       '<button class="addbtn" type="button" id="addce">+ common error</button></div>' +
     '<div class="notes" id="notes"></div>' +

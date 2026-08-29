@@ -194,6 +194,18 @@ that already has a list, so a raw engine dump can never overwrite a curated one:
 `legal_actions` is curated, and the closed arm measures something different when
 handed thirty options.
 
+**An absent `legal_actions` convicts every correct play** — the same emptiness
+from the other side, and it reaches the OPEN arm too (21.126). `legality` scores
+each action against the list, so with `[]` nothing matches: a correct `PLAY
+Starting Town` returns `all_legal=False` and fires `PROTOCOL_ERRORS` entry 3,
+the one entry the judge gets right and the one the list exists to decide.
+Recorded boards ship without it on purpose — the collector deliberately does not
+compute legal actions, `xmage_export.py` + `xmage_diff.py` fill them in — so a
+recorded board is **authorable but not scorable** until that path runs.
+Rubric work done first is not wasted: `render_position` ignores `legal_actions`
+entirely (verified — the rendered string is byte-identical with and without it),
+so the field is scoring machinery, not question text.
+
 **The gameplay prompt has its own fingerprint.** `prompt_fingerprint` covers the
 rules track only, so until Section 21.60 an edit to `GAMEPLAY_SYSTEM_PROMPT` —
 the grammar block that *is* the output contract — left no trace in any run file.
@@ -764,7 +776,25 @@ Each cost real time. They recur in new code, so they are worth knowing.
   **68%** on a protocol run, so precision read 2.2% vs 2.8% unfixed and 5.6% vs
   2.8% fixed — **the bug reversed the sign of the comparison**. Both sides are
   fixed and neither alone was enough. When a judge's rubric grows, the human
-  form is a consumer of it (Section 21.75).
+  form is a consumer of it (Section 21.75). **The AUTHORING form is a consumer
+  of it too**, and that was missed for one more section: a board's author could
+  not see the ten either, so a blunder they wrote could restate one. The judge
+  returns error NUMBERS and `score_run` splits strategy from protocol **by
+  index**, so the duplicate is scored as a strategy charge no parser checks —
+  moving a mistake the parser decides at 80-85% into the column measured at
+  18-43% and inflating it. `common.protocol_restatements` warns in the form and
+  again at ingest, with signatures derived from the entries' own words so they
+  cannot drift when the list grows (Section 21.126).
+- **Reusing a form is a claim about the server, not about the page.** 21.125
+  reused the deployed rules rubric form for recorded boards — right about the
+  submission path, attribution and duplicate handling, all tested; silent about
+  what the author actually sees. The page offered a board a **"Verified answer —
+  this is correct"** card over an empty string, rules-shaped hints for a
+  position's `key_points` (which is the correct *line*), and no sight of the ten
+  entries above. Tasks now carry `kind: "position"` and the page renders both.
+  The **file** kind stays `"rubric"` — it picks the form and submission shape,
+  while the task kind picks the framing inside it, and setting the file kind
+  made `load_tasks` refuse the file outright (Section 21.126).
 - **A control that is collected, stored, and read by nothing.** The adjudication
   form asks "Genuinely ambiguous — I could argue it either way", the server
   stores it, the ingest writes it to the gold-adjacent file, and `score_run`

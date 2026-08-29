@@ -1780,6 +1780,71 @@ def lint_common_errors(pos: dict) -> list[str]:
     return warnings
 
 
+def protocol_restatements(errors: list[str]) -> list[str]:
+    """Warn when an authored blunder restates a `PROTOCOL_ERRORS` entry.
+
+    A position's `common_errors` is unioned with `PROTOCOL_ERRORS` before the
+    judge or the human form sees it (`eval_positions`, `adjudicate.task_for`),
+    the judge returns error NUMBERS, and `score_run` splits strategy from
+    protocol BY INDEX. So a restatement is not a harmless duplicate: it puts a
+    mechanically-decidable mistake into the STRATEGY half, where no parser
+    confirms or refutes it. That half measures 18-43% precision and the parser
+    was already deciding the same mistake at 80-85% (21.74), so the copy moves a
+    reliable charge into the unreliable column and inflates it (Section 21.126).
+
+    The signature for each entry is DERIVED from the entry's own words rather
+    than hand-listed, so it cannot drift when `PROTOCOL_ERRORS` is appended to —
+    the same reason `PHASE_NAMES` is derived from `PHASE_STEPS` (21.102).
+
+    Conservative in the same way `lint_common_errors` is, and for the same
+    measured reason: a warning that is wrong in both directions gets ignored. A
+    strategy error names cards, and card names are never in these ten, which is
+    what keeps the false-positive side quiet.
+
+    TWO gates, because one was not enough in a way worth recording. The first
+    version fired only on a shared *distinctive* word — one occurring in exactly
+    one entry — and missed both halves of the obvious case: "only passes instead
+    of making a play" shares every word it has with entry 1 and none of them are
+    distinctive, and entry 4 (a wrong PHASE step) has **no** distinctive word at
+    all, so it could never fire on any wording including its own. Coverage alone
+    catches both: an author who has said nothing the entry does not say is
+    restating it whether or not a rare word happens to be involved.
+    """
+    sigs = [set(_content(e)) for e in PROTOCOL_ERRORS]
+    counts: dict[str, int] = {}
+    for sig in sigs:
+        for w in sig:
+            counts[w] = counts.get(w, 0) + 1
+    # A word in one entry identifies it; one in several ("answer", "play") does
+    # not, and those are exactly the words every blunder line contains.
+    distinctive = [{w for w in sig if counts[w] == 1} for sig in sigs]
+
+    out = []
+    for err in errors:
+        toks = set(_content(err))
+        if not toks:
+            continue
+        best = None
+        for i, sig in enumerate(sigs):
+            shared = toks & sig
+            covered = len(shared) / len(toks)
+            # Either the line is almost entirely this entry's vocabulary, or it
+            # is half of it AND carries a word that names this entry alone.
+            if not (covered >= 0.8 or
+                    (covered >= 0.5 and (shared & distinctive[i]))):
+                continue
+            if best is None or covered > best[1]:
+                best = (i, covered)
+        if best:
+            i = best[0]
+            out.append(
+                f"restates PROTOCOL_ERRORS entry {i + 1} "
+                f"({PROTOCOL_ERRORS[i][:60]}...) — the judge is already given that "
+                f"one, so this becomes a second entry for one mistake, scored as "
+                f"strategy where no parser checks it: {err[:60]}...")
+    return out
+
+
 # Capitalised words ending in -s that are NOT verbs. The first version of this
 # check was a bare regex and fired on "Triggers resolve in the order..." and
 # "This hand should be mulliganed" — both perfectly good claims, because

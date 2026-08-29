@@ -45,6 +45,7 @@ from common import (  # noqa: E402
     POSITION_REVIEW_KINDS,
     build_position_messages,
     lint_common_errors,
+    protocol_restatements,
     read_jsonl,
     render_position,
     write_jsonl_atomic,
@@ -923,6 +924,17 @@ def ingest_rubrics(submissions: Path, candidates: Path, category: str = "",
         if len(kp) < 2 or not ce:
             print(f"  ? {rid}: rubric is incomplete ({len(kp)} points, {len(ce)} errors)")
             continue
+        # A strategy error that restates a PROTOCOL_ERRORS entry is not a
+        # duplicate the judge can ignore: it is given `common_errors +
+        # PROTOCOL_ERRORS`, returns error NUMBERS, and `score_run` splits
+        # strategy from protocol BY INDEX. So the copy is counted as a strategy
+        # charge that no parser confirms or refutes — it lands in the half
+        # measured at 18-43% precision and inflates it with a mistake the
+        # parser was already deciding at 80-85%. Warned, not refused: the
+        # judgement of whether a line restates entry 6 is the author's, and the
+        # form now shows them the ten to compare against (Section 21.126).
+        for dup in protocol_restatements(ce):
+            print(f"  ! {rid}: {dup}")
         row["key_points"] = kp
         row["common_errors"] = ce
         row["rubric_source"] = "authored"

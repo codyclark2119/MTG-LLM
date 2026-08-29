@@ -2330,8 +2330,25 @@ def test_rubric_task_export() -> int:
         n = export_rubric_tasks([draft], out)
         failed += not check("one board, one task", n, 1)
         payload = json.loads(out.read_text(encoding="utf-8"))
-        failed += not check("declared as rubric work", payload["kind"], "rubric")
+        # The FILE stays "rubric" — it picks the form and the submission shape,
+        # and a position rubric is collected by `/rubric` like any other. Only
+        # the TASK says "position", which picks the framing. Setting the file
+        # kind made `load_tasks` refuse the file outright (21.126).
+        failed += not check("file kind still selects the form", payload["kind"], "rubric")
         task = payload["tasks"][0]
+        # 21.126: reusing the rules form handed the author a "verified answer"
+        # card over an empty string, rules-shaped hints, and no sight of the ten
+        # PROTOCOL_ERRORS its own errors get unioned with. The task says which
+        # kind it is so the one page can render both.
+        failed += not check("task declares itself a position",
+                            task["kind"], "position")
+        from common import PROTOCOL_ERRORS
+        failed += not check("the ten protocol entries ride along",
+                            task["protocol_errors"], list(PROTOCOL_ERRORS))
+        # Absent, not empty-by-accident: a board with no list scores every
+        # correct play illegal, so the form has to be able to say so.
+        failed += not check("legal_actions is carried even when empty",
+                            task["legal_actions"], [])
         failed += not check("the board is the question",
                             "Turn 3" in task["question"], True)
         failed += not check("...rendered, not raw json",
@@ -2345,6 +2362,51 @@ def test_rubric_task_export() -> int:
         # The form's contract: these keys must exist or it renders nothing.
         for k in ("id", "answer", "url", "in_gold", "card_slots"):
             failed += not check(f"task carries {k}", k in task, True)
+    return failed
+
+
+def test_protocol_restatements() -> int:
+    """An authored blunder must not duplicate a `PROTOCOL_ERRORS` entry.
+
+    The judge is given `common_errors + PROTOCOL_ERRORS` and returns error
+    NUMBERS, and `score_run` splits strategy from protocol by INDEX. So a
+    restatement moves a mechanically-decidable mistake into the strategy half,
+    where no parser confirms it — from the column measured at 80-85% precision
+    into the one at 18-43%, inflating it with a charge the parser was already
+    getting right (Sections 21.74, 21.126).
+
+    Tested in BOTH directions, for the reason `lint_common_errors` records: a
+    warning wrong in both directions gets ignored, so silence on real strategy
+    lines is as much the contract as firing on restatements.
+    """
+    from common import protocol_restatements, PROTOCOL_ERRORS
+    failed = 0
+
+    # Every entry must fire on its own text. Entry 4 has no word unique to it,
+    # so a distinctive-word gate alone could never fire on it at any wording —
+    # which is why coverage is a second, independent gate.
+    self_fires = sum(1 for p in PROTOCOL_ERRORS if protocol_restatements([p]))
+    failed += not check("every entry restates itself", self_fires, len(PROTOCOL_ERRORS))
+
+    for line in ("The answer only passes instead of making a play.",
+                 "Names a play that is not available in this position.",
+                 "Casts a creature spell with a target.",
+                 "Casts a permanent that is already on the battlefield."):
+        failed += not check(f"paraphrase fires: {line[:34]}",
+                            bool(protocol_restatements([line])), True)
+
+    # Real strategy errors from a real board. These name CARDS, which never
+    # appear in the ten entries — that is what keeps the check quiet.
+    for line in ("Casts Requiting Hex on Mudbutton Cursetosser when holding it "
+                 "for the larger threat is better.",
+                 "Plays Blood Crypt untapped and loses 2 life for no reason.",
+                 "Attacks with Serra Angel into an untapped blocker that trades up.",
+                 "Blocks the 2/1 with the 3/3 and loses the race."):
+        failed += not check(f"strategy stays silent: {line[:30]}",
+                            protocol_restatements([line]), [])
+
+    failed += not check("empty input is silent", protocol_restatements([]), [])
+    failed += not check("blank line is silent", protocol_restatements(["   "]), [])
     return failed
 
 
@@ -2669,6 +2731,7 @@ def main() -> None:
                      ("token_rebuild", test_token_rebuild),
                      ("permanent_state", test_permanent_state_refusals),
                      ("rubric_task_export", test_rubric_task_export),
+                     ("protocol_restatements", test_protocol_restatements),
                      ("permanent_pt", test_permanent_pt_shapes),
                      ("board_fidelity", test_board_fidelity),
                      ("game_end_records", test_game_end_records)):
