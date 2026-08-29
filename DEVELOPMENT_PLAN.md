@@ -10523,3 +10523,288 @@ untouched — promotion is still a separate, deliberate act.
 B5's missing number. Sourcing is now ~18 boards a game; authoring cost has never
 been measured, and it is the number the gameplay track's budget actually turns
 on. Two or three rubrics through this path give it.
+
+### 21.126 The form the boards were sent to was the wrong form, and it cost three things
+
+21.125 argued that reusing the deployed rules form beat writing a fourth
+authoring view: it is deployed, it has been used, and its submission path,
+attribution and duplicate handling are all tested. That argument was about the
+*server*, and it was correct. It said nothing about the *page*, and the page is
+where the author is.
+
+The first real authoring session found it immediately. Against a recorded board
+the form displayed:
+
+> **Verified answer — this is correct, do not re-adjudicate**
+>
+> *(nothing)*
+
+and the reviewer's note read: *"This is not a Rules question but a gameplay
+question."*
+
+#### Three costs, in increasing order of seriousness
+
+**A verified answer that does not exist.** The rules flow's premise is that a
+correct answer is on file and the rubric is written against it. A recorded board
+has none — `export_rubric_tasks` sets `answer: ""` deliberately — so the card
+asserted an empty string was verified correct. Cosmetic, but it is the first
+thing on the page.
+
+**Hints for the wrong artefact.** *"The claims a correct answer must make…
+never a bare Yes or No"* is guidance for a rules question. A position's
+`key_points` is the correct **line** and its `common_errors` is the blunder
+list. Nothing on the page said so.
+
+**A rubric the form needed and did not have.** This is the one that moves a
+number. A position's `common_errors` is unioned with `PROTOCOL_ERRORS` before
+anything reads it — `eval_positions` line 552 for the judge, `adjudicate.task_for`
+line 211 for the human form. The judge returns error **numbers**, and `score_run`
+splits strategy from protocol **by index**. So an author who cannot see those ten
+entries writes an eleventh that restates one, and the copy is scored as a
+*strategy* charge that no parser confirms or refutes — moving a mistake the
+parser already decides at 80–85% into the column measured at 18–43%, and
+inflating it (21.74).
+
+21.75 was the judge holding a rubric the human form lacked, and it reversed the
+sign of a precision comparison. This is the same join in the same place, one
+step earlier: the form needs a rubric **the judge already has**, so the author
+can avoid it rather than duplicate it.
+
+#### The defect underneath: `legal_actions` was empty on all 71
+
+Worth more than the form bug. The recorded drafts carry no `legal_actions` —
+correctly, since the collector deliberately does not compute them and the
+validated engine path fills them in later. But nothing said so, and the
+consequence is not a missing field:
+
+```
+legality(parsed, [])  -> {'n_legal': 1, 'all_legal': False,
+                          'illegal': ['PLAY Starting Town']}
+protocol_findings     -> {3: True}
+```
+
+A **correct** play scores `all_legal=False` and fires protocol entry 3 — the one
+entry the judge gets right, and the one `legal_actions` exists to decide. It is
+`emitter_blind_spot` from the other side: there an empty list made the closed
+prompt claim no play was available; here it makes every play unavailable.
+
+The rubric work is **not** wasted, and that is worth stating precisely rather
+than assuming either way. `render_position` ignores `legal_actions` entirely —
+verified, the rendered string is byte-identical with and without it — so a rubric
+authored now is authored against exactly the board the model reads. The field is
+scoring machinery, not question text. Fill it later, and nothing authored moves.
+
+#### What changed
+
+- Each task declares `kind: "position"` and carries `protocol_errors` and
+  `legal_actions`. They ride **on the task**, so the file stays the
+  self-contained thing `rubric_server` reads, and a task exported today keeps
+  showing the ten entries it was authored against after `PROTOCOL_ERRORS` grows.
+- The **file** kind stays `"rubric"`. The two answer different questions: the
+  file's picks the form and the submission shape, the task's picks the framing
+  inside it. Setting the file kind made `load_tasks` refuse the file outright —
+  caught by starting the server, not by `--help`.
+- `common.protocol_restatements` warns when an authored blunder restates one of
+  the ten, live in the form and again at ingest. Signatures are **derived from
+  the entries' own words**, so they cannot drift when the list is appended to.
+- `import_game.py --export-from` re-exports `tasks.json` from an existing
+  candidates file. Re-deriving from snapshots cannot promise stable ids — `--as`
+  and `--interesting` both change which board gets which number — and the ids
+  are what already-collected submissions key on.
+
+#### The two-gate warning, and why one gate was not enough
+
+The first version fired only on a shared *distinctive* word — one occurring in
+exactly one entry. It missed both halves of the obvious case. *"Only passes
+instead of making a play"* shares **every** content word it has with entry 1 and
+none of them are distinctive; and entry 4 (a wrong `PHASE` step) has **no**
+distinctive word at all, so it could never fire on any wording, including its
+own verbatim text.
+
+Coverage catches both: an author who has said nothing the entry does not say is
+restating it whether or not a rare word is involved. Measured after the fix,
+both directions, because `lint_common_errors` already records that a warning
+wrong in both directions gets ignored:
+
+| | fires | silent |
+| --- | --- | --- |
+| each of the ten on its own text | **10/10** | — |
+| paraphrases of an entry | 7/8 | — |
+| real strategy errors from a real board | — | **8/8** |
+
+The remaining miss (*"states the wrong phase for the board"*) shares no
+vocabulary with entry 4 and is left as a miss: this is a warning, not a gate,
+and loosening it further buys the miss back at the price of the silent column.
+The false-positive side stays quiet for a structural reason worth keeping — a
+strategy error names **cards**, and card names never appear in the ten entries.
+
+#### Status
+
+All seven suites pass. The gold set is untouched. 71 tasks re-exported with
+byte-identical ids. `legal_actions` is present on **0 of 71**, so these boards
+are authorable now and not scorable until the engine path runs.
+
+### 21.127 Moved to a new machine (2026-08-29): what was re-verified and what was not
+
+The repository moved to a new Mac: **Apple M3 Max, 16 cores (12P+4E), 40-core
+GPU, 64GB unified memory**, macOS 26.6.2. Previously built and measured on an
+M3 Pro / 36GB (README's own "Requirements" line). Every timing figure in this
+document (`~2.5 hours` evaluation, `~6 hours` training, per-run wall clocks
+throughout) was measured on the old hardware and is now **stale as a number,
+not as a ranking** — more cores and more memory should only move these figures
+down, but none has been re-timed on the new machine, so quote the old numbers
+as "measured on M3 Pro" until they are.
+
+The repo directory also moved: `mlx_env/pyvenv.cfg` still records its venv as
+created at `/Users/codyclark/Documents/code/magic-llm/mlx_env` (the old path),
+while the working copy is now at
+`/Users/codyclark/Documents/personal_code/magic-llm`. This is the exact shape
+of trap this file already warns about — a stale absolute path silently
+resolving to the wrong thing — so it is called out here rather than assumed
+harmless. It has not caused a failure (imports and every test suite below ran
+clean against it), but a `pip install` or interpreter-path issue that shows up
+later on this venv specifically should be diagnosed as this, not as a new bug.
+If anything gets weird here, rebuild it (`python3 -m venv mlx_env` from the new
+path) rather than debugging the old one.
+
+**Re-verified on the new machine, all clean:**
+
+- `scripts/test_imports.py`, `scripts/test_eval.py` (507 assertions),
+  `scripts/test_docs.py`, `scripts/test_webui.py` (168), `scripts/test_deploy.py`
+  (118), `scripts/gameplay/test_actions.py` (130), and
+  `scripts/gameplay/test_eval_positions.py` (61) — all seven suites pass with
+  no code changes.
+- `mlx.core.default_device()` reports `Device(gpu, 0)` — Metal is visible to
+  MLX on this chip, unmodified.
+- `data/gold/`, `eval/`, and `models/` show no uncommitted diff — the machine
+  move touched no published measurement.
+- `models/` carries all nine adapters (`mtg-rules-adapter` through `-v4`) and
+  `data/processed/chunk_embeddings.npz` is present, so both the index and the
+  fine-tuned weights survived the move rather than needing a rebuild.
+- An actual end-to-end query — `python scripts/rag.py query "when are
+  state-based actions checked?" --k 3` — ran for real against the existing
+  index (not just imported): it fetched the embedding model fresh from Hugging
+  Face (confirming network access, and that model downloads are not yet
+  cached on this machine) and returned the correct rule (704.1) top-ranked.
+
+**Also fixed:** every console-script shebang under `mlx_env/bin/` (and
+`activate`/`activate.csh`/`activate.fish`) still hardcoded the old venv's
+absolute path (`.../Documents/code/magic-llm/mlx_env`), which no longer exists.
+`mlx_env/bin/mlx_lm.lora --help` failed with `bad interpreter: ... no such file
+or directory`; `python -m mlx_lm lora` (the invocation this repo's configs
+document) was unaffected, since it goes through the `python3` symlink chain,
+which resolves via absolute homebrew paths independent of the venv's own
+location. Rewrote the stale path across every affected file with a plain
+string substitution — no reinstall needed — and re-ran `test_imports.py` clean
+afterward.
+
+**`mlx_lm.lora` fine-tuning re-verified with a real smoke-test run** (10
+iterations, `configs/phase1_lora_v3.yaml`, scratch adapter path, not
+`models/`): base model downloaded fresh, LoRA trained, checkpoint and val loss
+both wrote correctly, peak memory 9.207 GB — identical to the 9.2GB the v3
+config's own header records for this exact model/batch on the M3 Pro, so the
+memory envelope did not change with the new GPU. Throughput did: measured
+0.138–0.215 it/s across the four report points (mean 0.176 it/s) against the
+v3 header's documented **0.066 it/s** on the M3 Pro — a **~2.7x** speedup. That
+projects the full 1,322-iteration run at **~2.1 hours** versus the documented
+~6.2, but this is a 10-iteration smoke test, not a full run — the mean glosses
+over warm-up and any later thermal throttling a real multi-hour run could show.
+Treat ~2.1h as a planning estimate, not a quotable number, until an actual full
+run is timed. One cosmetic, non-fatal warning appeared during the run
+(`shmem: mmap: an error occurred while determining whether or not
+.../sm_segment... could be created`, from an OpenMPI shared-memory backend some
+dependency initializes) — it did not stop or affect training and is noted here
+so it isn't mistaken for a new failure on a future run.
+
+**`eval.py` and `eval_positions.py` re-verified against the live calibrated
+judge** (`mlx-community/Qwen2.5-32B-Instruct-4bit`, loaded alongside the 7B
+base model — confirms the 64GB machine holds both at once with room to spare).
+Two smoke runs, n=8 rules questions and n=4 positions x 5 arms — sizes chosen
+to be fast, not to measure anything (this project's own bar is ~100-150
+questions / ~40 positions before a number means something):
+
+- Rules smoke run reproduced the project's own headline negative result on
+  fresh output: `base_rag` (2.08) beat `finetuned_rag` (1.25), matching
+  "fine-tuning did not beat retrieval." The finetuned_rag consistency check
+  (8/8 identical on rerun) confirms judge determinism holds on this machine's
+  MLX build, the same property Section 9's methodology depends on.
+- Positions smoke run's report reproduced every documented diagnostic by
+  shape: the parser-vs-judge protocol precision split, the phase/tap/mana
+  blind-spot notes (21.61, 21.66, 21.83), the n=4 ceiling-effect warning ("3 of
+  3 boards cannot move this rate"), and Gate 1/2 verdicts computed the same
+  way the plan describes them. That is the report-writer and rubric judge
+  executing the documented logic, not new or broken behavior — the 100%
+  blunder rate across every arm is an n=4 artifact the report itself flags,
+  not a finding.
+
+Both runs wrote to untracked scratch files (`eval/runs/_smoke_*.jsonl`,
+`eval/reports/_smoke_*.md`) rather than `latest.*` or any archived stem, so
+nothing published or reusable was touched or overwritten.
+
+**Web console re-verified in an actual browser** — all four views load and
+function, which is the check `test_webui.py`'s JS/CSS parse-checks cannot
+themselves provide (per this file's own traps: a page can parse clean and
+still blank or throw at runtime).
+
+**A new machine-specific trap, found running the full timed training run:**
+sustained training throughput collapsed to **0.032–0.049 it/s** — *slower*
+than the M3 Pro's documented 0.066 it/s, and ~4-5x slower than the
+10-iteration smoke test's 0.176 it/s — while the machine sat at **7% battery,
+charging, with High Power Mode off**. Not thermal creep (the rate held flat
+across 60 iterations rather than trending down) and not resource contention
+(no competing CPU/GPU process; `ps -eo pid,pcpu,pmem,comm -r` showed nothing
+above 19% CPU and nothing GPU-heavy). Apple Silicon MacBook Pros throttle
+sustained compute when the battery is critically low even on AC power — the
+charger has to power the system and refill the battery simultaneously — and
+the M3 Max specifically ships a **High Power Mode** toggle (System Settings →
+Battery → Power Adapter Options) meant for exactly this workload shape, off by
+default. Killing the run, letting the battery charge, and enabling High Power
+Mode fixed it: throughput returned to **0.138–0.198 it/s** (mean ~0.160),
+matching the smoke test. **A slow, flat-rate training run on this machine
+should be read as a power-state check first, not a regression** — the same
+class of misdiagnosis this file already warns against for `pgrep -f`
+self-matching and buffered background logs: a monitoring signal (it/sec) that
+reads as one thing (a hardware or software regression) and means another (a
+setting).
+
+Also a correctness signal, not just a speed one: at the recovered rate, val
+loss at iteration 1 (1.986) and iteration 150 (1.231) matched the v3 config's
+own documented values to three decimal places — same seed, same data, same
+config reproducing the same loss curve **across machines**, the cross-machine
+form of the "d == 0.0 exactly" determinism check the v3 header already ran
+within one machine.
+
+**Full run completed and timed.** All 1,322 iterations, adapter path
+`models/_timing_test_v3_m3max` (deleted after; scratch only, never promoted).
+**Wall-clock 2h 15m** (checkpoint timestamps 11:11:27 → 13:26:35), against the
+v3 header's documented ~6.2 hours on the M3 Pro — a **2.75x** speedup, matching
+the smoke test's 2.7x estimate almost exactly. Sustained rate held
+0.14–0.24 it/s throughout the second half with no further throttling once
+High Power Mode was on.
+
+**Final val loss 0.657** — an exact match to the v3 config header's own
+recorded value ("the run ended at 0.657"), on top of the iteration-1 (1.986)
+and iteration-150 (1.231) matches already noted above. Same seed, same data,
+same config, same loss curve start to finish, on different silicon: this is
+the v3 header's own "d == 0.0 exactly" determinism check reproduced across
+machines rather than across runs on one machine, and it is the strongest
+evidence in this section that the training pipeline is not just *running* on
+the new hardware but computing the identical thing it computed on the old one.
+
+**Revised M3 Max planning numbers** (supersede the smoke-test estimate;
+originals are the M3 Pro figures already in this document and in README's
+pipeline table, both correctly labeled by machine and left as-is):
+training run (v3 config, 1,322 iters): **~2.25 hours** on M3 Max vs ~6.2h on
+M3 Pro.
+
+**Not yet re-verified — do before trusting any new number from this
+machine:**
+
+- No wall-clock timing has been recaptured for a *full* rules-eval or
+  positions-eval run (only the n=8 / n=4 smoke tests above) — training is now
+  the one path with a completed, confirmed timing on this machine.
+
+Nothing above changed any measurement, adapter, or gold record. This section
+exists so that a future run's numbers are read against "same code, new
+hardware, retrieval path re-verified, training and judged-eval paths not yet
+re-verified" rather than assumed identical to the M3 Pro runs by default.

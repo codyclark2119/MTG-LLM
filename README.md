@@ -10,7 +10,10 @@ The system is a **retrieval-augmented rules assistant**: the Comprehensive Rules
 
 ## Requirements
 
-- Apple Silicon Mac (built and measured on an M3 Pro / 36GB, macOS Tahoe 26.x)
+- Apple Silicon Mac (originally built and measured on an M3 Pro / 36GB, macOS
+  Tahoe 26.x; now running on an M3 Max / 64GB, 40-core GPU, macOS 26.6.2 — see
+  [DEVELOPMENT_PLAN.md §21.127](DEVELOPMENT_PLAN.md) for what has and hasn't
+  been re-verified since the move)
 - Python 3.10+
 - ~15GB free disk for models and card data
 - No CUDA, no API keys, no network at inference time
@@ -319,7 +322,7 @@ curl -H "x-token: $RUBRIC_TOKEN" https://<app>/api/export > submissions.jsonl
 python scripts/author_rubrics.py --ingest-submissions submissions.jsonl --dry-run
 ```
 
-Deploying to fly.io: [deploy/README.md](deploy/README.md). Contributor guide to hand out: [data/gold/CONTRIBUTING.md](data/gold/CONTRIBUTING.md).
+Deploying to fly.io: [deploy/README.md](deploy/README.md). Contributor guide to hand out: [data/gold/CONTRIBUTING.md](data/gold/CONTRIBUTING.md) for rules-question rubrics, [data/gold/CONTRIBUTING_POSITIONS.md](data/gold/CONTRIBUTING_POSITIONS.md) for board-position rubrics.
 
 ## Honest results
 
