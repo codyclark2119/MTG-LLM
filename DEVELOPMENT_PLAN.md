@@ -10808,3 +10808,81 @@ Nothing above changed any measurement, adapter, or gold record. This section
 exists so that a future run's numbers are read against "same code, new
 hardware, retrieval path re-verified, training and judged-eval paths not yet
 re-verified" rather than assumed identical to the M3 Pro runs by default.
+
+### 21.128 Closing the legal_actions gap on the 71 recorded boards, and a stale-report trap
+
+Continuing 21.126: the recorded boards were authorable but not scorable
+because `legal_actions` was empty on all 71. The path to fill it already
+existed and was already validated at 22/24 on the original 32-position set
+(21.105) — it had simply never been pointed at these boards.
+
+**Setup, on the new machine.** No JDK was registered (`java_home -V` failed;
+only the macOS stub `/usr/bin/java` existed), though `openjdk` was already
+installed via Homebrew from an earlier `brew` run and just needed linking
+(`sudo ln -sfn .../openjdk.jdk /Library/Java/JavaVirtualMachines/`). The
+collector-patched `magefree/mage` checkout at
+`~/Documents/personal_code/mage` survived the machine move intact —
+`MagicLlmPositionDataCollector.java` was already there, so no re-clone or
+re-patch was needed, only the JDK.
+
+**A stale-compiled-class trap, caught before it produced a wrong number.**
+The first `mvn test -Dtest='PosRecorded*Test'` run against the 71 boards
+reported 45 of 71 classes with a failure or error, almost all
+`[TEST] Couldn't find a card: Everywhere` — which reads exactly like a data
+defect (a token misrecorded as a real card). It wasn't: `surefire-reports`
+still held XML reports from an **earlier, unrelated session's** test batch
+(different id-hash prefixes, e.g. `PosRecorded35b93b21...`, matching no file
+in the current `Mage.Tests` source tree at all), and `mvn test` without
+`clean` had run stale compiled `.class` files left over from that batch
+alongside the new ones — 154 `PosRecorded*` reports for only 71 current
+source files. `mvn clean test` reduced this to exactly 71 reports, and the
+"Everywhere" errors vanished completely: **zero** real boards had it. Same
+family as this file's own "harness bug whose trigger rate depends on the
+condition under test" — the failure rate here depended on which OTHER
+session had last touched this checkout, not on anything about these 71
+boards. **A test-count discrepancy (154 reports, 71 source files) is the
+tell** — check it before trusting a scary failure rate on a shared, unclean
+checkout.
+
+**The clean run's real numbers**: 136 tests (71 boards, most with both
+`listPlayableActions` and `listAvailableAttackers`), 12 failures + 6 errors —
+6 `getActivePlayerId() is null` (mulligan-phase boards, where no `PhaseStep`
+exists yet — the same documented gap `xmage_export.py` already reports as
+unmappable) and 12 "Player X must have 0 actions but found N" (a
+`CardTestPlayerBase` leftover-scripted-action check, on boards recorded from
+a real game rather than hand-authored — a board shape the original 32 never
+exercised). Neither prevented `xmage_diff.py` from reading the printed
+`PLAYABLE:`/`ATTACKER:` lines: those failures fire in an `@After`-style check
+that runs after the test body's output is already captured.
+
+**`xmage_diff.py --emit-legal-actions` result**: **65 of 71** filled (11 of
+those with zero actions — a board where nothing is legal, not a failure to
+answer), **6 refused** as `emitter_blind_spot` — every one a blocking board,
+correctly left alone rather than handed a misleading empty list (21.85's
+distinction, applied here). Re-exporting `position_tasks.json` via
+`import_game.py --export-from` brought it to **54/71 scorable** (the 11
+zero-action boards don't count as scorable, matching this repo's own
+"absent/empty legal_actions convicts every correct play" rule) with **ids
+unchanged**, so the collaborator's in-progress submissions from Section
+21.127's Phase 1 deploy still key correctly. Redeployed; `/healthz` confirms
+71 tasks live.
+
+**Three known real defects fixed** (Section 21.105's original findings,
+unfixed until now): `pos-trigger-ordering-0001` and `-0002` each gained
+`CAST Doom Blade TARGET Grizzly Bears` in `legal_actions`, matching the
+engine's finding that Doom Blade was castable and omitted. `sample-stage3-
+payment-0004`'s `active_player` changed from `opp` to `you` in both
+`positions.jsonl` and `position_samples_stage3_payment_batch2.jsonl` — the
+attacking Goblin Guide is controlled by "you", so only "you" as active player
+makes the attack legal under 508.1; changing `active_player` rather than the
+`attacking` flag preserves the entire tested scenario (Shock the blocker
+before damage) instead of removing it. `test_eval.py` (507 assertions),
+`test_eval_positions.py` (61 assertions), and `positions.py
+--check-references` all stay clean after both edits.
+
+**Not done here, left for later**: the 65 filled boards carry an
+**untrimmed** engine dump (`legal_actions_source: "xmage-engine (untrimmed)"`)
+— `xmage_diff.py` says so explicitly — not the curated "list only the plays
+that are genuinely available" `legal_actions` a hand-authored position has.
+Curating them is a separate, manual pass; filling the field was the blocker
+this section closes, not the last word on these boards' quality.

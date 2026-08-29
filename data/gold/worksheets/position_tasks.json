@@ -1,5 +1,5 @@
 {
- "generated": "2026-08-28T20:18:04+00:00",
+ "generated": "2026-08-29T23:02:58+00:00",
  "kind": "rubric",
  "count": 71,
  "tasks": [
@@ -26,7 +26,13 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Requiting Hex TARGET Mudbutton Cursetosser",
+    "PLAY Blood Crypt",
+    "PLAY Godless Shrine",
+    "PLAY Sacred Foundry",
+    "PLAY Starting Town"
+   ]
   },
   {
    "id": "pos-recorded-46d26625-0002",
@@ -76,7 +82,12 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Cool but Rude",
+    "PLAY Blood Crypt",
+    "PLAY Godless Shrine",
+    "PLAY Sacred Foundry"
+   ]
   },
   {
    "id": "pos-recorded-53737496-0004",
@@ -101,7 +112,12 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Marauding Mako",
+    "PLAY Blood Crypt",
+    "PLAY Inspiring Vantage",
+    "PLAY Sacred Foundry"
+   ]
   },
   {
    "id": "pos-recorded-53737496-0005",
@@ -126,7 +142,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Marauding Mako"
+   ]
   },
   {
    "id": "pos-recorded-53737496-0006",
@@ -151,7 +169,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Marauding Mako"
+   ]
   },
   {
    "id": "pos-recorded-53737496-0007",
@@ -176,7 +196,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Marauding Mako"
+   ]
   },
   {
    "id": "pos-recorded-53737496-0008",
@@ -201,7 +223,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Marauding Mako"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0009",
@@ -251,7 +275,12 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Hardened Academic",
+    "CAST Inti, Seneschal of the Sun",
+    "CAST Iron-Shield Elf",
+    "PLAY Godless Shrine"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0011",
@@ -276,7 +305,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Inti, Seneschal of the Sun"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0012",
@@ -301,7 +332,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Inti, Seneschal of the Sun"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0013",
@@ -326,7 +359,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Inti, Seneschal of the Sun"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0014",
@@ -351,7 +386,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "ATTACK Inti, Seneschal of the Sun"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0015",
@@ -376,7 +413,16 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Hardened Academic",
+    "CAST Inti, Seneschal of the Sun",
+    "CAST Iron-Shield Elf",
+    "CAST Practiced Offense TARGET Inti, Seneschal of the Sun",
+    "CAST Practiced Offense TARGET you",
+    "CAST Practiced Offense TARGET opponent",
+    "CAST Tersa Lightshatter",
+    "ATTACK Inti, Seneschal of the Sun"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0016",
@@ -426,7 +472,13 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Iron-Shield Elf",
+    "CAST Marauding Mako",
+    "CAST Tersa Lightshatter",
+    "ATTACK Hardened Academic",
+    "ATTACK Inti, Seneschal of the Sun"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0018",
@@ -476,7 +528,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Iron-Shield Elf",
+    "ATTACK Inti, Seneschal of the Sun",
+    "ATTACK Tersa Lightshatter"
+   ]
   },
   {
    "id": "pos-recorded-f8300987-0020",
@@ -526,7 +582,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "PLAY Island"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0022",
@@ -551,7 +610,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0023",
@@ -576,7 +637,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0024",
@@ -601,7 +664,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0025",
@@ -626,7 +691,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "CAST Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0026",
@@ -651,7 +719,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "CAST Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0027",
@@ -676,7 +747,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "CAST Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0028",
@@ -701,7 +775,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "CAST Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0029",
@@ -726,7 +803,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "CAST Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0030",
@@ -751,7 +831,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0031",
@@ -776,7 +859,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0032",
@@ -801,7 +887,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0033",
@@ -851,7 +939,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0035",
@@ -876,7 +967,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0036",
@@ -901,7 +995,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0037",
@@ -926,7 +1023,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0038",
@@ -951,7 +1051,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0039",
@@ -976,7 +1080,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Phantom Interference"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0040",
@@ -1026,7 +1133,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0042",
@@ -1051,7 +1162,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0043",
@@ -1076,7 +1191,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Phantom Interference",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0044",
@@ -1126,7 +1245,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Faerie Token",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0046",
@@ -1201,7 +1324,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Faerie Token",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0049",
@@ -1226,7 +1353,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference",
+    "ATTACK Faerie Token",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0050",
@@ -1276,7 +1407,16 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Into the Flood Maw TARGET Earthbender Ascension",
+    "CAST Into the Flood Maw TARGET Llanowar Elves",
+    "CAST Into the Flood Maw TARGET Lumbering Worldwagon",
+    "CAST Into the Flood Maw TARGET Sazh's Chocobo",
+    "CAST Into the Flood Maw TARGET Surrak, Elusive Hunter",
+    "CAST Spectral Sailor",
+    "ATTACK Faerie Token",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0052",
@@ -1301,7 +1441,16 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Into the Flood Maw TARGET Earthbender Ascension",
+    "CAST Into the Flood Maw TARGET Llanowar Elves",
+    "CAST Into the Flood Maw TARGET Lumbering Worldwagon",
+    "CAST Into the Flood Maw TARGET Sazh's Chocobo",
+    "CAST Into the Flood Maw TARGET Surrak, Elusive Hunter",
+    "CAST Spectral Sailor",
+    "ATTACK Faerie Token",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0053",
@@ -1326,7 +1475,16 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Into the Flood Maw TARGET Earthbender Ascension",
+    "CAST Into the Flood Maw TARGET Llanowar Elves",
+    "CAST Into the Flood Maw TARGET Lumbering Worldwagon",
+    "CAST Into the Flood Maw TARGET Sazh's Chocobo",
+    "CAST Into the Flood Maw TARGET Surrak, Elusive Hunter",
+    "CAST Spectral Sailor",
+    "ATTACK Faerie Token",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0054",
@@ -1351,7 +1509,16 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Into the Flood Maw TARGET Earthbender Ascension",
+    "CAST Into the Flood Maw TARGET Llanowar Elves",
+    "CAST Into the Flood Maw TARGET Lumbering Worldwagon",
+    "CAST Into the Flood Maw TARGET Sazh's Chocobo",
+    "CAST Into the Flood Maw TARGET Surrak, Elusive Hunter",
+    "CAST Spectral Sailor",
+    "ATTACK Faerie Token",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0055",
@@ -1426,7 +1593,15 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Into the Flood Maw TARGET Earthbender Ascension",
+    "CAST Into the Flood Maw TARGET Llanowar Elves",
+    "CAST Into the Flood Maw TARGET Lumbering Worldwagon",
+    "CAST Into the Flood Maw TARGET Sazh's Chocobo",
+    "CAST Into the Flood Maw TARGET Surrak, Elusive Hunter",
+    "CAST Spectral Sailor",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0058",
@@ -1451,7 +1626,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Spectral Sailor",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0059",
@@ -1476,7 +1654,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Spectral Sailor",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0060",
@@ -1501,7 +1682,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Spectral Sailor",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0061",
@@ -1526,7 +1710,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Spectral Sailor",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0062",
@@ -1551,7 +1738,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Spectral Sailor",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0063",
@@ -1626,7 +1816,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Plumecreed Escort",
+    "CAST Spectral Sailor",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0066",
@@ -1651,7 +1845,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Plumecreed Escort",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0067",
@@ -1676,7 +1873,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Plumecreed Escort",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0068",
@@ -1701,7 +1902,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Plumecreed Escort",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0069",
@@ -1726,7 +1931,11 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Plumecreed Escort",
+    "ATTACK Spectral Sailor"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0070",
