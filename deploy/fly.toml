@@ -44,9 +44,17 @@ primary_region = 'ord'
   HOST = '0.0.0.0'
   PORT = '8080'
   SUBMISSIONS_FILE = '/data/submissions.jsonl'
-  # Either kind of task file — rubric authoring or judge adjudication. The
-  # server picks the form from the file's own `kind` field.
+  # One file per KIND, never two of the same kind (rubric_server.py refuses
+  # that at startup). TASKS_FILE here is the adjudication-kind file (68 tasks,
+  # reference-line/judge-verdict work). ALSO_TASKS_FILE is the rubric-kind
+  # slot — pointed at position_tasks.json (the 71 recorded-board tasks from
+  # Section 21.126) rather than the image's own default rubric_tasks.json
+  # (40 rules-question tasks), because today's contributor is doing
+  # position/gameplay rubric authoring. Swap this back to rubric_tasks.json
+  # (or drop it to serve rules-question work instead) for a future deploy —
+  # it's a one-line change, not a rebuild of the COPY list.
   TASKS_FILE = '/app/data/gold/worksheets/tasks.json'
+  ALSO_TASKS_FILE = '/app/data/gold/worksheets/position_tasks.json'
 
 # Contributors' work lives here, NOT in the image. Without this a redeploy —
 # which is exactly what pushing a fresh tasks.json does — would take the

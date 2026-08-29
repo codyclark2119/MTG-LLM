@@ -55,6 +55,7 @@ data/gold/*
 data/gold/worksheets/*
 !data/gold/worksheets/tasks.json
 !data/gold/worksheets/rubric_tasks.json
+!data/gold/worksheets/position_tasks.json
 
 # --- deploy/: the three-line requirements ----------------------------------
 !deploy

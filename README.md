@@ -322,7 +322,7 @@ curl -H "x-token: $RUBRIC_TOKEN" https://<app>/api/export > submissions.jsonl
 python scripts/author_rubrics.py --ingest-submissions submissions.jsonl --dry-run
 ```
 
-Deploying to fly.io: [deploy/README.md](deploy/README.md). Contributor guide to hand out: [data/gold/CONTRIBUTING.md](data/gold/CONTRIBUTING.md) for rules-question rubrics, [data/gold/CONTRIBUTING_POSITIONS.md](data/gold/CONTRIBUTING_POSITIONS.md) for board-position rubrics.
+Deploying to fly.io: [deploy/README.md](deploy/README.md). Contributor guide to hand out: [data/gold/CONTRIBUTING.md](data/gold/CONTRIBUTING.md) for rules-question rubrics, [data/gold/CONTRIBUTING_POSITIONS.md](data/gold/CONTRIBUTING_POSITIONS.md) for board-position rubrics.for rules-question rubrics, [data/gold/CONTRIBUTING_POSITIONS.md](data/gold/CONTRIBUTING_POSITIONS.md) for board-position rubrics.
 
 ## Honest results
 

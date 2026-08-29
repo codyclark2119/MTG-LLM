@@ -39,10 +39,22 @@ COPY scripts/common.py scripts/
 # adjudication task, carrying no judge output and reaching nothing else. What is
 # NOT here is unchanged: no gold set, no positions, no queue, no runs, no
 # corpora, no adapters, no webui.py.
-COPY data/gold/worksheets/tasks.json        data/gold/worksheets/
-COPY data/gold/worksheets/rubric_tasks.json data/gold/worksheets/
+COPY data/gold/worksheets/tasks.json          data/gold/worksheets/
+COPY data/gold/worksheets/rubric_tasks.json   data/gold/worksheets/
+# Grew to three on 2026-08-29, same question asked again. `position_tasks.json`
+# is the Section 21.126 export of recorded-game boards (kind: "position" per
+# task): still a question, a machine-drafted board render, and (for these 71)
+# no reference answer — no gold set, no candidates, no legal_actions solver.
+# The 21.126 fix is what makes it safe to point a contributor at: before it,
+# this file's tasks rendered through the rules-question card and asserted a
+# verified answer that does not exist for a board.
+COPY data/gold/worksheets/position_tasks.json data/gold/worksheets/
 
 # Submissions land on a mounted volume so a redeploy does not discard work.
+# TASKS_FILE/ALSO_TASKS_FILE here are the image's own defaults for a bare
+# `docker run`; fly.toml's [env] overrides them for the actual deployment,
+# since which two of the three files are live is a per-deploy decision, not a
+# property of the image.
 ENV TASKS_FILE=/app/data/gold/worksheets/tasks.json \
     ALSO_TASKS_FILE=/app/data/gold/worksheets/rubric_tasks.json \
     SUBMISSIONS_FILE=/data/submissions.jsonl \
