@@ -74,6 +74,37 @@ _CALL_RE = re.compile(
 _ASSERT_RE = re.compile(r"\b(assert\w+)\s*\(([^;]*?)\);", re.DOTALL)
 _STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
+# Path components and filename patterns that mark an implementation-detail
+# regression test (client/server sync, a Java exception that once crashed
+# something) rather than a rules interaction a person could turn into a
+# question. Matched against the full relative path, since some of these are
+# nested under an otherwise-legitimate category (`cost/modaldoublefaced/`).
+NOISY_PATH_PARTS = ("modaldoublefaced",)
+NOISY_NAME_RE = re.compile(
+    r"Exception|Crash|Regression|ConcurrentModification|NullPointer|Freeze",
+    re.I)
+
+# A "card name" extracted from an assertion MESSAGE string, not a card-lookup
+# argument, is usually an English sentence fragment describing what is being
+# checked ("client must ignore side 2", "before last cast 1", "Phantasmal
+# Image should be a Rogue") rather than a card, even when it starts with a
+# real card name. Real card names Title Case every word and never contain
+# these; reject anything that does, rather than try to parse where the card
+# name ends and the description begins.
+_PROSE_RE = re.compile(
+    r"\b(should|must|can|can't|cannot|before|after|client|server|is|are|"
+    r"was|were|not|use|ignore|have|has)\b", re.I)
+
+
+def _looks_like_a_card(name: str) -> bool:
+    if not name or not name[0].isupper():
+        return False
+    if " - " in name or "@" in name or name.startswith("[") or "=" in name:
+        return False
+    if _PROSE_RE.search(name):
+        return False
+    return True
+
 
 def _find_matching_brace(text: str, open_idx: int) -> int:
     """Index just after the `}` matching the `{` at `open_idx`."""
@@ -106,7 +137,7 @@ def extract_tests(path: Path) -> list[dict]:
         calls = [(kind, args.strip()) for kind, args in _CALL_RE.findall(body)]
         asserts = [(kind, args.strip()) for kind, args in _ASSERT_RE.findall(body)]
         cards = sorted({s for _, args in calls + asserts for s in _STRING_RE.findall(args)
-                        if s and not s.startswith("{") and len(s) > 1})
+                        if _looks_like_a_card(s)})
 
         if not calls and not asserts:
             continue
@@ -121,10 +152,18 @@ def extract_tests(path: Path) -> list[dict]:
 
 
 def score(t: dict) -> tuple:
-    """Rank candidates: more distinct cards and more assertions is more
-    likely to be a genuine INTERACTION rather than a single-card sanity
-    check, but this is a heuristic ranking for triage, not a quality gate."""
-    return (t["n_cards"], t["n_asserts"])
+    """Rank candidates for triage, not a quality gate.
+
+    A high raw card/assertion count is as often noisy extraction (an
+    assertion message string quoting several words) as it is a genuinely
+    rich interaction — capped at 8 real cards, since a scenario needing more
+    than that is likely too sprawling to state as one clean question even
+    when the extraction is accurate. Above the cap, MORE cards is a
+    complexity penalty, not a bonus.
+    """
+    n = t["n_cards"]
+    band = n if n <= 8 else max(0, 16 - n)
+    return (band, t["n_asserts"])
 
 
 def main() -> None:
@@ -154,19 +193,24 @@ def main() -> None:
         dirs = dirs + ["single"] if args.category != "single" else ["single"]
 
     candidates: list[dict] = []
-    scanned_files = 0
+    scanned_files = skipped_noisy = 0
     for d in dirs:
         d_path = base / d
         if not d_path.is_dir():
             continue
         for f in d_path.rglob("*.java"):
+            rel = str(f.relative_to(base))
+            if any(part in rel for part in NOISY_PATH_PARTS) or NOISY_NAME_RE.search(f.name):
+                skipped_noisy += 1
+                continue
             scanned_files += 1
             candidates.extend(t for t in extract_tests(f) if t["n_cards"] >= args.min_cards)
 
     candidates.sort(key=score, reverse=True)
     top = candidates[:args.limit]
 
-    print(f"scanned {scanned_files} files across {len(dirs)} categor{'y' if len(dirs)==1 else 'ies'}, "
+    print(f"scanned {scanned_files} files across {len(dirs)} categor{'y' if len(dirs)==1 else 'ies'} "
+          f"({skipped_noisy} skipped as implementation-detail regression tests), "
           f"{len(candidates)} candidate(s) with >= {args.min_cards} distinct card names\n")
 
     for t in top:

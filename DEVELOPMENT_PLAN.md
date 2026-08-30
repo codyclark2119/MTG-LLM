@@ -11403,3 +11403,48 @@ a batch of `--verify`-confirmed candidates into real questions is the next
 piece of work, and at 1,823 tests deep it can be done in batches sized to
 whatever authoring capacity is actually available, rather than one probe
 at a time.
+
+**First real batch run, same session.** The initial ranking (raw card count
++ assertion count) surfaced mostly noise on a full-repo sweep — implementation
+regression tests (`ConcurrentModificationExceptionTest`, a Java exception
+test with nothing to do with rules) and client/server sync checks
+(`cost/modaldoublefaced/`) outranked genuine interactions because inflated,
+non-card string literals in assertion messages ("client must ignore side 2",
+"before last cast 1") were being counted as card names. Fixed with
+`_looks_like_a_card` (rejects prose: lowercase-starting, containing
+"should"/"must"/"client"/"server"/etc.) and a directory+filename denylist
+(`NOISY_PATH_PARTS`, `NOISY_NAME_RE`), plus a ranking change: more than 8
+real cards becomes a complexity PENALTY rather than a bonus, since a
+scenario that sprawling is hard to state as one clean question even when
+extraction is accurate. Re-run, the same sweep surfaced clean, comprehensible,
+well-known interactions with no further filtering needed.
+
+**Two converted to real benchmark entries, both verified passing in this
+checkout right now** (`ElendaTheDuskRoseTest.testKillAndReanimate`,
+`ZoneChangeReplacementTest.testPermanentNewInstanceAndKumano`), added to
+`data/gold/card_ruling_candidates.jsonl` with a new `xmage_test_verified`
+field recording which test and when:
+
+- **Elenda, the Dusk Rose + Angelic Renewal** — a death trigger using
+  last-known information (603.10a) for its token count while the returning
+  effect creates a genuinely new object (400.7) with none of that
+  information; the two rules apply independently to the same event. Elenda
+  has an official ruling that directly confirms the token-count half
+  ("use Elenda's power as it last existed on the battlefield"), upgrading
+  this from CR-only to `ruling_sufficient`.
+- **Kumano's Pupils, bounced and recast** — its exile replacement tracks
+  "dealt damage by this creature this turn" per OBJECT, not per card, so
+  returning the creature to hand and recasting it (400.7, a new object)
+  resets that tracking entirely, even for the same physical card later that
+  turn. Kumano's Pupils DOES have two official rulings on file, but both
+  address a different question (simultaneous death timing) — noted
+  explicitly in the record's `source` field so nobody reads this as
+  contradicting or restating them.
+
+**Grounding: clean on all 5 candidates now** (`validate_card_ruling_
+benchmark.py`), including the two new ones — every card, ruling, and CR
+citation resolves. **CR rule recall: 1/5**, reinforcing Section 21.132's
+n=2 finding at a slightly larger n=5: `rag.retrieve` still cannot surface
+the specific rule chunk a card-grounded question depends on, even though
+the general rule area is often nearby in the corpus. Not yet a stable rate,
+but the same real gap on more evidence.
