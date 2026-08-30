@@ -11478,3 +11478,47 @@ found by filtering for it, not stumbled into.
 **The benchmark is now 6 questions, all three `ruling_sufficiency`
 categories represented for the first time**, grounding still fully clean.
 CR rule recall: 1/6 — the same gap, same magnitude, one more data point.
+
+**Two more mined the same session, sweeping `continuous/` and `prevention/`
+with `--min-rulings`.** Both verified passing before being written up.
+
+- **Oathsworn Knight + Polukranos, Unchained** (`PreventDamageRemoveCounters
+  Test.test_OathswornKnight_CounterRemoval`, 7/7 tests) — a contrast pair
+  whose abilities read almost identically ("if damage would be dealt ...
+  prevent that damage and remove ... a +1/+1 counter" vs "... remove THAT
+  MANY +1/+1 counters") but differ in exactly the word that matters:
+  Oathsworn Knight always removes exactly one counter per damage event no
+  matter the amount; Polukranos removes one counter per point of damage
+  prevented. Both cards carry an official ruling that states its own half
+  directly (Oathsworn Knight's ruling literally says "not one counter per 1
+  damage prevented"), so this is `ruling_sufficient` on both sides at once —
+  the value is in the near-identical wording being a natural place for a
+  model to conflate the two rules, not in any retrieval or CR-citation gap.
+- **Conspiracy + Opalescence + Enchanted Evening** (`LayerTests.
+  testMultipleLayeredDependency`, 7 tests run / 2 `@Ignore`d / 0 failures) —
+  a three-effect dependency chain (613.8) in layer 4: Conspiracy only
+  affects creatures, so it depends on Opalescence having already made
+  enchantments into creatures; Opalescence only affects enchantments, so it
+  depends on Enchanted Evening having already made every permanent an
+  enchantment. The forced order is Enchanted Evening -> Opalescence ->
+  Conspiracy, regardless of cast order, giving a land base P/T 0/0 (mana
+  value 0) and Enchanted Evening itself 5/5 (its own mana value 5) before
+  Glorious Anthem's independent layer-7c +1/+1 applies on top. Opalescence's
+  own official ruling walks through this exact dependency methodology in
+  careful detail — but for a *different* three-card combination (Opalescence
+  + Humility + Worship). It teaches how to reason about the dependency, and
+  does not itself state the answer for this combination, making it the
+  second `ruling_relevant_insufficient` example — found the same way as
+  Angel's Grace, by filtering for cards with real rulings on file rather
+  than stumbling into one.
+
+Grounding stays clean at n=8 (`validate_card_ruling_benchmark.py`: card
+recall 8/8, ruling recall 6/6). **CR rule recall: 1/8** — held at the same
+1/N rate across four sample sizes now (n=2, 5, 6, 8), which is as much a
+finding as any individual question: `rag.retrieve` reliably fails to surface
+the specific CR rule chunk a card-grounded question depends on, independent
+of sample size, source (hand-authored vs mined), or `ruling_sufficiency`
+category. Worth deciding whether to fix (larger k, a retrieval strategy
+that treats "general rule for a card-grounded question" as a distinct
+query shape from rules-only retrieval) or document as a settled limitation
+— `PLAN_NEXT.md` item 4 carries the decision forward.
