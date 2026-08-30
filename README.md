@@ -294,6 +294,18 @@ A position is a gold record whose question is a board, so `key_points` is the co
 
 `data/gold/positions_seed.jsonl` is machine-drafted plumbing verification, kept separate from `data/gold/positions.jsonl`; Section 14.6's result says the gate needs hand-authored rubrics.
 
+## Local inference
+
+For asking the model one question, rather than running an evaluation harness:
+
+```bash
+python scripts/infer.py "When are state-based actions checked?"
+python scripts/infer.py "Does [[Chatterfang]] double token creation?" --with-cards
+python scripts/infer.py "..." --adapter-path models/mtg-rules-adapter-v2-best
+```
+
+Shares prompt construction with `eval.py` (`common.build_rag_messages`) rather than a second copy that could drift, prints model/adapter/CR-and-card-pin identity before generating, and warns if an adapter's stamped prompt fingerprint no longer matches (Section 8.7). Works fully offline once the base model, adapter, and corpora are cached locally — nothing here calls a network API.
+
 ## Local web console
 
 ```bash
@@ -322,7 +334,7 @@ curl -H "x-token: $RUBRIC_TOKEN" https://<app>/api/export > submissions.jsonl
 python scripts/author_rubrics.py --ingest-submissions submissions.jsonl --dry-run
 ```
 
-Deploying to fly.io: [deploy/README.md](deploy/README.md). Contributor guide to hand out: [data/gold/CONTRIBUTING.md](data/gold/CONTRIBUTING.md) for rules-question rubrics, [data/gold/CONTRIBUTING_POSITIONS.md](data/gold/CONTRIBUTING_POSITIONS.md) for board-position rubrics.for rules-question rubrics, [data/gold/CONTRIBUTING_POSITIONS.md](data/gold/CONTRIBUTING_POSITIONS.md) for board-position rubrics.
+Deploying to fly.io: [deploy/README.md](deploy/README.md). Contributor guide to hand out: [data/gold/CONTRIBUTING.md](data/gold/CONTRIBUTING.md) for rules-question rubrics, [data/gold/CONTRIBUTING_POSITIONS.md](data/gold/CONTRIBUTING_POSITIONS.md) for board-position rubrics.
 
 ## Honest results
 

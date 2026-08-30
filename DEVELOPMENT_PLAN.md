@@ -11005,3 +11005,132 @@ built so far); mulligan needed no fix because there was never a defect;
 sorcery-speed step-scoping remains what it always was — a documented,
 unexercised gap with no position currently triggering it, correctly left
 for when one does rather than fixed speculatively ahead of the evidence.
+
+### 21.131 The sorcery-speed gap, closed on request ahead of any position needing it — and what closing it immediately found
+
+Closed at the user's explicit direction rather than because a position
+demanded it: re-checked first, including against the 71 recorded boards
+that did not exist when 21.100 first stated the gap, and the finding still
+held — no position, hand-authored or recorded, has a land drop before
+precombat main. The fix went in anyway because it is mechanical rather than
+speculative: `getPlayable` already answers this question correctly at one
+step (21.100–21.101 proved that), and asking it again one step later is not
+new untested behavior, just the same proven query at a second vantage point.
+
+**What changed.** `xmage_export.py`'s `getPlayable`+`TARGET` enumeration —
+previously inlined once, in `listPlayableActions` — is now
+`_emit_playable_query`, called from both there and a new fourth `@Test`,
+`listPlayableAtMain`, emitted only when the stated step is strictly before
+`PRECOMBAT_MAIN` (`precombat_main_reachable`, the mirror image of
+`combat_reachable`/`blocks_reachable`: those ask "is the decision still
+ahead", this asks "did the stated-step query run too early to see something
+that opens up later"). `xmage_diff.py` needed no reading-side changes at
+all: `engine_answers()` already unions every `PLAYABLE`/`TARGET` line in a
+report regardless of which `@Test` method printed it, so a second vantage
+point is automatically merged into the same set the first one populates.
+
+**Verified against the full 103-class set** (32 original + 71 recorded,
+freshly re-exported and compiled with `mvn clean test`, never `test` alone —
+21.128's rule still applies): no compile errors, no new failure category
+(still exactly the mulligan-NPE and leftover-action classes from 21.128/
+21.129), 276 tests across 103 classes.
+
+**And it found something real on the first run — a false positive, not a
+new gold-set defect.** `xmage_diff.py` against the 32-position set now
+reports `pos-trigger-ordering-0001` and `-0002` disagreeing: "the engine
+offers 'Forest'; the position does not list it." Before treating that as an
+actionable finding: both boards carry a **Phyrexian Arena** — the very
+permanent whose upkeep trigger these two positions exist to test the
+*ordering* of — and Phyrexian Arena's ability is "draw a card" as part of
+what it does at upkeep, before precombat main. Both boards' stated hand is
+`["Doom Blade"]`, no Forest. So the draw is real (it is the position's own
+mechanic), but what gets drawn is not: `xmage_export.py` fills library
+slots with a placeholder basic because *only the count is real, never the
+content* (stated as a limitation since Section 21.100), so the card
+Phyrexian Arena draws is unconditionally "Forest" regardless of what a real
+recorded game's deck would have produced there.
+
+This is the SAME limitation the docstring already names, reached through a
+path that could not exist before this section: no previous query ever
+looked far enough into the turn to see a card drawn mid-turn, because
+nothing asked past the stated step except `DECLARE_ATTACKERS`/
+`DECLARE_BLOCKERS`, neither of which triggers a draw. `listPlayableAtMain`
+is the first query that can cross a draw event, and it did, on its first
+real run, against exactly the two positions built around a card-drawing
+trigger. **The gold set is NOT updated with "PLAY Forest"** — doing so
+would encode the filler's fiction as if it were the recorded game's truth.
+Anyone extending this query further (e.g., to a step after an explicit
+draw step) should expect the same interaction and read a `Play <basic
+land>` disagreement as a candidate instance of this, not an automatic
+defect, whenever a draw could have occurred between the stated step and
+the step being queried.
+
+### 21.132 The card/ruling benchmark's first three questions, and a real retrieval-recall gap on the first measurement
+
+PLAN_NEXT.md item 4 asks for a held-out card/ruling benchmark and says to
+"measure retrieval recall before generation quality." Built the smaller,
+safer half of that first: a schema, a validator, and three seed candidates —
+not a full benchmark, since authoring MTG-ruling content that is subtly
+wrong is worse than not having it, and a trustworthy benchmark's whole
+value is being trustworthy.
+
+**Every candidate is grounded in real, checkable data, not memory.** Each
+question cites an `official_rulings_used` chunk id that must exist in the
+pinned `ruling_chunks.jsonl`, and each `cr_rule_citations` entry must be a
+real id in the pinned CR (`load_rule_ids`) — both asserted by
+`scripts/validate_card_ruling_benchmark.py`, not just claimed. One card
+(`Mana Vortex`) and its state-trigger ruling; one (`Greven, Predator
+Captain`) and its life-loss/uninterrupted-resolution ruling; one pairing
+(`Colossal Dreadmaw` + `Basilisk Collar`, deathtouch trampling) with **no**
+ruling on either card, verified absent, to cover the "no ruling exists, CR
+reasoning only" category the plan asks for. All three carry
+`needs_review: true` in `data/gold/card_ruling_candidates.jsonl` — nothing
+here is gold, the same rule every other candidates file in this repo
+follows.
+
+**The validator caught a real authoring mistake before it shipped.** The
+first draft of the Greven question cited `702.111` — that is Menace, copied
+from the card's own `keyword_rule_ids` in the ruling corpus without
+checking it was relevant to the resolution-sequencing question actually
+being asked. Retrieval-recall measurement flagged it as a miss, which
+prompted a second look rather than accepting the miss as a pipeline
+limitation — the citation itself was wrong. Corrected to `117.2e` ("no
+player has priority while a spell or ability is resolving"), the actual
+rule the question depends on.
+
+**Card names must use `[[Bracket]]` syntax to resolve at all — this is not
+optional.** `card_lookup.CardIndex.find_in_text` matches ONLY
+`BRACKET_RE = \[\[(.*?)\]\]`; it does no plain-text scanning. The existing
+gold set's Reddit-sourced questions resolve cards not because
+`retrieve_hybrid.py` scans prose, but because their original authors
+happened to write `[[Card Name]]` (a Reddit MTG-subreddit autolink
+convention) before the question ever reached this repo. The first draft of
+all three candidates here was written as plain prose and would have scored
+0% card recall for a reason that has nothing to do with retrieval quality —
+caught by running the validator before trusting its output, not by reading
+the code.
+
+**Measured, on the corrected three: card name recall 3/3, ruling recall
+2/2, CR rule recall 1/3 (in the top-3 rules chunks; still 0/3 at top-10,
+so not a ranking problem but a real miss).** `rag.retrieve` finds adjacent
+chunks from the right rule GROUP (603-2, 603-6 for the Mana Vortex
+question, whose target is inside rule group 603) without finding the chunk
+that actually contains 603.8 or 117.2e, even widened to k=10. Both misses
+share a shape: the question is phrased in card-and-scenario language
+("no lands on the battlefield," "gain life back in response"), not in the
+CR's own vocabulary ("state trigger," "priority... while... resolving") —
+a card-grounded question does not lexically resemble the general rule it
+depends on, and semantic embedding similarity does not appear to bridge
+that gap reliably at n=2. This is a measurement about the CURRENT retrieval
+pipeline on exactly the kind of question this benchmark exists to ask, on
+the first three questions run through it — read as an n=2 signal on general-
+rule recall, not yet a stable rate, and the reason "measure retrieval
+recall before generation quality" is the plan's own stated order of
+operations.
+
+**Not done**: the benchmark itself. Three questions is a validated seed, not
+coverage — no `ruling_relevant_insufficient` example exists yet (a case
+where the ruling is necessary but not sufficient alone), and the plan's own
+scope (cards with rulings, cards without, and the sufficiency split) needs
+substantially more authored and reviewed content before "two judges" is
+appropriate, per the plan's own ordering.

@@ -52,6 +52,19 @@ declared attacker via `Permanent.canBlock(attackerId, game)` — the engine's
 own evasion/restriction system, not a reimplementation of flying, menace, or
 protection here.
 
+A different timing gap runs the other direction: `getPlayable` at the STATED
+step is under-inclusive for a sorcery-speed play that only opens up LATER
+this turn — a land drop or sorcery listed on an upkeep or draw-step board,
+castable once precombat main arrives but absent from the engine's answer
+right now. `listPlayableAtMain` (Section 21.131) is a fourth `@Test`, run
+only when the stated step is strictly before `PRECOMBAT_MAIN`, that asks the
+identical `getPlayable`+targets question one step later. No position in the
+set (the original 32 or the 71 recorded) currently has a land drop before
+precombat main, so this closes a documented gap ahead of any position
+actually hitting it, on purpose: the query is a mechanical repeat of one
+already proven correct (`_emit_playable_query`, shared rather than
+duplicated), not a guess about untested engine behavior.
+
 WHAT THIS DOES AND DOES NOT CLAIM
 
 It emits Java. It does not run it: there is no JVM here, and a generated test
@@ -147,6 +160,24 @@ def blocks_reachable(phase: str) -> bool:
     """
     here = phase_index(phase)
     return here is not None and here <= PHASE_ORDER.index("DECLARE_BLOCKERS")
+
+
+def precombat_main_reachable(phase: str) -> bool:
+    """Is `phase` strictly BEFORE precombat main this turn?
+
+    The opposite direction from `combat_reachable`/`blocks_reachable`: those
+    ask "is the decision still ahead", this asks "did the stated step's query
+    already run at a point too early to see a sorcery-speed play that opens
+    up later this same turn". `getPlayable` is step-scoped (Section 21.100),
+    so a sorcery-speed spell or land drop listed on an upkeep or draw-step
+    board — legitimately castable once precombat main arrives — would be
+    absent from the engine's answer at the STATED step and read as a false
+    disagreement. False for precombat main itself (already the stated-step
+    query) and for anything at or after it (that window has already passed
+    or IS the current one; there is nothing later this turn to ask about).
+    """
+    here = phase_index(phase)
+    return here is not None and here < PHASE_ORDER.index("PRECOMBAT_MAIN")
 
 
 def active_turn(pos: dict) -> int:
@@ -454,6 +485,60 @@ def _combat(add, pos: dict) -> None:
     add("")
 
 
+def _emit_playable_query(add) -> None:
+    """`getPlayable` plus per-ability TARGET enumeration.
+
+    Shared by `listPlayableActions` (queried at the stated step) and
+    `listPlayableAtMain` (Section 21.131, queried at PRECOMBAT_MAIN for a
+    board whose stated step is earlier this turn) — one copy rather than two,
+    since two copies of the same query is exactly the kind of drift this
+    project keeps finding costly (`common.py`'s whole reason for existing).
+
+    `getPlayable` returns List<ActivatedAbility>, and DECLARING AN ATTACK IS
+    NOT AN ACTIVATED ABILITY — it is a turn-based action — so attacks cannot
+    appear here at any step. The first clean run reported only `Cast Shock`
+    for a board that also lists `ATTACK Centaur Courser`, and that read as the
+    position being wrong; it was the query being one-sided (21.100).
+    Mana abilities are excluded: `legal_actions` enumerates PLAYS, and the
+    grammar handles mana separately through TAP lines. Leaving them in makes
+    every land a false difference — the first run reported `{T}: Add {G}.`
+    against a position that correctly does not list it.
+
+    Each playable is followed by its POSSIBLE TARGETS. `legal_actions` names
+    each targeting separately (`CAST Shock TARGET Grizzly Bears`), and
+    `match_to_legal` has no untargeted-CAST fallback the way it has for
+    ATTACK — so an untargeted entry would score every correct targeted cast
+    illegal, which is 21.61's shape a fourth time. The engine knows the legal
+    targets; guessing them here would be inventing a format again (21.102).
+    """
+    add("        for (mage.abilities.ActivatedAbility ability "
+        ": playerA.getPlayable(currentGame, true)) {")
+    add("            String label = ability.toString();")
+    add('            if (label.startsWith("{T}: Add")) {')
+    add("                continue;")
+    add("            }")
+    add('            System.out.println("PLAYABLE: " + label);')
+    add("            for (mage.target.Target target : ability.getTargets()) {")
+    add("                for (java.util.UUID id : target.possibleTargets("
+        "playerA.getId(), ability, currentGame)) {")
+    add("                    String name = null;")
+    add("                    mage.game.permanent.Permanent p = "
+        "currentGame.getPermanent(id);")
+    add("                    if (p != null) {")
+    add("                        name = p.getName();")
+    add("                    } else if (currentGame.getPlayer(id) != null) {")
+    add("                        name = currentGame.getPlayer(id).getName();")
+    add("                    } else if (currentGame.getCard(id) != null) {")
+    add("                        name = currentGame.getCard(id).getName();")
+    add("                    }")
+    add("                    if (name != null) {")
+    add('                        System.out.println("TARGET: " + label + " | " + name);')
+    add("                    }")
+    add("                }")
+    add("            }")
+    add("        }")
+
+
 def emit(pos: dict) -> tuple[str, list[str]]:
     """Return (java source, problems). A problem means the test cannot be trusted.
 
@@ -473,6 +558,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     # `None` means "there is no step this turn at which to ask about attacks".
     combat_step = "DECLARE_ATTACKERS" if combat_reachable(phase) else None
     blocks_step = "DECLARE_BLOCKERS" if blocks_reachable(phase) else None
+    need_main_query = precombat_main_reachable(phase)
     problems.extend(combat_problems(pos))
     problems.extend(token_problems(pos))
     problems.extend(permanent_state_problems(pos))
@@ -613,32 +699,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
     # ATTACK — so an untargeted entry would score every correct targeted cast
     # illegal, which is 21.61's shape a fourth time. The engine knows the legal
     # targets; guessing them here would be inventing a format again (21.102).
-    add("        for (mage.abilities.ActivatedAbility ability "
-        ": playerA.getPlayable(currentGame, true)) {")
-    add("            String label = ability.toString();")
-    add('            if (label.startsWith("{T}: Add")) {')
-    add("                continue;")
-    add("            }")
-    add('            System.out.println("PLAYABLE: " + label);')
-    add("            for (mage.target.Target target : ability.getTargets()) {")
-    add("                for (java.util.UUID id : target.possibleTargets("
-        "playerA.getId(), ability, currentGame)) {")
-    add("                    String name = null;")
-    add("                    mage.game.permanent.Permanent p = "
-        "currentGame.getPermanent(id);")
-    add("                    if (p != null) {")
-    add("                        name = p.getName();")
-    add("                    } else if (currentGame.getPlayer(id) != null) {")
-    add("                        name = currentGame.getPlayer(id).getName();")
-    add("                    } else if (currentGame.getCard(id) != null) {")
-    add("                        name = currentGame.getCard(id).getName();")
-    add("                    }")
-    add("                    if (name != null) {")
-    add('                        System.out.println("TARGET: " + label + " | " + name);')
-    add("                    }")
-    add("                }")
-    add("            }")
-    add("        }")
+    _emit_playable_query(add)
     # Not phase-sensitive — it returned the same creature at a main phase and at
     # declare blockers — so it says "could block something", not "blocking is
     # legal now". Printed for the record; `xmage_diff` does not compare it.
@@ -707,6 +768,24 @@ def emit(pos: dict) -> tuple[str, list[str]]:
         add("                }")
         add("            }")
         add("        }")
+        add("    }")
+
+    if need_main_query:
+        add("")
+        add("    /**")
+        add("     * Sorcery-speed plays castable once precombat main arrives,")
+        add("     * even though the stated step is earlier this turn (Section")
+        add("     * 21.131). getPlayable is step-scoped, so the stated-step query")
+        add("     * alone is under-inclusive here — a land drop or sorcery listed")
+        add("     * on an upkeep or draw-step board would be absent from it and")
+        add("     * read as a false disagreement (21.100's shape, for timing).")
+        add("     */")
+        add("    @Test")
+        add("    public void listPlayableAtMain() {")
+        lines.extend(board)
+        _stop_at(add, "PRECOMBAT_MAIN", phase, pos)
+        add(f'        System.out.println("=== {pos["id"]} @PRECOMBAT_MAIN ===");')
+        _emit_playable_query(add)
         add("    }")
 
     _token_classes(add, pos)

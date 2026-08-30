@@ -47,11 +47,18 @@ pair, running the engine's own flying/menace/protection/restriction system
 rather than a second copy of it here. That IS phase- and attacker-sensitive,
 so it is compared like ATTACKER, not printed-only like BLOCKER.
 
-The `getPlayable` side stays step-scoped, so it is under-inclusive for a
-sorcery-speed play listed on a pre-main board — castable later this turn, absent
-from the engine's answer now. No position in the set does that (checked: no
-non-main board lists a land drop), so it is a stated gap rather than a fixed
-one; a position that does would need a third query at PRECOMBAT_MAIN.
+The `getPlayable` side WAS step-scoped only, which made it under-inclusive for
+a sorcery-speed play listed on a pre-main board — castable later this turn,
+absent from the engine's answer at the stated step. Closed in Section 21.131:
+`xmage_export.py` now also queries at PRECOMBAT_MAIN whenever the stated step
+is strictly earlier, and this file reads it the same way it reads everything
+else `PLAYABLE`/`TARGET` — `engine_answers()` unions every matching line in
+the report regardless of which `@Test` method printed it, so no comparison
+code changed, only the export gained a second vantage point. Still true as of
+this writing: no position in the set (the original 32 or the 71 recorded) has
+a land drop before precombat main, so this closed the gap ahead of any
+position actually needing it — the query is a mechanical repeat of one
+already proven correct, not new untested engine behavior.
 
 Usage:
     python scripts/gameplay/xmage_diff.py --reports /path/to/Mage.Tests/target/surefire-reports
