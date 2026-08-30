@@ -41,6 +41,17 @@ wrong (Section 21.101). Attacks are declared in exactly one step, so the query
 for them runs at `DECLARE_ATTACKERS` — a separate `@Test`, because `execute()`
 runs once per method and each method gets a fresh game.
 
+Blocks are the same shape, one step later. `Player.getAvailableBlockers` only
+answers "could this creature ever block something" and is not phase- or
+attacker-sensitive (it returned the same creature at a main phase and at
+declare blockers), so it cannot say a specific block is legal now — that is
+still printed as `BLOCKER:` in `listPlayableActions`, unchanged, for the
+record. `listAvailableBlocks` (Section 21.129) is a third `@Test`, at
+`DECLARE_BLOCKERS`, that pairs each available blocker against each actually
+declared attacker via `Permanent.canBlock(attackerId, game)` — the engine's
+own evasion/restriction system, not a reimplementation of flying, menace, or
+protection here.
+
 WHAT THIS DOES AND DOES NOT CLAIM
 
 It emits Java. It does not run it: there is no JVM here, and a generated test
@@ -125,6 +136,17 @@ def combat_reachable(phase: str) -> bool:
     """
     here = phase_index(phase)
     return here is not None and here <= PHASE_ORDER.index("DECLARE_ATTACKERS")
+
+
+def blocks_reachable(phase: str) -> bool:
+    """Is declare blockers still ahead of `phase` this turn?
+
+    One step later than `combat_reachable`, for the same reason: a step past
+    DECLARE_BLOCKERS, or a phase with no place in the turn order (`main`,
+    `opening hand`), has no honest step at which to ask who may block whom.
+    """
+    here = phase_index(phase)
+    return here is not None and here <= PHASE_ORDER.index("DECLARE_BLOCKERS")
 
 
 def active_turn(pos: dict) -> int:
@@ -450,6 +472,7 @@ def emit(pos: dict) -> tuple[str, list[str]]:
         problems.append(f"no PhaseStep for phase {raw_phase!r}")
     # `None` means "there is no step this turn at which to ask about attacks".
     combat_step = "DECLARE_ATTACKERS" if combat_reachable(phase) else None
+    blocks_step = "DECLARE_BLOCKERS" if blocks_reachable(phase) else None
     problems.extend(combat_problems(pos))
     problems.extend(token_problems(pos))
     problems.extend(permanent_state_problems(pos))
@@ -642,6 +665,48 @@ def emit(pos: dict) -> tuple[str, list[str]]:
         add(f'        System.out.println("=== {pos["id"]} @DECLARE_ATTACKERS ===");')
         add("        playerA.getAvailableAttackers(currentGame)")
         add('                .forEach(p -> System.out.println("ATTACKER: " + p.getName()));')
+        add("    }")
+
+    if blocks_step is None:
+        add("")
+        add(f"    // No block query: {phase!r} is past declare blockers, so a")
+        add("    // BLOCK in this position's legal_actions is genuinely unreachable")
+        add("    // and the empty engine answer is the honest one.")
+    else:
+        add("")
+        add("    /**")
+        add("     * Which specific attacker each of your creatures may legally")
+        add("     * block, at DECLARE_BLOCKERS regardless of the step the position")
+        add("     * states (21.101's shape, for blocks). Unlike the BLOCKER: line")
+        add("     * in listPlayableActions() — which only asks 'could this ever")
+        add("     * block something' and is not phase- or attacker-sensitive —")
+        add("     * this pairs each available blocker against each actually")
+        add("     * declared attacker via Permanent.canBlock, which runs the")
+        add("     * engine's own evasion/restriction system (flying, menace,")
+        add("     * protection, ...) rather than reimplementing any of it here.")
+        add("     */")
+        add("    @Test")
+        add("    public void listAvailableBlocks() {")
+        lines.extend(board)
+        _stop_at(add, blocks_step, phase, pos)
+        add(f'        System.out.println("=== {pos["id"]} @DECLARE_BLOCKERS ===");')
+        add("        java.util.List<mage.game.permanent.Permanent> attackers ="
+            " new java.util.ArrayList<>();")
+        add("        for (mage.game.permanent.Permanent p : "
+            "currentGame.getBattlefield().getAllActivePermanents()) {")
+        add("            if (p.isAttacking()) {")
+        add("                attackers.add(p);")
+        add("            }")
+        add("        }")
+        add("        for (mage.game.permanent.Permanent blocker : "
+            "playerA.getAvailableBlockers(currentGame)) {")
+        add("            for (mage.game.permanent.Permanent attacker : attackers) {")
+        add("                if (blocker.canBlock(attacker.getId(), currentGame)) {")
+        add('                    System.out.println("BLOCK: " + blocker.getName()'
+            ' + " -> " + attacker.getName());')
+        add("                }")
+        add("            }")
+        add("        }")
         add("    }")
 
     _token_classes(add, pos)

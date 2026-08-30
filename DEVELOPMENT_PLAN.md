@@ -10886,3 +10886,122 @@ before damage) instead of removing it. `test_eval.py` (507 assertions),
 that are genuinely available" `legal_actions` a hand-authored position has.
 Curating them is a separate, manual pass; filling the field was the blocker
 this section closes, not the last word on these boards' quality.
+
+### 21.129 Blocks, closed: `Permanent.canBlock` answers the question `getAvailableBlockers` couldn't
+
+`emitter_blind_spot` refused every blocking board on the stated grounds that
+`getAvailableBlockers` is not phase-sensitive — it returns the same creature
+at a main phase and at declare blockers, so it can say a creature *could ever*
+block, never that a *specific* block is legal *now*. That was true of the
+query the code was using. It was never true of the engine: `Permanent`
+exposes `canBlock(UUID attackerId, Game game)`, which runs the engine's own
+evasion and restriction system (flying, reach, menace, protection, ...) for
+one attacker/blocker pair — the same kind of per-pair check `getPlayable`
+already does for targets, just never asked of blocking.
+
+**What changed.** `xmage_export.py` gained a third `@Test`,
+`listAvailableBlocks()`, at `DECLARE_BLOCKERS` (one step later than
+`combat_reachable`'s `DECLARE_ATTACKERS`, so a new `blocks_reachable(phase)`
+mirrors it exactly). It collects the board's actually-attacking permanents
+(`Permanent.isAttacking()`, no new state needed — `_combat()` already scripts
+them into every test method) and, for each of `playerA`'s available blockers,
+checks `canBlock` against each attacker, printing `BLOCK: <blocker> ->
+<attacker>` for every legal pair. `xmage_diff.py` reads it as a fourth engine
+answer (`PLAYABLE`/`ATTACKER`/`BLOCKER`/`BLOCK`), compares `BLOCK` sets on the
+same footing as `ATTACKER` (a real disagreement, not a coverage gap), emits
+curated `BLOCK <blocker> -> <attacker>` lines from `--emit-legal-actions`, and
+no longer refuses a blocking board in `emitter_blind_spot` — only a mulligan
+and `ORDER TRIGGERS` remain genuine blind spots now, for the reasons those
+always had (no `PhaseStep` exists pre-game; not an `ActivatedAbility` so
+`getPlayable` never reports it).
+
+The phase-insensitive `BLOCKER:` line from `listPlayableActions` is
+unchanged and still printed-only — it answers a different, weaker question
+("could this creature ever block something") and the two are kept
+deliberately distinct rather than one replacing the other.
+
+**Verified against the 6 boards this closes.** Every one of the 71 recorded
+boards' candidates file re-ran through the full cycle
+(`run_xmage_validation.sh`, Section 21.128): the 6 boards previously REFUSED
+as blocking boards are now all attempted, none refused. Results are exactly
+what the boards' content predicts, not a uniform "it worked":
+
+- Two boards (`-0033`, `-0040`) have **you** as the attacker, so there is
+  nothing for you to block — correctly zero `BLOCK` lines, CAST options only.
+- One board (`-0063`) has a single attacker and a single legal blocker —
+  correctly one pairing: `BLOCK Spectral Sailor -> Surrak, Elusive Hunter`.
+- One board (`-0055`) has two attackers and two flying blockers with no
+  evasion restricting either side — correctly all four pairings, the exact
+  shape a full pairwise check should produce when nothing excludes a
+  combination.
+- Two boards (`-0047`, `-0071`) come back empty. `-0071`'s attackers include
+  an **animated land** (a Forest turned into a 21/21 by +1/+1 counters) —
+  `permanent_state_problems`'s already-documented gap (`addCard` cannot place
+  a land currently animated as a creature, Sections 21.117/21.123) — so the
+  rebuilt board likely has fewer real attackers than the recording, and an
+  empty answer here is consistent with that known limitation rather than a
+  defect in the block query itself.
+
+Net: 65 -> **71 of 71 filled**, 0 refused; scorable boards (non-empty
+`legal_actions`) 54 -> **58 of 71**. `test_engine_legal_actions` in
+`test_eval.py` was rewritten in the same commit — its old assertions
+(`"blockers are never emitted"`, `"a blocking board is refused"`) tested
+exactly the limitation this section removes, and left unfixed would have
+been asserting a bug was a feature. All seven suites still pass (508
+assertions, +1 from the added BLOCK-line check).
+
+### 21.130 The next two items on the XMage backlog were not what they looked like
+
+Blocks (21.129) closed by finding a real engine hook (`Permanent.canBlock`)
+the existing query pattern had simply never been asked for. The next two
+items on the backlog — `ORDER TRIGGERS` and mulligan — do not close the same
+way, and both turned out to be different problems than "find the hook."
+
+**`ORDER TRIGGERS`: a real negative result, verified by running, not
+theorized.** The candidate approach was the same shape as blocks: stop the
+game at the step where the position says triggers are pending
+(`PhaseStep.UPKEEP`, matching `pos-trigger-ordering-0001`'s board exactly —
+two upkeep triggers, "waiting to be put onto the stack" per its own
+`known_information`) and read `GameState.getTriggered(controllerId)`. A
+throwaway probe test (`ProbeTriggerOrderTest`, built, run, and deleted — not
+committed, since it answers a question rather than testing anything) built
+that exact board and printed the pending count: **0**. By the time
+`setStopAt(1, PhaseStep.UPKEEP)` + `execute()` returns, the engine has
+already auto-ordered and resolved both triggers — the trigger-ordering
+choice happens as part of *entering* the step, before any player-facing
+stop point the test framework's `setStopAt` model can catch. Unlike
+`DECLARE_ATTACKERS`/`DECLARE_BLOCKERS`, which are real turn-based-action
+windows the engine pauses at, "order simultaneous triggers" is not a step at
+all — it is resolved inline, and the only way to observe it would be
+intercepting `TestPlayer`'s own choice-handling internals (whatever backs
+`chooseMulligan`-style delegation to `computerPlayer`) rather than querying
+public state after the fact. That is a materially larger, more invasive
+piece of engineering than anything blocks needed, and this section stops
+here rather than guessing at it — a stated gap, verified rather than
+assumed, per this file's own rule about a control measuring only what it
+measures.
+
+**Mulligan: not a gap to close, on inspection.** The backlog framed this as
+"needs a different test shape than `setStopAt`," which is true but beside
+the point once the actual rule is checked: **a mulligan decision has no
+illegal option.** Any hand may always be kept, and any hand may always be
+mulliganed (rule 103.5) — there is no legality condition on either choice
+the way there is for a cast, an attack, or now a block. Both hand-authored
+mulligan positions already reflect this exactly:
+`pos-mulligan-0001`/`-0002` list `["KEEP", "MULLIGAN"]` (order differs,
+content doesn't) with nothing to validate beyond "are these the only two
+words that could appear here," which they trivially always are.
+`emitter_blind_spot`'s mulligan refusal is therefore not a temporary
+limitation waiting on engine support — it is the permanently correct answer,
+because there is no engine question to ask. "Cover mulligan" was the wrong
+frame for this item from the start; nothing here needs building.
+
+**Where this leaves the backlog.** Blocks was the one item with real,
+present-day payoff and a genuine missing hook, and it is closed. Of the
+other three original Phase 3 items: `ORDER TRIGGERS` is a verified
+engineering dead end for the current test-framework approach (not
+impossible, just requiring a different and larger mechanism than anything
+built so far); mulligan needed no fix because there was never a defect;
+sorcery-speed step-scoping remains what it always was — a documented,
+unexercised gap with no position currently triggering it, correctly left
+for when one does rather than fixed speculatively ahead of the evidence.

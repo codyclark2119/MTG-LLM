@@ -1,13 +1,14 @@
 """Diff a position's `legal_actions` against what XMage says is legal.
 
 Reads the surefire XML that `xmage_export.py`'s generated tests produce and
-compares three engine answers per board:
+compares four engine answers per board:
 
-    PLAYABLE:  Player.getPlayable(game, hidden)        -> casts and activations
-    ATTACKER:  Player.getAvailableAttackers(game)      -> who may attack
-    BLOCKER:   Player.getAvailableBlockers(game)       -> who may block
+    PLAYABLE:  Player.getPlayable(game, hidden)             -> casts and activations
+    ATTACKER:  Player.getAvailableAttackers(game)           -> who may attack
+    BLOCKER:   Player.getAvailableBlockers(game)            -> who may EVER block (uncompared, see below)
+    BLOCK:     Permanent.canBlock(attackerId, game), paired -> which attacker each may block NOW
 
-WHY THREE
+WHY FOUR
 
 `getPlayable` returns `List<ActivatedAbility>`, and declaring an attack is a
 turn-based action rather than an activated ability, so attacks and blocks
@@ -39,7 +40,12 @@ available at all, never whether its target is legal.
 `getAvailableBlockers` is NOT phase-sensitive: it returned the same creature at
 a main phase and at declare blockers. So a BLOCKER line means "this creature
 could block something", not "blocking is legal right now" — printed for the
-record and deliberately not compared.
+record and deliberately not compared. `BLOCK` (Section 21.129) answers the
+real question instead: at DECLARE_BLOCKERS, with the position's own attackers
+actually scripted, `Permanent.canBlock` is asked once per (blocker, attacker)
+pair, running the engine's own flying/menace/protection/restriction system
+rather than a second copy of it here. That IS phase- and attacker-sensitive,
+so it is compared like ATTACKER, not printed-only like BLOCKER.
 
 The `getPlayable` side stays step-scoped, so it is under-inclusive for a
 sorcery-speed play listed on a pre-main board — castable later this turn, absent
@@ -66,7 +72,7 @@ from common import (POSITIONS_PATH, permanent_pt,  # noqa: E402
 from positions import load_positions  # noqa: E402
 from xmage_export import class_name  # noqa: E402
 
-_LINE = re.compile(r"(PLAYABLE|ATTACKER|BLOCKER): (.+)")
+_LINE = re.compile(r"(PLAYABLE|ATTACKER|BLOCKER|BLOCK): (.+)")
 # `TARGET: <ability label> | <target name>` — the ability is repeated so a
 # target can be tied back to the play it belongs to, since a board can offer two
 # spells with different legal targets.
@@ -81,8 +87,11 @@ _ACTION = re.compile(r"^(CAST|PLAY|ACTIVATE|ATTACK|BLOCK)\s+([^,]+?)(?:\s+TARGET
 
 
 def engine_answers(report: Path) -> dict[str, set[str]]:
-    """{'PLAYABLE': {...}, 'ATTACKER': {...}, 'BLOCKER': {...}} from one report."""
-    out = {"PLAYABLE": set(), "ATTACKER": set(), "BLOCKER": set()}
+    """{'PLAYABLE': {...}, 'ATTACKER': {...}, 'BLOCKER': {...}, 'BLOCK': {...}}
+    from one report. `BLOCK` entries are `'<blocker> -> <attacker>'` pairs,
+    the same shape as a position's own `BLOCK <blocker> -> <attacker>` line
+    with the verb stripped, so the two sets compare directly."""
+    out = {"PLAYABLE": set(), "ATTACKER": set(), "BLOCKER": set(), "BLOCK": set()}
     try:
         text = ET.parse(report).getroot().itertext()
     except ET.ParseError:
@@ -130,8 +139,9 @@ def legal_actions_from_engine(eng: dict[str, set[str]],
     exists to separate *not knowing what is possible* from *not knowing what is
     good*, and handing it thirty options changes which of those is being asked.
 
-    Blocks are not emitted: `getAvailableBlockers` is not phase-sensitive
-    (see the module docstring), so it cannot say blocking is legal now.
+    Blocks (Section 21.129) ARE emitted now, from `eng["BLOCK"]` — each an
+    already-legal `<blocker> -> <attacker>` pair from `Permanent.canBlock`,
+    not from the phase-insensitive `BLOCKER` set (see the module docstring).
     """
     out: list[str] = []
     for label in sorted(eng["PLAYABLE"]):
@@ -152,6 +162,8 @@ def legal_actions_from_engine(eng: dict[str, set[str]],
             out.append(f"{verb} {card} TARGET {shown}")
     for creature in sorted(eng["ATTACKER"]):
         out.append(f"ATTACK {creature}")
+    for pair in sorted(eng["BLOCK"]):
+        out.append(f"BLOCK {pair}")
     return out
 
 
@@ -197,10 +209,20 @@ def board_fidelity(report: Path, pos: dict) -> list[str]:
     return out
 
 def claimed(pos: dict) -> dict[str, set[str]]:
-    """The position's own legal_actions, grouped the way the engine groups them."""
-    out = {"PLAYABLE": set(), "ATTACKER": set(), "BLOCKER": set()}
+    """The position's own legal_actions, grouped the way the engine groups them.
+
+    `BLOCK` keeps the FULL `<blocker> -> <attacker>` pair rather than just the
+    blocker's name — that pairing is the whole question a block answers, and
+    `_ACTION` (which exists to give ATTACK/CAST just their card name) would
+    truncate it at the arrow.
+    """
+    out = {"PLAYABLE": set(), "ATTACKER": set(), "BLOCKER": set(), "BLOCK": set()}
     for action in pos.get("legal_actions") or []:
-        m = _ACTION.match(action.strip())
+        action = action.strip()
+        if action.upper().startswith("BLOCK "):
+            out["BLOCK"].add(action[len("BLOCK "):].strip())
+            continue
+        m = _ACTION.match(action)
         if not m:
             continue
         verb, name = m.group(1).upper(), m.group(2).strip()
@@ -208,23 +230,20 @@ def claimed(pos: dict) -> dict[str, set[str]]:
             out["PLAYABLE"].add(name)
         elif verb == "ATTACK":
             out["ATTACKER"].add(name)
-        elif verb == "BLOCK":
-            out["BLOCKER"].add(name)
     return out
 
 
 def emitter_blind_spot(pos: dict) -> str:
     """Why this board's `legal_actions` must NOT be generated, or "".
 
-    The emitter can produce casts, activations and attacks. It cannot produce
-    blocks (`getAvailableBlockers` is not phase-sensitive, so it cannot say
-    blocking is legal now) or `ORDER TRIGGERS` (not an `ActivatedAbility`, so
+    The emitter can produce casts, activations, attacks, and (Section 21.129)
+    blocks. It cannot produce `ORDER TRIGGERS` (not an `ActivatedAbility`, so
     `getPlayable` never reports it) or a mulligan (before any step).
 
     On such a board the engine's answer is not *incomplete*, it is **empty** —
     and writing an empty `legal_actions` is far worse than writing none. The
     closed prompt then reads *"no legal plays are available; PASS is the only
-    response"*, which is a falsehood about the board, and every correct block
+    response"*, which is a falsehood about the board, and every correct play
     would score illegal against it. A gap that fills itself in with a confident
     wrong answer is the shape this project keeps paying for (21.49, 21.61), so
     the emitter refuses by name instead (Section 21.105).
@@ -233,9 +252,6 @@ def emitter_blind_spot(pos: dict) -> str:
     phase = (pos.get("phase") or "").lower()
     if PRE_TURN_PHASE in phase:
         return "a mulligan — before any step, so the engine has nothing to answer"
-    if "declare blockers" in phase:
-        return ("a blocking board — blocks are the whole answer here and the "
-                "emitter cannot produce them")
     return ""
 
 
@@ -307,9 +323,11 @@ def emit_legal_actions(reports: Path, positions: Path, dry_run: bool = True) -> 
 def _why_uncompared(pos: dict) -> str:
     """Why a board contributed nothing to the comparison.
 
-    Named reasons rather than a count, because the three are different
-    problems: a mulligan is outside what an engine query can mean, blocks are a
-    gap in the QUERY, and an empty list is a gap in the POSITION.
+    Named reasons rather than a count, because these are different problems: a
+    mulligan is outside what an engine query can mean, ORDER TRIGGERS is a gap
+    in the QUERY, and an empty list is a gap in the POSITION. BLOCK is not
+    listed here any more (Section 21.129) — a board whose only actions are
+    BLOCK now populates `mine["BLOCK"]` and is compared, not skipped.
     """
     from common import PRE_TURN_PHASE
     actions = pos.get("legal_actions") or []
@@ -318,9 +336,6 @@ def _why_uncompared(pos: dict) -> str:
     if PRE_TURN_PHASE in (pos.get("phase") or "").lower():
         return "a mulligan decision — before any step, so there is nothing to ask"
     verbs = {a.strip().split(" ", 1)[0].upper() for a in actions}
-    if verbs <= {"BLOCK"}:
-        return ("only BLOCK actions, and blocks are not compared "
-                "(getAvailableBlockers is not phase-sensitive)")
     if verbs <= {"ORDER"}:
         return ("only ORDER TRIGGERS, which is not an ActivatedAbility so "
                 "getPlayable cannot report it")
@@ -378,16 +393,28 @@ def main() -> None:
             problems.append(f"claims {card!r} may attack; the engine does not — "
                             f"at phase {pos.get('phase')!r}")
 
+        # Blocks (Section 21.129), also phase- and attacker-sensitive: each
+        # pair is `Permanent.canBlock` at DECLARE_BLOCKERS against the
+        # position's own declared attackers, so a disagreement here is real
+        # too, the same footing as ATTACKER rather than the printed-only
+        # BLOCKER set.
+        for pair in sorted(mine["BLOCK"] - eng["BLOCK"]):
+            problems.append(f"claims block {pair!r} is legal; the engine does not offer it")
+        for pair in sorted(eng["BLOCK"] - mine["BLOCK"]):
+            problems.append(f"the engine allows block {pair!r}; the position does not list it")
+
         if problems:
             findings.append((pos["id"], problems))
         else:
             n_clean += 1
-        # COVERAGE, not agreement. A board whose `legal_actions` are all blocks
-        # or a mulligan contributes nothing to either column: `claimed` files
-        # them under BLOCKER or drops them, and neither is compared. It then
-        # counts as "agrees", which is 21.49's shape — no problems found over a
-        # board nothing examined (Section 21.105).
-        if mine["PLAYABLE"] or mine["ATTACKER"] or eng_cards or eng["ATTACKER"]:
+        # COVERAGE, not agreement. A board whose `legal_actions` are only a
+        # mulligan or ORDER TRIGGERS contributes nothing to either column:
+        # `claimed` drops those, and neither is compared. It then counts as
+        # "agrees", which is 21.49's shape — no problems found over a board
+        # nothing examined (Section 21.105). BLOCK no longer belongs in this
+        # exclusion (21.129) — it is compared like ATTACKER now.
+        if (mine["PLAYABLE"] or mine["ATTACKER"] or mine["BLOCK"]
+                or eng_cards or eng["ATTACKER"] or eng["BLOCK"]):
             n_compared += 1
         else:
             uncompared.append((pos["id"], _why_uncompared(pos)))
@@ -415,9 +442,9 @@ def main() -> None:
             print(f"  {rid}\n      {why}")
 
     print("\nWhat is out of scope, and why:")
-    print("  blocks   — getAvailableBlockers is not phase-sensitive, so a BLOCKER")
-    print("             line means 'could block something', not 'legal now'")
-    print("  targets  — compared on the CARD only; the engine names a spell once")
+    print("  ORDER TRIGGERS — not an ActivatedAbility, so getPlayable never reports it")
+    print("  mulligan       — before any step exists, so there is nothing to ask")
+    print("  targets        — compared on the CARD only; the engine names a spell once")
 
 
 if __name__ == "__main__":

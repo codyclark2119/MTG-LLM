@@ -2595,12 +2595,17 @@ def test_multi_face_layouts() -> int:
 def test_engine_legal_actions() -> int:
     """The engine's answer in the action grammar, and where it refuses.
 
-    The refusal is the half worth testing. On a blocking board the engine's
-    answer is not incomplete, it is EMPTY — and an empty `legal_actions` makes
-    the closed prompt say *"no legal plays are available; PASS is the only
-    response"*, which is false and scores every correct block illegal. A gap
-    that fills itself in with a confident wrong answer is 21.49's shape
-    (Section 21.105).
+    The refusal is the half worth testing. On a mulligan or ORDER-TRIGGERS-only
+    board the engine's answer is not incomplete, it is EMPTY — and an empty
+    `legal_actions` makes the closed prompt say *"no legal plays are
+    available; PASS is the only response"*, which is false and scores every
+    correct play illegal. A gap that fills itself in with a confident wrong
+    answer is 21.49's shape (Section 21.105).
+
+    Blocks are NOT one of these gaps any more (Section 21.129):
+    `Permanent.canBlock`, paired against the position's own declared
+    attackers, answers "is this specific block legal now" — the same
+    footing as ATTACKER, not the phase-insensitive BLOCKER set.
     """
     import sys as _sys
     from pathlib import Path as _Path
@@ -2610,7 +2615,7 @@ def test_engine_legal_actions() -> int:
 
     failed = 0
     eng = {"PLAYABLE": {"Cast Shock"}, "ATTACKER": {"Centaur Courser"},
-           "BLOCKER": {"Wall of Omens"}}
+           "BLOCKER": {"Wall of Omens"}, "BLOCK": {"Wall of Omens -> Grizzly Bears"}}
     targets = {"Cast Shock": ["Grizzly Bears", "PlayerB", "PlayerA"]}
     got = legal_actions_from_engine(eng, targets)
 
@@ -2627,14 +2632,19 @@ def test_engine_legal_actions() -> int:
                         any("TARGET PlayerB" in a for a in got), False)
     failed += not check("attackers become ATTACK lines",
                         "ATTACK Centaur Courser" in got, True)
-    # getAvailableBlockers is not phase-sensitive, so it cannot say blocking is
-    # legal NOW. Emitting it would assert something the engine did not say.
-    failed += not check("blockers are never emitted",
-                        any("BLOCK" in a for a in got), False)
+    # BLOCK pairs (from canBlock, not the phase-insensitive BLOCKER set) ARE
+    # emitted, in the same `<blocker> -> <attacker>` shape a hand-authored
+    # position uses.
+    failed += not check("block pairs become BLOCK lines",
+                        "BLOCK Wall of Omens -> Grizzly Bears" in got, True)
+    failed += not check("the phase-insensitive BLOCKER set is never emitted "
+                        "on its own (only paired BLOCK is)",
+                        any(a.startswith("BLOCK Wall of Omens") and "->" not in a
+                            for a in got),
+                        False)
 
-    failed += not check("a blocking board is refused",
-                        bool(emitter_blind_spot({"phase": "declare blockers step"})),
-                        True)
+    failed += not check("a blocking board is NOT refused (21.129)",
+                        emitter_blind_spot({"phase": "declare blockers step"}), "")
     failed += not check("a mulligan is refused",
                         bool(emitter_blind_spot({"phase": "opening hand"})), True)
     failed += not check("an ordinary board is not refused",
@@ -2642,10 +2652,10 @@ def test_engine_legal_actions() -> int:
 
     # Coverage: a board with nothing comparable must be NAMED, not counted as
     # agreeing. "30 of 32 agree" counted eight such boards as agreeing.
-    failed += not check("blocks-only is reported as uncompared",
-                        "not compared" in _why_uncompared(
-                            {"phase": "declare blockers step",
-                             "legal_actions": ["BLOCK Fog Bank -> Grizzly Bears"]}),
+    failed += not check("ORDER-TRIGGERS-only is reported as uncompared",
+                        "not an ActivatedAbility" in _why_uncompared(
+                            {"phase": "upkeep",
+                             "legal_actions": ["ORDER TRIGGERS A, B"]}),
                         True)
     failed += not check("an empty list is reported as uncompared",
                         "no legal actions" in _why_uncompared(

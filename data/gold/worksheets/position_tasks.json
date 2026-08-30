@@ -1,5 +1,5 @@
 {
- "generated": "2026-08-29T23:40:49+00:00",
+ "generated": "2026-08-30T00:30:05+00:00",
  "kind": "rubric",
  "count": 71,
  "tasks": [
@@ -914,7 +914,9 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Phantom Interference"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0034",
@@ -1108,7 +1110,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Faebloom Trick",
+    "CAST Phantom Interference"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0041",
@@ -1543,7 +1548,18 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Into the Flood Maw TARGET Earthbender Ascension",
+    "CAST Into the Flood Maw TARGET Llanowar Elves",
+    "CAST Into the Flood Maw TARGET Lumbering Worldwagon",
+    "CAST Into the Flood Maw TARGET Sazh's Chocobo",
+    "CAST Into the Flood Maw TARGET Surrak, Elusive Hunter",
+    "CAST Spectral Sailor",
+    "BLOCK Faerie Token -> Sazh's Chocobo",
+    "BLOCK Faerie Token -> Surrak, Elusive Hunter",
+    "BLOCK Spectral Sailor -> Sazh's Chocobo",
+    "BLOCK Spectral Sailor -> Surrak, Elusive Hunter"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0056",
@@ -1766,7 +1782,10 @@
     "The answer declares TAP lines and then casts nothing at all, so the mana is wasted. This is not entry 6, which is about over-paying for a spell that WAS cast; charge this only when no spell is cast.",
     "The answer makes a play without any PHASE line, so it never says which step it is acting in. Do not charge this when the only action is PASS."
    ],
-   "legal_actions": []
+   "legal_actions": [
+    "CAST Spectral Sailor",
+    "BLOCK Spectral Sailor -> Surrak, Elusive Hunter"
+   ]
   },
   {
    "id": "pos-recorded-feeed885-0064",
