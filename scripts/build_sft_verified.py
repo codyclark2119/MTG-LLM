@@ -128,6 +128,41 @@ def wiki_examples(path: Path) -> list[dict]:
     return out
 
 
+def gameplay_examples(path: Path) -> list[dict]:
+    """SFT lines from reviewed board positions' reference lines.
+
+    Off unless `--with-gameplay` is passed, the same explicit-opt-in shape as
+    `--with-wiki`, for the same reason: this is a distribution the verified
+    rules set carries none of (a board instead of a sentence, the gameplay
+    action grammar instead of prose), so mixing it in is a labelled decision,
+    not a default.
+
+    Only positions carrying `reference_actions` qualify — the 100%-correct
+    line, refused into the gold set unless the parser agrees it is legal
+    (Section 21.85's rubric_server invariant) — never `answer`, which is a
+    prose explanation for a human, not the action-grammar output the model is
+    trained to produce. As of this writing that is 8 of 32 positions; the
+    other 24 have a correct *explanation* but no line verified against
+    `legal_actions`, and training on an unverified line would teach the
+    action grammar from an example nobody checked.
+
+    `common.build_position_messages(pos, closed=False)` is the SAME function
+    `eval_positions.py` uses to build the `open` arm's prompt — sharing it is
+    what keeps train and inference from drifting apart (Section 8.7's lesson,
+    applied to the gameplay track this time).
+    """
+    from common import build_position_messages, read_jsonl as _read
+    out = []
+    for pos in _read(path):
+        actions = pos.get("reference_actions")
+        if not actions:
+            continue
+        target = "\n".join(actions)
+        out.append({"messages": build_position_messages(pos, closed=False)
+                     + [{"role": "assistant", "content": target}]})
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -147,6 +182,12 @@ def main() -> None:
                          "no longer be labelled unofficial, traced to a revision, or removed "
                          "if a page turns out to be wrong. Licence CC BY-NC-SA 2.5 — "
                          "noncommercial use only, and the adapter arguably inherits.")
+    ap.add_argument("--with-gameplay", action="store_true",
+                    help="also train on data/gold/positions.jsonl records carrying "
+                         "reference_actions (PLAN_NEXT.md item 3's gameplay-mixture "
+                         "experiment). OFF by default and deliberately explicit — a "
+                         "separate, labelled experiment, not folded into the default set.")
+    ap.add_argument("--positions", type=Path, default=REPO_ROOT / "data/gold/positions.jsonl")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -242,6 +283,11 @@ def main() -> None:
         train_lines += wiki
         print(f"  + {len(wiki)} wiki gloss lines (CC BY-NC-SA 2.5, unofficial) "
               f"-> train only")
+    if args.with_gameplay:
+        gameplay = gameplay_examples(args.positions)
+        train_lines += gameplay
+        print(f"  + {len(gameplay)} gameplay reference-line examples "
+              f"(reviewed, legal_actions-verified) -> train only")
     write_jsonl_atomic(args.out_dir / "train.jsonl", train_lines)
     write_jsonl_atomic(args.out_dir / "valid.jsonl", build_examples(valid))
     # Every exclusion, with WHICH filter caught it. Recording only the `id`

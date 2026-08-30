@@ -1,0 +1,99 @@
+# mlx_lm.lora settings for the Phase 1 adapter, run 5.
+#
+# PURPOSE: the gameplay-mixture experiment PLAN_NEXT.md item 3 asks for,
+# kept SEPARATE and LABELLED rather than folded into v4's default set.
+#
+# v4 (Section 21.133) trained on data/datasets/verified alone — 1,001
+# human-verified rules Q&A pairs, zero gameplay examples — and, evaluated
+# under two judges (32B and Mistral-24B), still lost to plain base on overall
+# correctness despite fixing the refusal/grounding defect it was built to
+# fix (92/99 vs 45/99 grounded, 7/99 vs 35/99 fabricated citations, both
+# no-RAG). The tension the v4 config predicted in advance and got right:
+# grounding rose, correctness did not follow.
+#
+# This run tests one candidate explanation: v4 never saw a SINGLE gameplay
+# example, so a model asked to play a board has no in-distribution example
+# of the action grammar at all, only rules prose. `data/datasets/verified_gameplay`
+# is v4's exact 1,001 rules pairs PLUS the 8 board positions carrying a
+# human-reviewed `reference_actions` line (Section 21.85: refused into the
+# gold set unless the parser agrees the line is legal) — built by
+# `build_sft_verified.py --with-gameplay`, sharing `build_position_messages`
+# with `eval_positions.py` so train and inference cannot drift apart
+# (Section 8.7's lesson, applied to gameplay).
+#
+# 8 examples is not enough to teach STRATEGY — it is barely enough to be
+# in-distribution for the ACTION GRAMMAR at all (PHASE/CAST/TAP/ATTACK/PASS).
+# That is the honest scope of this experiment: does exposure to the grammar's
+# shape move gameplay-track metrics (Gate 1 parse rate, `all_legal`, blunder
+# rate) even without enough examples to move strategy. It is not expected to,
+# and is not able to, settle whether MORE gameplay data would help — only
+# whether ANY currently helps, at the only volume currently available.
+#
+# ---------------------------------------------------------------------------
+# EPOCH ARITHMETIC, RECOMPUTED FOR THIS EXACT DATASET (not inherited from v4)
+#
+# audit_sft.py: data/datasets/verified_gameplay train=1009 (v4's 1001 + 8).
+#
+#   iters  505  ->  1.00 epochs
+#   iters 1009  ->  2.00 epochs   <- this run, matching v4's bracket exactly
+#
+# Same 2-epoch bracket as v4, for the same reason (Section 8's 1.41-epoch
+# overfit vs Section 18.2's clean 1.00-epoch run) — this experiment isolates
+# the DATA change, so the epoch target stays fixed rather than becoming a
+# second variable.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY UNCHANGED FROM v4
+#
+# Model, LoRA geometry, batch size, learning rate, sequence length, seed,
+# val_batches: -1. Only `data`, `iters`, and `adapter_path` move — the
+# comparison against v4 is only informative if nothing else does.
+#
+# ---------------------------------------------------------------------------
+# WHAT TO EXPECT, STATED IN ADVANCE
+#
+# PREDICTED, so it can be wrong in public, same as v4's header:
+#
+#   1. Rules-question correctness moves negligibly versus v4 — 8 examples
+#      out of 1,009 is under 1% of the mixture, far below the volume that
+#      moved anything in Sections 19-21.
+#   2. If gameplay-track metrics move at all (Gate 1 parse rate, `all_legal`,
+#      answers that at least attempt the grammar rather than refusing or
+#      free-texting), that is the one thing 8 examples could plausibly do —
+#      establish the SHAPE of a valid answer, not its quality.
+#   3. This run cannot and does not settle "does gameplay training data
+#      help" — it can only rule out "zero exposure is clearly fine," which
+#      is the narrower, honest question 8 examples can actually answer.
+#
+# Usage:
+#   mlx_env/bin/python3 -m mlx_lm lora -c configs/phase1_lora_v5_gameplay.yaml
+# Then evaluate on BOTH tracks against v4 and base, same judges as Section 21.133:
+#   python scripts/eval.py --adapter-path models/mtg-rules-adapter-v5-gameplay --gold-only --gold data/gold/gold_questions.jsonl --judge-model mlx-community/Qwen2.5-32B-Instruct-4bit
+#   python scripts/gameplay/eval_positions.py --adapter-path models/mtg-rules-adapter-v5-gameplay
+
+model: mlx-community/Qwen2.5-7B-Instruct-4bit
+train: true
+data: ./data/datasets/verified_gameplay
+adapter_path: ./models/mtg-rules-adapter-v5-gameplay
+
+fine_tune_type: lora
+num_layers: 16
+lora_parameters:
+  rank: 16
+  dropout: 0.0
+  scale: 20.0
+
+# Unchanged from v3/v4 — measured, not guessed.
+batch_size: 2
+grad_checkpoint: true
+clear_cache_threshold: 8
+iters: 1009
+learning_rate: 1.0e-4
+max_seq_length: 2048
+
+val_batches: -1
+steps_per_report: 10
+steps_per_eval: 150
+save_every: 100
+
+seed: 42

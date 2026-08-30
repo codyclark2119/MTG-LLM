@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from common import (  # noqa: E402
     CARDS_RAG_SYSTEM_PROMPT,
+    GAMEPLAY_SYSTEM_PROMPT,
     PROMPT_STAMP_FILE,
     RAG_SYSTEM_PROMPT,
     REPO_ROOT,
@@ -51,9 +52,17 @@ from common import (  # noqa: E402
 )
 from manifest import relative_path, verify_dataset_manifest  # noqa: E402
 
+# Recognized so a mixed rules+gameplay dataset (Section 21.133's gameplay-
+# mixture experiment) can be stamped at all, WITHOUT folding
+# GAMEPLAY_SYSTEM_PROMPT into `prompt_fingerprint()`'s hash — that hash is
+# deliberately rules-track-only (`gameplay_fingerprint()` covers the other
+# track separately) so a gameplay-grammar edit does not invalidate every
+# rules-only adapter's stamp. This dict only controls whether a prompt is
+# COUNTED and RECOGNIZED, not what the fingerprint hashes.
 KNOWN = {"SYSTEM_PROMPT": SYSTEM_PROMPT,
          "RAG_SYSTEM_PROMPT": RAG_SYSTEM_PROMPT,
-         "CARDS_RAG_SYSTEM_PROMPT": CARDS_RAG_SYSTEM_PROMPT}
+         "CARDS_RAG_SYSTEM_PROMPT": CARDS_RAG_SYSTEM_PROMPT,
+         "GAMEPLAY_SYSTEM_PROMPT": GAMEPLAY_SYSTEM_PROMPT}
 
 
 def dataset_prompts(dataset_dir: Path) -> tuple[Counter, list[str]]:

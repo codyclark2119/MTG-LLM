@@ -11134,3 +11134,272 @@ where the ruling is necessary but not sufficient alone), and the plan's own
 scope (cards with rulings, cards without, and the sufficiency split) needs
 substantially more authored and reviewed content before "two judges" is
 appropriate, per the plan's own ordering.
+
+### 21.133 v4, the verified-rules-only control, was already trained and evaluated — and never narrated
+
+PLAN_NEXT.md item 3's first bullet ("train a verified-rules-only control
+first") turns out to already be done: `models/mtg-rules-adapter-v4`
+(`configs/phase1_lora_v4_verified.yaml`, trained 2026-08-20 on
+`data/datasets/verified`, 1,001 train examples, exactly 1,001 iterations —
+2.00 epochs as planned, 10 checkpoints saved) exists, is stamped, and has
+been evaluated against baseline on the full 99-question gold set under
+**two independent judges**. None of that result was ever written up as its
+own section — the files sat in `eval/runs`/`eval/reports` since the day
+they were produced, findable only by reading the report directly.
+
+**The comparison has one confounded arm and one clean one.** `finetuned_rag`
+is not readable: `data/datasets/verified` has zero examples under
+`RAG_SYSTEM_PROMPT` (`rules-verified-v1.json`'s own manifest says so), so
+that arm is evaluated on a prompt shape these weights never trained on —
+Section 8.7's mechanism with no prompt edit at all, exactly as CLAUDE.md's
+`unseen_arms` section already warns. `finetuned` (no retrieved context, the
+shape v4 actually trained on) is the valid comparison, against `base`
+(same shape, no adapter).
+
+**Under both judges, `finetuned` still loses to `base` on overall
+correctness:**
+
+| Judge | base | finetuned | winner |
+| --- | --- | --- | --- |
+| Qwen2.5-32B (`gold_n99_v4_32b.md`) | 1.43 | 1.15 | base |
+| Mistral-Small-24B (`gold_n99_v4_mistral.md`) | 1.66 | 1.57 | base |
+
+The direction agrees across judges — a genuine negative result, not an
+artifact of which judge happened to grade it. This is the "one verified-
+data adapter trained and compared against baseline" the plan's Definition
+of Done asks for, closed with a still-negative answer, which is exactly
+the kind of result this project's own rules say to write down plainly
+rather than soften.
+
+**But the config's own advance prediction was right, and the tension it
+named is the real finding.** `phase1_lora_v4_verified.yaml`'s header
+predicted, before training: refusal rate would fall, grounding would rise,
+answer length would fall further — and if correctness dropped while
+grounding rose, "that tension is the finding." All three happened:
+
+- **Grounding, no-RAG arms**: `finetuned` 92/99 vs `base` 45/99 (32B judge)
+  — more than double, the largest clean grounding effect measured anywhere
+  in this project's history at the arm level.
+- **Fabricated citations, no-RAG arms**: `finetuned` 7/99 vs `base` 35/99
+  (32B judge) — a 5x reduction.
+- **Citation matches reference**: `finetuned` 11/99, tied-best of all four
+  arms including `base_rag` (10/99) — under a 7B model with no retrieval at
+  all, citing the same rule the reference does about as often as base+RAG
+  manages with rules text in the prompt.
+- **Citation score, Mistral judge**: `finetuned` 2.29, second only to
+  `base_rag`'s 2.39, well ahead of plain `base`'s 1.85.
+- **Answer length**: `finetuned` averages 252 characters (Mistral judge)
+  against `base`'s 1,163 — a 4.6x reduction, and correlation(length,
+  correctness) = **+0.052**, near zero. The shorter answers are not simply
+  being penalized for brevity; they are being scored on content, and losing
+  on content despite citing more accurately.
+
+**Read together: v4 fixed exactly the defect it was built to fix (the
+refusal/fabrication problem measured in Section 21.6 from training on the
+base model's own synthetic output) and still does not beat plain base on
+the judge's correctness metric.** The most likely reading, not yet tested:
+a short, well-grounded, accurately-cited answer is missing rubric key
+points that a longer, more diffuse (even if more fabricated) answer
+happens to brush against — which would mean the fix that was needed
+(grounding, refusal rate) and the fix that would move the correctness
+number (coverage of the specific claims a rubric checks for) are two
+different problems, and this run only had the data to address the first
+one.
+
+**Also on file, not yet reconciled with the above**: `gold_n99_v4judge.md` /
+`gold_n99_v4judge2.md` grade the SAME v4 answers under Qwen2.5-7B and
+Llama-3.1-8B respectively (not the 32B/Mistral pair above), and
+`gold_n99_v4_AGREEMENT.md` reports their agreement on it: Pearson r +0.46,
+38% exact, on the 6 questions carrying a hand-authored (Cody Clark) rubric.
+Consistent with the calibration table's standing rule that a 7B/8B pair is
+weaker-but-real signal, not a substitute for the 32B/Mistral pair used for
+the headline correctness numbers above.
+
+**What item 3 still needs, per the plan's remaining bullets**: a gameplay-
+examples mixture experiment and an official-rulings-only experiment, both
+"separate," neither started. Given this section's finding, the more
+promising next experiment is not simply "more verified rules data" but
+data that suits FULL key-point coverage rather than grounding alone —
+worth deciding before the next training run, not after it.
+
+### 21.134 v5-gameplay: the mixture experiment run, and a new methodological finding it forced
+
+PLAN_NEXT.md item 3's second bullet, closed: `models/mtg-rules-adapter-v5-gameplay`
+adds the 8 board positions carrying a reviewed `reference_actions` line
+(Section 21.85 — refused into the gold set unless the parser confirms the
+line is legal) on top of v4's exact 1,001 verified rules pairs. 1,009 train
+lines, same LoRA geometry/batch/lr/seed as v4, 2.00 epochs (recomputed for
+the new count, not inherited — `configs/phase1_lora_v5_gameplay.yaml`).
+Trained in ~20 minutes wall-clock on the M3 Max (this dataset's targets are
+short; nowhere near the ~2h+ runs Sections 21.127-21.128 measured on larger
+sets), no thermal or battery issues.
+
+**Stamping this adapter found a real gap in `stamp_adapter.py`, not a
+training defect.** It refused outright: the dataset contains
+`GAMEPLAY_SYSTEM_PROMPT`, which `stamp_adapter.KNOWN` never listed, by the
+same deliberate design that keeps `gameplay_fingerprint()` separate from
+`prompt_fingerprint()` (a gameplay-grammar edit must not invalidate a
+rules-only adapter's stamp). That separation is correct and stays — the
+actual gap was narrower: `KNOWN` controls what a dataset scan RECOGNIZES,
+not what the hash COVERS, and it had never been asked to recognize a mixed
+dataset because the gameplay track never fed one into `stamp_adapter.py`
+before. Fixed by adding `GAMEPLAY_SYSTEM_PROMPT` to `KNOWN` only —
+`prompt_fingerprint()`'s hash is untouched, confirmed by the stamp landing
+on the identical fingerprint v4 has (`30badae98696`). Stamp now correctly
+reads `SYSTEM_PROMPTx1112, GAMEPLAY_SYSTEM_PROMPTx8`.
+
+**Rules track: no distinguishable movement from v4**, evaluated identically
+(same 99 questions, same 32B judge):
+
+| Arm | v4 | v5-gameplay | Δ |
+| --- | --- | --- | --- |
+| base_rag | 1.66 | 1.68 | +0.02 |
+| base | 1.43 | 1.43 | 0 |
+| finetuned_rag | 1.11 | 1.16 | +0.05 |
+| finetuned | 1.15 | 1.20 | +0.05 |
+
+`base`/`base_rag` do not depend on the adapter at all and still moved
+±0.02 between the two runs — see the methodological finding below before
+reading anything into the ±0.05 on the finetuned arms. This project's own
+sample-size guidance is ~100-150 questions to resolve a 0.4-point effect at
+n=99; ±0.05 is far inside the noise floor. **Read as: correctness moved
+negligibly, exactly as `phase1_lora_v5_gameplay.yaml`'s header predicted in
+advance** ("8 examples out of 1,009 is under 1% of the mixture, far below
+the volume that moved anything in Sections 19-21").
+
+**Gameplay track: a new methodological finding arrived before the result
+did.** The obvious comparison — this run's `ft_cards_open` (v5-gameplay)
+against the stored `positions_n32_scenarios.md` baseline's same arm — is
+not valid: that baseline adapter was `mtg-rules-adapter-v2-best`, not v4,
+so it is not isolating the gameplay mixture at all. Worse, the arms that
+use NO adapter differ between the two runs too: `base_open` correctness
+1.74 (old run) vs 1.98 (this run), blunder 85% vs 94%, on the same 34
+positions, same base model, same prompts. **Generation is not
+run-to-run reproducible the way judging is.** `mlx_lm.generate` carries no
+fixed seed the way training does (`seed: 42` is a training-only setting in
+these configs), so this project's own "the judge is deterministic"
+finding (re-judging identical stored text reproduces exactly) does not
+extend to "re-generating text from the same prompt reproduces exactly."
+Every position/rules eval comparison made ACROSS separate run files up to
+now has carried this noise silently — it was never visible before because
+nothing had re-run the identical non-adapter arms twice and diffed them.
+Cross-run comparisons of arms that do not depend on the changed variable
+should be treated as a sanity check on noise floor, not assumed to be free.
+
+**Given that, the only valid comparison here is WITHIN this one run** —
+`base_cards_open` (no adapter) against `ft_cards_open` (v5-gameplay),
+both generated in the same process, same prompts, same judge, same pass:
+
+| Arm | Blunder | Correctness | Parsed ok | Plays/answer | All legal | Legal plays | Did nothing | Degenerate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| base_cards_open | 97% | 1.30 | 97% | 14.2 | 9% | 82% (396/483) | 3% | 21% |
+| ft_cards_open | 100% | 1.20 | 88% | **3.0** | **32%** | 44% (45/103) | **32%** | 9% |
+
+The adapter still loses on correctness and blunder rate. But the shape of
+the loss is not "plays worse" — it is "plays far less." Plays per answer
+fall from 14.2 to 3.0, "did nothing" (PASS as the only action) rises from
+3% to 32%, and `all_legal` more than triples (9% -> 32%) for the
+mechanical reason 21.58 and 21.126 both already document: an answer whose
+only action is PASS always matches `legal_actions` and commits no listed
+strategy error, so declining to play is nearly unbeatable on both fields
+this table shows improving. Parse quality and per-attempted-play legality
+both fall (97%->88% parsed, 82%->44% of attempted plays legal) — of the
+plays it still tries to make, more are malformed or illegal than base
+manages. **8 gameplay examples were enough to measurably shift behavior
+toward passivity, not enough to teach the strategy that would make passing
+less necessary or attempted plays more often legal.**
+
+**Verdict on the mixture experiment**: negative on both tracks, for
+different reasons. Rules-track: too small a fraction of the mixture (0.8%)
+to move anything, as predicted. Gameplay-track: enough to change behavior,
+not enough to make the changed behavior better — consistent with this
+project's own repeated finding that `only_pass` inflates easy-to-read
+metrics without being good play (Section 21.58's "an answer that declines
+to play beats one that plays"). Neither result argues for scaling this
+exact recipe up; a mixture built from many more reviewed reference lines
+than 8 would be a different, better-supported experiment, and none
+currently exist beyond these 8 (Section 21.85's gate is deliberately
+strict about what counts).
+
+**Still open, per PLAN_NEXT.md item 3**: the official-rulings-only
+experiment. Not started — building it safely needs the same
+grounded-not-memorized authoring discipline Section 21.132 used for the
+card/ruling benchmark, at a volume well beyond that section's 3 seed
+questions, and is a separate piece of work from what this section closes.
+
+### 21.135 Mining XMage's own test suite, instead of authoring one probe at a time
+
+Section 21.132's authoring approach — pick a ruling, read it, hand-build one
+XMage probe to confirm it, write the question — works, but does not scale
+solo: a live attempt to build a fourth probe this session (Mana Vortex's
+state-trigger ruling, already in the benchmark) caught a real setup mistake
+immediately (a land given to the responding player made the "no lands"
+condition false from the start) but then stalled on a test-framework
+target-naming ambiguity between two simultaneously-triggered abilities from
+the same source. Real, useful friction — but per-question, and the user
+asked directly for something that leverages more of what already exists
+rather than more solo hand-construction, probe or otherwise.
+
+**The leverage was sitting in the checkout already.** `Mage.Tests/src/test/
+java/org/mage/test/cards/` holds **1,823 JUnit tests**, written and
+continuously run by XMage's own contributors to verify their card
+implementations — 940 single-card checks plus 883 across thematic
+directories (`triggers/` 138, `continuous/` 78, `replacement/` 53, `cost/`
+45, `rules/` 19, and others). Each one is already a verified `(setup,
+action, assertion)` triple for a real rules interaction, checked by a real
+engine and a real CI, not by one person's reading of a ruling. Mining this
+is authoring-by-selection instead of authoring-by-construction: read what
+already exists and passes, rather than build something new and hope it
+does.
+
+**`scripts/mine_xmage_tests.py`**, built and verified this session:
+
+- Walks the thematic test directories (`single/` opt-in via
+  `--include-single`, since it is mostly one-card sanity checks rather than
+  interactions) and extracts, per `@Test` method, the card names involved
+  and every `addCard`/`castSpell`/`activateAbility`/`attack`/`block`/
+  `assert*` call — regex-based on purpose, not a real Java parser, since the
+  goal is triage material for a person to then read the actual source file
+  from, not automated question generation. A missed or noisy extraction
+  costs nothing; the file path is always printed.
+- Ranks candidates by (distinct card count, assertion count) as a cheap
+  proxy for "genuine interaction" over "single card sanity check."
+- `--verify` compiles and runs the top candidates via the same `mvn clean
+  test` pattern the rest of this repo's XMage tooling already uses, so a
+  candidate is not just "assertions that once passed" but "assertions that
+  pass in THIS checkout right now."
+
+**Verified working end to end, not just read.** `--category triggers
+--min-cards 2 --limit 8` surfaced real, rich multi-card interactions on the
+first run — `RanarTheEverWatchfulTest` (13 cards, 4 assertions, Curse of the
+Swine's board-wide transform interacting with a token-generation trigger),
+`ShowstopperTest` (12 cards, 8 assertions, two copies of a dies-trigger card
+plus a copy effect), `WorldgorgerDragonTest` (11 cards, 6 assertions,
+Animate Dead's exile-on-leaving-battlefield loop) — none hand-picked or
+guessed at, all surfaced automatically. `--verify` against two `rules/`
+candidates (`NamePredicateTest`, `AlternativeCostRuleTest`) confirmed both
+currently pass (`errors="0" failures="0"` in the fresh surefire reports),
+closing the loop: mine, rank, confirm-in-the-present-tense, all without
+constructing a single new scenario by hand.
+
+**What this changes and what it does not.** It turns "invent and verify a
+scenario" into "select and confirm one that already exists," which is a
+different and much more leverageable skill than either hand-authoring from
+ruling prose (Section 21.132) or hand-building a probe from scratch
+(this section's stalled Mana Vortex attempt) — closer to how the recorded-
+game gameplay pipeline works (curate from something real, don't invent).
+It does **not** remove the need for a person to read the winning
+candidate's source and write the natural-language question — that
+translation step is still manual, just starting from verified ground truth
+instead of from a ruling's prose or a blank page, and it does not
+automatically produce `key_points`/`common_errors` or CR rule citations,
+which still need authoring against the confirmed scenario the same way
+Section 21.132's seed questions were built.
+
+**Not yet done**: actually converting mined candidates into
+`data/gold/card_ruling_candidates.jsonl` entries or a rulings-training
+mixture. This section is the mining tool and its proof of function; turning
+a batch of `--verify`-confirmed candidates into real questions is the next
+piece of work, and at 1,823 tests deep it can be done in batches sized to
+whatever authoring capacity is actually available, rather than one probe
+at a time.
