@@ -151,6 +151,19 @@ def extract_tests(path: Path) -> list[dict]:
     return out
 
 
+def cards_with_rulings() -> dict[str, int]:
+    """{card name: number of official rulings} from the pinned corpus.
+
+    A different field (`n_rulings`) than
+    `validate_card_ruling_benchmark.load_ruling_chunk_ids_by_card` reads
+    (chunk ids, always one per card in this corpus's shape, so useless as a
+    ruling COUNT) — not reused, since reuse would mean changing what that
+    function returns for its own, different, purpose.
+    """
+    from common import RULING_CHUNKS_PATH, read_jsonl
+    return {rec["name"]: rec.get("n_rulings", 0) for rec in read_jsonl(RULING_CHUNKS_PATH)}
+
+
 def score(t: dict) -> tuple:
     """Rank candidates for triage, not a quality gate.
 
@@ -178,6 +191,12 @@ def main() -> None:
                     help="also scan cards/single/ (940 files, mostly one-card checks)")
     ap.add_argument("--min-cards", type=int, default=2,
                     help="drop candidates naming fewer than this many distinct cards")
+    ap.add_argument("--min-rulings", type=int, default=0,
+                    help="drop candidates where no named card has at least this many "
+                         "official rulings on file — the filter to use when hunting for "
+                         "a ruling_relevant_insufficient benchmark example specifically, "
+                         "since that category needs a real ruling to be relevant AND "
+                         "insufficient, not merely a rules interaction with no ruling at all")
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--verify", action="store_true",
                     help="compile and run the top --limit candidates via mvn, to "
@@ -206,18 +225,30 @@ def main() -> None:
             scanned_files += 1
             candidates.extend(t for t in extract_tests(f) if t["n_cards"] >= args.min_cards)
 
+    rulings_by_card = cards_with_rulings()
+    for t in candidates:
+        t["ruling_cards"] = {c: rulings_by_card[c] for c in t["cards"] if c in rulings_by_card}
+    if args.min_rulings:
+        candidates = [t for t in candidates
+                      if any(n >= args.min_rulings for n in t["ruling_cards"].values())]
+
     candidates.sort(key=score, reverse=True)
     top = candidates[:args.limit]
 
     print(f"scanned {scanned_files} files across {len(dirs)} categor{'y' if len(dirs)==1 else 'ies'} "
           f"({skipped_noisy} skipped as implementation-detail regression tests), "
-          f"{len(candidates)} candidate(s) with >= {args.min_cards} distinct card names\n")
+          f"{len(candidates)} candidate(s) with >= {args.min_cards} distinct card names"
+          + (f" and >= {args.min_rulings} ruling(s) on a named card" if args.min_rulings else "")
+          + "\n")
 
     for t in top:
         rel_dir = Path(t["source_file"]).parent.name
         print(f"=== [{rel_dir}] {t['class_name']}.{t['method']}"
               f" ({t['n_cards']} cards, {t['n_asserts']} assertions) ===")
         print(f"    cards: {', '.join(t['cards'])}")
+        if t["ruling_cards"]:
+            print(f"    HAS RULINGS: "
+                  + ", ".join(f"{c} ({n})" for c, n in t["ruling_cards"].items()))
         print(f"    file:  {t['source_file']}")
         for line in t["setup_actions"][:6]:
             print(f"    setup: {line[:100]}")

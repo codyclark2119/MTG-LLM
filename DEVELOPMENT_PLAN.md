@@ -11448,3 +11448,33 @@ n=2 finding at a slightly larger n=5: `rag.retrieve` still cannot surface
 the specific rule chunk a card-grounded question depends on, even though
 the general rule area is often nearby in the corpus. Not yet a stable rate,
 but the same real gap on more evidence.
+
+**A `--min-rulings` filter closed the last missing category the same
+session.** `ruling_relevant_insufficient` — a ruling that bears on the
+question without stating its answer — needed a candidate where the named
+cards actually carry official rulings, which raw card/assertion counts
+cannot select for. Added `cards_with_rulings()` (reads `n_rulings` per
+card from the pinned corpus directly, a different field than
+`validate_card_ruling_benchmark.load_ruling_chunk_ids_by_card` reads and so
+not reused from it) and `--min-rulings N`, which annotates every candidate
+with which of its cards have rulings on file and how many.
+
+That surfaced `WinLoseEffectsTest.testAngelsGrace2` (Angel's Grace +
+Laboratory Maniac + Ad Nauseam, verified passing, 4/4 tests): Player A
+casts Angel's Grace on themselves, empties their own library with Ad
+Nauseam down to -5 life, then would draw from an empty library and wins
+via Laboratory Maniac instead. **Laboratory Maniac's own official ruling
+addresses this exact card pairing — from the opposite direction**: "If for
+some reason you can't win the game (because your OPPONENT has cast Angel's
+Grace this turn, for example), you won't lose... The draw was still
+replaced." That ruling is directly relevant and does not state what
+happens when the ANGEL'S GRACE CASTER is the one who wins — reaching the
+answer needs Angel's Grace's own wording read closely (it stops the caster
+from *losing* and stops opponents from *winning*, and says nothing about
+the caster winning), plus the state-based-action rule (704.5a) it
+suppresses. A textbook case of "ruling relevant, not sufficient alone" —
+found by filtering for it, not stumbled into.
+
+**The benchmark is now 6 questions, all three `ruling_sufficiency`
+categories represented for the first time**, grounding still fully clean.
+CR rule recall: 1/6 — the same gap, same magnitude, one more data point.
