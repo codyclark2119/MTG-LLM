@@ -11785,3 +11785,50 @@ dynamicvalue, triggers, restriction, asthough, conditional, damage, and a
 first slice of `single/` and `replacement`. The great majority of `single/`'s
 940 files remains untouched — there is still no shortage of material, only
 of session time.
+
+**A sixth pass, continuing per the user's "keep going" after deciding to
+finish mining before training.** Went further down the ranked candidate list
+in `single/`, past the top ~20 already sampled. One real dead end and three
+conversions:
+
+**Mining tool blind spot found**: `AzoriusAethermageTest.testBouncedLand`
+surfaced as a strong-looking candidate (8 cards, matching setup/assertion
+calls extracted cleanly) but its entire method body is a Java block comment
+— the test is disabled and asserts nothing. `mine_xmage_tests.py`'s regex
+extraction has no notion of comments, so it read the commented-out calls as
+real ones. A `--verify` run would have caught this immediately (the "test"
+executes zero assertions), but the candidate looked identical to a real one
+in the ranked listing. Not fixed in the tool this session — noting it here
+as a known failure mode for the next person mining with it: **always check
+`n_asserts` isn't secretly coming from dead code, and treat `--verify`
+(or a manual read of the actual method) as mandatory, never optional, for
+anything pulled from `single/`,** where one-off disabled tests are more
+likely to hide than in the actively-maintained interaction directories.
+
+Three converted, all verified passing:
+
+- **Gluttonous Hellkite** (`GluttonousHellkiteTest.
+  test_CastWithoutSac_CounterTrigger`, 5/5) — countering ONLY the "each
+  player sacrifices X creatures" triggered ability (not the creature spell
+  itself) lets Gluttonous Hellkite still enter the battlefield normally,
+  but with ZERO +1/+1 counters, since no creatures were actually sacrificed.
+  The linked trigger and the spell are separate stack objects. Gluttonous
+  Hellkite's own ruling addresses the OPPOSITE direction (spell countered,
+  trigger still resolves) but not this one — the benchmark's third
+  `ruling_relevant_insufficient` example.
+- **Baleful Mastery + Twincast** (`BalefulMasteryTest.
+  test_BalefulMastery_CopyMustKeepAlternativeCost`, 5/5) — a copy of a
+  spell inherits whether an alternative cost was paid, exactly like it
+  inherits a chosen X value or mode; Twincast's copy of Baleful Mastery
+  still makes an opponent draw a card even though nothing was paid to
+  create the copy. Confirmed directly by its own ruling. `ruling_sufficient`.
+- **Deification** (`DeificationTests.testDamagePrevention_Combat`, 5/5) —
+  its loyalty-preserving replacement only protects planeswalkers of the ONE
+  chosen type; a different planeswalker the same player controls (Tibalt,
+  when "Chandra" was chosen) gets no benefit and dies normally to the same
+  size of attack that the protected one survives. `ruling_sufficient`.
+
+**Grounding stays clean at n=32** (card recall 32/32). The benchmark now
+spans three `ruling_relevant_insufficient` examples (Angel's Grace,
+Conspiracy/Opalescence/Enchanted Evening, Gluttonous Hellkite) — the
+category that started this session with zero.
