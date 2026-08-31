@@ -11791,19 +11791,31 @@ finish mining before training.** Went further down the ranked candidate list
 in `single/`, past the top ~20 already sampled. One real dead end and three
 conversions:
 
-**Mining tool blind spot found**: `AzoriusAethermageTest.testBouncedLand`
-surfaced as a strong-looking candidate (8 cards, matching setup/assertion
-calls extracted cleanly) but its entire method body is a Java block comment
-— the test is disabled and asserts nothing. `mine_xmage_tests.py`'s regex
-extraction has no notion of comments, so it read the commented-out calls as
-real ones. A `--verify` run would have caught this immediately (the "test"
-executes zero assertions), but the candidate looked identical to a real one
-in the ranked listing. Not fixed in the tool this session — noting it here
-as a known failure mode for the next person mining with it: **always check
-`n_asserts` isn't secretly coming from dead code, and treat `--verify`
-(or a manual read of the actual method) as mandatory, never optional, for
-anything pulled from `single/`,** where one-off disabled tests are more
-likely to hide than in the actively-maintained interaction directories.
+**Mining tool blind spot found, and fixed the same session**:
+`AzoriusAethermageTest.testBouncedLand` surfaced as a strong-looking
+candidate (8 cards, matching setup/assertion calls extracted cleanly) but
+its entire method body is a Java block comment — the test is disabled and
+asserts nothing. `mine_xmage_tests.py`'s regex extraction had no notion of
+comments, so it read the commented-out calls as real ones. Fixed with
+`_strip_java_comments` (strips `/* */` and `//` before any other extraction
+regex runs), applied to the source text at the top of `extract_tests`. This
+needed no new filtering logic: a disabled test's body becomes empty once its
+comment is stripped, so the EXISTING `if not calls and not asserts: continue`
+check now discards it for free — re-running `extract_tests` on
+`AzoriusAethermageTest.java` after the fix returns zero methods, confirming
+the file's only test is dead and correctly excluded. A full re-scan (1,389
+files, the same scale as before) reproduced the same top-ranked candidates
+unchanged, and a spot-check against `PreventDamageRemoveCountersTest.java`
+(a file with ordinary inline comments describing card text, not disabled
+code) extracted identical card/assertion counts before and after — the fix
+removes dead code without disturbing live extraction. Not comment-aware of
+string literals containing `//` (a URL, say); no such literal exists in this
+suite's actual usage, and the cost of being wrong would be the same as any
+other extraction miss here, so this wasn't worth a real parser. The
+standing caution remains regardless: **treat `--verify` (or a manual read of
+the actual method) as mandatory, never optional, for anything pulled from
+`single/`,** since a method that changed shape in some OTHER unanticipated
+way could still slip past a regex-based tool.
 
 Three converted, all verified passing:
 
@@ -11832,3 +11844,114 @@ Three converted, all verified passing:
 spans three `ruling_relevant_insufficient` examples (Angel's Grace,
 Conspiracy/Opalescence/Enchanted Evening, Gluttonous Hellkite) — the
 category that started this session with zero.
+
+**A seventh pass closed out `dynamicvalue`** (only 5 files in the whole
+directory), per the user's explicit "continue into dynamicvalue" after
+asking for the comment-stripping fix above. Three converted, all verified
+passing — `dynamicvalue` now has no unconverted candidate left worth the
+effort (`PartyCountTest.testChangelings`, 1 card/1 assertion, was checked
+and is too thin to build a real question from):
+
+- **Crypt Rats + Kytheon, Hero of Akros // Gideon, Battle-Forged**
+  (`CryptRatsTest.damageOnlyCreatureAndPlayers`, 1/1) — "deals X damage to
+  each creature and each player" only hits objects that are creatures at
+  the moment it resolves; a planeswalker (even one on the same card as a
+  creature that could transform into it) takes none. `no_ruling_needed_
+  cr_only`, answered entirely by the card type check.
+- **Sewer Nemesis** (`SewerNemesisTest.test1`, 1/1) — its power/toughness
+  track ONE chosen player's graveyard size, never a combined total across
+  players; choosing yourself with 4 cards in your own graveyard while an
+  opponent's graveyard separately has 1 gives a 4/4, not a 5/5.
+  `no_ruling_needed_cr_only`.
+- **Plow Through Reito** (`SweepTest.testSweep3x`, 4/4 across the whole
+  Sweep-amount family in one class) — Sweep is a cast-time cost: the
+  number of Plains actually returned this way directly sets the size of
+  the linked bonus, confirmed at four different amounts (0x through 3x)
+  in the same test class. `no_ruling_needed_cr_only`.
+
+**Grounding stays clean at n=35** (card recall 35/35). Session running
+total: 3 -> 35 questions across seven mining passes.
+
+**An eighth pass pushed to n=50 in one sitting**, per the user's explicit
+target ("get to 50 before we pause, that way we can see how it is at
+halfway" — halfway to the ~100 low end of CLAUDE.md's ~100-150 powered-
+effect guidance). Sampled deep into `single/`'s ranked list and into
+`replacement`/`triggers` files that hadn't been touched. Fifteen more
+questions, all verified passing, batched into three rounds of five:
+
+- **Kalitas, Traitor of Ghet + Damnation** — a board wipe destroying an
+  opponent's creatures never reaches their graveyard when Kalitas is out;
+  each is exiled and replaced with a 2/2 Zombie instead. Kalitas itself
+  dies normally, since its own ability only affects an opponent's
+  creatures, never its own controller's.
+- **Chatterfang, Squirrel General + Academy Manufactor** — two replacement
+  effects can both apply to the same token-creation event in a chosen
+  order, compounding rather than only one applying: one Clue token becomes
+  a Clue+Food+Treasure (Academy Manufactor), then each of those three
+  spawns a Squirrel (Chatterfang) — six tokens from one investigate.
+- **Spell Queller + Wasteland Strangler + Centaur Courser** — Spell
+  Queller's leaves-the-battlefield ability needs its exiled card to still
+  be in exile when it resolves; if a different effect already moved that
+  card elsewhere first, there's nothing left to cast.
+- **Harm's Way + Wild Slash (Ferocious)** — redirecting damage is not the
+  same as preventing it, so "damage can't be prevented" doesn't stop a
+  redirect effect; the full damage still happens, just to a different
+  target.
+- **Take the Bait** — untapping and goading attacking creatures doesn't
+  remove them from combat; tapped status and attacking status are tracked
+  independently.
+- **Genesis Ultimatum** — putting a land onto the battlefield via a
+  resolving spell isn't "playing a land," so it doesn't touch the
+  once-per-turn land-play limit at all.
+- **Jinxed Ring + Bonded Construct** — a dying permanent goes to its OWNER'S
+  graveyard, not its controller's; combined with a control-exchange effect,
+  this determines who Jinxed Ring's own "your graveyard" trigger actually
+  damages (its current controller, tracked via last-known information).
+- **Stormfront Riders** — a token being bounced still triggers a "returned
+  to hand from the battlefield" ability, even though the token ceases to
+  exist the instant it would arrive in hand.
+- **Noxious Ghoul + Scathe Zombies** — a trigger with no once-per-turn
+  qualifier fires fresh every time its condition is met; two Zombies
+  entering the same turn stacks two separate -1/-1 effects, not one.
+- **Osseous Sticktwister** — an opponent facing a "sacrifice or discard"
+  cost chooses which of the two to pay; satisfying either one is enough.
+- **Mimic Vat + Shred Memory + Silvercoat Lion** — two effects racing to
+  claim the same dying card: whichever actually exiles it first keeps it,
+  and the other has nothing left to act on even though the card still ends
+  up exiled either way.
+- **Progenitor Mimic** — a self-replicating "put a token copy of this
+  creature" ability is copied onto every token it makes, but its own
+  "if this creature isn't a token" condition stops it from ever doing
+  anything on a token, capping growth at linear rather than exponential.
+- **Day of the Dragons** — a paired enter/leave exile-then-return effect
+  reverses itself completely regardless of how the source permanent left
+  the battlefield; the substitute tokens are sacrificed and the originals
+  return under their controller's ownership.
+- **Archive Trap** — a conditional alternative cost keyed to "an opponent
+  searched their library this turn" turns on the moment that happens and
+  stays on for the rest of the turn, checked at the moment of casting, not
+  fixed from the start of the turn.
+- **Tamiyo, Field Researcher + Sylvan Advocate** — an "until your next
+  turn" delayed trigger expires at the START of the caster's own next
+  turn, before that turn's combat happens; blocking counts as "dealing
+  combat damage" exactly like attacking does for a trigger worded that way.
+
+Two more bracket misses caught by the validator, same class of bug as the
+Divine Visitation one earlier this session: `crb-progenitor-mimic-0001` named
+"Runeclaw Bear" and `crb-tamiyo-field-researcher-0001` named "Sylvan
+Advocate" in `cards` without wrapping them in `[[brackets]]` in the question
+text. Both fixed in place before this write-up. Three times now this exact
+mistake has been caught by running the validator rather than by re-reading
+the JSON — worth a `test_docs.py`-style automated check if this benchmark
+keeps growing at this rate, rather than relying on remembering to run the
+validator every time.
+
+**Grounding stays clean at n=50** (card recall 50/50, ruling recall 29/29).
+**CR rule recall: 4/16** — unchanged from n=35; none of this batch's fifteen
+questions needed a citable CR rule (all fourteen `no_ruling_needed` and one
+`ruling_sufficient` answered directly from the cards' own printed text), so
+this round adds no new evidence either way on the rule-area-specificity
+hypothesis. Session total: 3 -> 50 questions across eight mining passes,
+44 of them mined from currently-passing XMage tests. Halfway to the ~100
+low end of the sample size CLAUDE.md wants for a powered effect —
+`PLAN_NEXT.md` item 4 carries the pause-and-reassess decision forward.

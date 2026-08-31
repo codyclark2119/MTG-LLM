@@ -73,6 +73,20 @@ _CALL_RE = re.compile(
     r"checkPlayableAbility|addTarget)\s*\(([^;]*?)\);", re.DOTALL)
 _ASSERT_RE = re.compile(r"\b(assert\w+)\s*\(([^;]*?)\);", re.DOTALL)
 _STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+# `/* ... */` and `// ...` comments — stripped before any other extraction
+# regex runs, so a disabled test (an @Test method whose entire body is
+# commented out) naturally falls out via the existing "no calls, no asserts"
+# skip below, rather than being read as a real one. Not comment-aware of
+# string literals containing `//` (a URL, say) — no such literal exists in
+# this test suite's actual usage, and the cost of being wrong is the same as
+# any other extraction miss here: nothing, since a person reads the source
+# file directly before trusting a candidate.
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_LINE_COMMENT_RE = re.compile(r"//.*?$", re.MULTILINE)
+
+
+def _strip_java_comments(text: str) -> str:
+    return _LINE_COMMENT_RE.sub("", _BLOCK_COMMENT_RE.sub(" ", text))
 
 # Path components and filename patterns that mark an implementation-detail
 # regression test (client/server sync, a Java exception that once crashed
@@ -121,7 +135,7 @@ def _find_matching_brace(text: str, open_idx: int) -> int:
 
 def extract_tests(path: Path) -> list[dict]:
     """One dict per `@Test` method in a file: calls, assertions, card names."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = _strip_java_comments(path.read_text(encoding="utf-8", errors="replace"))
     pkg_m = _PACKAGE_RE.search(text)
     cls_m = _CLASS_RE.search(text)
     package = pkg_m.group(1) if pkg_m else "?"
