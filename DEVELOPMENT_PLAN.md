@@ -11736,3 +11736,52 @@ conditional, and now `single/` and `replacement`. `dynamicvalue` (beyond
 Armadillo Cloak and one un-converted Sewer Nemesis candidate) and the bulk of
 `single/`'s 940 files remain unmined — there is no shortage of remaining
 material, only of session time.
+
+**A fifth pass, per the user's explicit call to finish mining before
+committing to a training run** — reasoning that at n=25 the benchmark is
+still a pilot-sized sample (CLAUDE.md's own guidance wants ~100-150 for a
+powered effect), so more verified ground truth is worth more than an early
+training result right now. Went deeper into `single/`'s per-set
+subdirectories and closed out `damage`. Four more, all verified passing:
+
+- **Burrenton Forge-Tender + Flametongue Kavu + Cloudshift**
+  (`BurrentonForgeTenderTest.
+  testPreventDamageFromFlametongueKavuNotAfterCloudshift`, 4/4) — a
+  prevention effect that names a specific chosen SOURCE stops applying the
+  instant that source is blinked, because the returned permanent is a new
+  object with no connection to the one that was chosen, however identical it
+  looks. A third angle on the new-object rule (400.7) in this benchmark,
+  after Elenda's last-known-information and Kumano's Pupils' per-object
+  damage tracking — this one hits a CHOSEN source in a prevention effect
+  specifically. `no_ruling_needed_cr_only`: the closest official ruling
+  addresses a different case (a spell becoming a permanent), not blinking an
+  existing chosen one.
+- **Alania, Divergent Storm** (`AlaniaDivergentStormTest.test_TwoSorceries`,
+  7/7) — "the first instant/sorcery/Otter spell you've cast this turn"
+  triggers once per category per turn, not once per qualifying spell; a
+  second sorcery cast after the first has already triggered Alania doesn't
+  trigger her again. Answered by the card's own printed condition alone.
+  `no_ruling_needed_cr_only`.
+- **Unleash the Inferno + Stone Golem** (`UnleashTheInfernoTest.
+  testExcessDamage`, 1/1) — excess damage (damage dealt beyond lethal) sets
+  a mana-value ceiling for a linked destroy effect; a 3-mana-value artifact
+  is destroyed and a 4-mana-value one on the same board is untouched from
+  the same 7-damage, 4-toughness interaction (3 excess). Confirmed directly
+  by its own ruling's definition of excess damage. `ruling_sufficient`.
+- **Thorn Elemental + Grizzly Bears** (`AssignDamageTest.
+  test_ThornElemental_Manual_DamageToPlayer`, 3/3) — "assign combat damage
+  as though it weren't blocked" is all-or-nothing: choosing it sends every
+  point of damage to the defending player and the blocker takes none, unlike
+  trample's split assignment. Confirmed directly by its own ruling.
+  `ruling_sufficient`.
+
+**Grounding stays clean at n=29** (card recall 29/29, ruling recall 20/20).
+CR rule recall: 4 of 16 records that cite one, the same rate as before —
+this pass's `no_ruling_needed` entries mostly needed no citable rule at all,
+same as several earlier ones. The session total: 3 -> 29 questions across
+five mining passes, 26 of them mined from currently-passing XMage tests
+rather than hand-invented, spanning protection, requirement, copy,
+dynamicvalue, triggers, restriction, asthough, conditional, damage, and a
+first slice of `single/` and `replacement`. The great majority of `single/`'s
+940 files remains untouched — there is still no shortage of material, only
+of session time.
