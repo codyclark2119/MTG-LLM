@@ -11522,3 +11522,217 @@ category. Worth deciding whether to fix (larger k, a retrieval strategy
 that treats "general rule for a card-grounded question" as a distinct
 query shape from rules-only retrieval) or document as a settled limitation
 — `PLAN_NEXT.md` item 4 carries the decision forward.
+
+**A full mining pass, same session, per the user's explicit instruction to
+mine as much as reasonably possible before returning to training.** Swept
+`protection`, `requirement`, `copy`, `dynamicvalue`, and `triggers` (which at
+138 files had barely been touched), plus one more `targets` candidate that
+had been set aside earlier for thematic overlap with Kumano's Pupils and is
+now distinct enough to include on its own. Seven more converted, all
+verified passing in this checkout right now:
+
+- **Emrakul, the Aeons Torn + Murderous Cut** (`ProtectionTest.
+  testProtectionFromColoredSpells`, 6/6) — protection from colored spells
+  means Murderous Cut (black) can't even be CAST targeting Emrakul; the
+  illegality is caught at the casting step (702.16b), not left to fizzle at
+  resolution. `no_ruling_needed_cr_only`.
+- **Prized Unicorn + Oppressive Rays** (`BlockRequirementTest.
+  testPrizedUnicornAndOppressiveRays`, 9/9) — "all creatures able to block do
+  so" versus "can't block unless its controller pays {3}": a player is never
+  forced to pay a cost to satisfy a block requirement, so an unpaid Silvercoat
+  Lion simply isn't "able" to block and the requirement doesn't apply to it.
+  Oppressive Rays' own ruling states this exactly ("Players can't be forced
+  to pay a cost to attack or block"); 509.1c states the general rule.
+  `ruling_sufficient`.
+- **Dualcaster Mage + Flame Slash + Walking Ballista** (`CopySpellTest.
+  testOnlyCopyFizzles`, 25/25) — Dualcaster copies Flame Slash and retargets
+  the COPY at Walking Ballista instead of the original's target (Atraxa).
+  Walking Ballista kills itself (its own ability, activated before the copy
+  resolves) to ping something else, so the copy's target is gone by the time
+  it tries to resolve and it's removed from the stack doing nothing — while
+  the untouched original still resolves against Atraxa normally. A copy's
+  fate depends only on its OWN target (707.10, 707.10c, 608.2b), not the
+  original's. `no_ruling_needed_cr_only`.
+- **Armadillo Cloak** (`SavedDamageValueTest.ArmadilloCloakTest`, 1/1) —
+  its "whenever enchanted creature deals damage, gain that much life" is a
+  normal triggered ability, not the lifelink keyword, confirmed directly by
+  its own ruling; the distinction is invisible with one life-gain source on
+  the creature and only shows up if the creature also has real lifelink
+  (both would trigger, gaining life twice for one damage instance).
+  `ruling_sufficient`.
+- **Divine Visitation + Smothering Tithe** (`DivineVisitationTest.
+  testDivineVisitationDoesNotReplaceNoncreatureTokens`, 3/3) — Divine
+  Visitation's replacement only catches CREATURE token creation; Smothering
+  Tithe's Treasure tokens are artifacts, so the replacement event never
+  triggers and three ordinary Treasures are created, not three Angels.
+  `no_ruling_needed_cr_only`. Caught a real authoring slip while writing this
+  one up: `cards` named "Ancestral Recall" but the question text hadn't
+  wrapped it in `[[brackets]]`, which `validate_card_ruling_benchmark.py`'s
+  retrieval-recall check correctly flagged as an unresolved card — every name
+  listed in `cards` has to be bracketed in the question, not only the ones
+  central to the interaction. Caught by running the validator, per this
+  project's own rule, not by re-reading the JSON by eye.
+- **Diamond Knight + Glimpse of Freedom** (`SpellCastTriggerTest.
+  testDiamondKnightTrigger`, 5/5) — casting a spell via its Escape ability
+  (an alternative cost, from the graveyard) is still casting that spell in
+  every other respect, so it still triggers a "whenever you cast a spell of
+  the chosen color" ability exactly like casting normally from hand would
+  (702.138a). `no_ruling_needed_cr_only`.
+- **Dream Leash + Take into Custody + Ornamental Courage**
+  (`TargetRestrictionsTest.testDreamLeashUntappingAsResponseToCast`, 2/2) —
+  Dream Leash's "can't choose an untapped permanent as this spell's target
+  AS YOU CAST it" is a one-time restriction checked only at casting; once
+  satisfied, untapping the permanent in response before Dream Leash resolves
+  does not undo it, and Dream Leash still resolves and takes control. A
+  genuinely different gotcha from the other two protection/targeting
+  questions here: a resolution-time legality recheck (608.2b) does not
+  re-examine a casting-only restriction stated in the spell's own text.
+  Confirmed directly by Dream Leash's own ruling. `ruling_sufficient`.
+
+**Grounding stays clean at n=15** (card recall 15/15, ruling recall 9/9).
+**CR rule recall: 4/15** — no longer flat at 1/N. Both hits are new this
+batch (Prized Unicorn/Oppressive Rays cites 509.1c; Diamond Knight cites
+702.138a), and both cite a rule with dense, focused coverage of one specific
+mechanic, while every miss — including the two that DID cite 800-series or
+614-series general rules — cites either a broad numbered-list rule
+(608.2b) or an obscure keyword sub-rule buried among a hundred similar
+ones. That's a different-shaped hypothesis than "card-grounded retrieval is
+broken": it may be less about the question being card-grounded and more
+about how densely a rule area is represented and how distinctive its
+neighborhood is in the embedding space. Not yet enough data to treat this
+as settled — worth watching as the benchmark keeps growing.
+
+**A second pass the same session, per explicit instruction to mine as much
+as reasonably possible while away from a desk.** Swept `restriction`,
+`asthough`, and `copy` for the first time, and checked back on `conditional`.
+Four more converted, all verified passing in this checkout right now:
+
+- **Meddling Mage + Alive // Well** (`MeddlingMageTest.
+  testMeddlingMageFuseCardStopAndCastWell`, 6/6) — naming ONE half of a fuse
+  card ("Well") blocks casting that half alone AND blocks casting the card
+  FUSED, even though the other half ("Alive") was never named; only casting
+  the unnamed half by itself remains legal. Alive // Well's own ruling states
+  this directly ("the player may name either half ... but not both. A split
+  card has the chosen name if one of its two names matches"). A genuinely
+  different naming-effect gotcha from anything in the benchmark so far.
+  `ruling_sufficient`.
+- **Reflector Mage + Bronze Sable** (`ReflectorMageTest.
+  testReflectorMageAllowsOwnerToCastCreatureReturnedOnSameTurn`, 2/2) —
+  Reflector Mage's "can't cast" restriction names a specific player (the
+  bounced creature's OWNER), not every player and not its own controller, so
+  Reflector Mage's controller can cast their own same-named card the same
+  turn. Answered entirely by careful reading of the printed ability, no
+  ruling or CR citation needed. `no_ruling_needed_cr_only`.
+- **Narset, Enlightened Master + Cathartic Reunion**
+  (`PlayFromNonHandZoneTest.testNarsetEnlightenedMasterAdditionalCost`,
+  13/13) — "cast without paying its mana cost" waives only the mana cost;
+  Cathartic Reunion's discard-two is an additional cost and must still be
+  paid. Both cards' own rulings state their half of this directly. The
+  classic "additional costs survive a waived mana cost" FAQ point, now with
+  a verified engine confirmation. `ruling_sufficient`.
+- **Phantasmal Image + Transcendent Master** (`PhantasmalImageTest.
+  testCopyCreatureWithLevelUpAbility`, 21/21) — copying a maxed-out leveler
+  (12 level counters, 9/9 lifelink+indestructible) produces a 3/3 with
+  neither ability, because counters are never copiable values; the copy
+  starts at zero level counters of its own even though it copies the
+  leveler's full printed level-up ability text. Transcendent Master's own
+  ruling states this outcome directly, down to the mechanism ("the number of
+  level counters on it, are not [copied]. The abilities, power, and
+  toughness of the copy will be determined based on how many level counters
+  are on the copy"). `ruling_sufficient`.
+
+Two strong-looking candidates were surfaced and set aside rather than forced
+into the benchmark: `TragicSlipTest.testPlayedWithFlashbackAgain` (Snapcaster
+Mage granting flashback to Tragic Slip, recast later in the turn after a
+creature has since died) is correct engine behavior but not a genuine
+teaching point — Morbid re-evaluating at the second casting's own resolution
+is simply how an intervening-if condition is supposed to work, not a trap;
+and `CleverImpersonatorTest.testKindredDiscovery` (copying an "as this
+enters, choose X" permanent) has both players independently choosing the
+SAME creature type in its own test, which doesn't actually demonstrate that
+the choice must be re-made rather than copied. Neither was confirmed with
+enough confidence to state as a fact rather than a guess, so neither was
+written up — a candidate surfacing is not the same as a candidate being
+usable.
+
+**Grounding stays clean at n=19** (card recall 19/19, ruling recall 12/12).
+CR rule recall: 4 of 15 records that cite one — the 4 newest entries carry
+no `cr_rule_citations` at all, since each is answered by the card's own
+printed text rather than any single citable rule, and leaving the field
+empty was judged more honest than reaching for a citation that doesn't
+actually carry the answer.
+
+**Also a process note worth keeping**: this batch was authored in four tool
+calls instead of roughly twelve, by batching source reads, `mvn` verification,
+and JSONL writes each into one call covering several candidates at once,
+rather than looping one-candidate-at-a-time. A `for` loop over `find`/`cat`
+intermittently tripped a shell cwd-reset mid-iteration on this machine
+(breaking `head`/`cat` resolution inside the loop body); chaining explicit
+per-file commands in one call avoided it entirely. Worth defaulting to this
+shape for any future mining session, not just one done remotely.
+
+**A third pass the same session swept `conditional` for real** (it had only
+been scanned, not converted, before). Three more, all verified passing:
+
+- **Rootwater Matriarch** (`RootwaterMatriarchTest.
+  testGainControlEnchantedTargetAndRWLeavesPlay`, 4/4) — its "gain control
+  for as long as that creature is enchanted" duration is self-contained on
+  the TARGET, so control is kept even after Rootwater Matriarch itself
+  leaves the battlefield; only the target creature losing every Aura ends
+  it. Confirmed directly by its own ruling. `ruling_sufficient`.
+- **The Wretched + Wall of Pine Needles** (`TheWretchedTest.
+  testGainControl_One_RegenWhichRemovesBlockerFromCombat`, 4/4) —
+  regeneration removes a creature from combat, so a regenerated blocker is
+  no longer "blocking" by the time The Wretched's end-of-combat trigger
+  resolves and checks who's still blocking it; it escapes the control
+  change entirely. Confirmed directly by its own ruling. `ruling_sufficient`.
+- **Mul Daya Channelers + Dryad Arbor** (`MulDayaChannelersTest.
+  testBoostLossThroughPhases`, 3/3) — its two conditional continuous
+  abilities (tied to the top library card being a creature, or being a
+  land) are independent, not exclusive modes, so a card that's both (Dryad
+  Arbor) triggers both bonuses at once. Confirmed directly by its own
+  ruling. `ruling_sufficient`.
+
+**Grounding stays clean at n=22** (card recall 22/22 — see `PLAN_NEXT.md`
+item 4 for the running count). This closes out `conditional` as an actually-
+mined category rather than a scanned-but-empty one.
+
+**A fourth pass opened `single/`** (940 files, opt-in via `--include-single`,
+previously entirely unmined) alongside a re-check of `replacement`. The
+`--category` flag rejects `"single"` as a value — it only scans `single/`
+when combined with one of the 15 `INTERACTION_DIRS` or omitted entirely — so
+`--include-single` with no `--category` was the working invocation; a first
+attempt passing both errored out silently under `grep`, costing one wasted
+round before the fix. Three more converted, all verified passing:
+
+- **See the Truth + Twincast** (`SeeTheTruthTest.copyOnStack`, 4/4) — a
+  Twincast copy of See the Truth still only puts ONE card into hand, not all
+  three, even though See the Truth's own text upgrades to "all three" when
+  cast from anywhere but hand. A copy is never cast at all, so that
+  condition has nothing to check and defaults to the unmodified behavior.
+  Confirmed directly by its own ruling ("the copy wasn't cast at all, so you
+  only get one of the cards"). The sharpest "copies aren't cast" example in
+  the benchmark so far. `ruling_sufficient`.
+- **Contagion Engine** (`ContagionEngineTest.testCountersDoubledByProliferate`,
+  2/2) — "Proliferate twice" resolves as two full proliferate actions inside
+  ONE ability resolution, with no player able to respond in between and no
+  second activation needed; the two actions can target the same permanents
+  (doubling their counters) or different ones. Confirmed directly by its own
+  ruling. `ruling_sufficient`.
+- **Hallowed Moonlight + Spiritual Visit + Reanimate + Silvercoat Lion**
+  (`HallowedMoonlightTest.testGrindstoneProgenius`, 2/2) — a three-way
+  contrast in one board: a token (never cast) and a reanimated creature
+  (put onto the battlefield directly, never cast) are both exiled by
+  Hallowed Moonlight, while a creature spell that's actually cast normally
+  is completely unaffected. Confirmed directly by its own ruling
+  ("won't affect any creature that was cast ... Creature tokens are never
+  cast"). `ruling_sufficient`.
+
+**Grounding stays clean at n=25** (card recall 25/25). Between this session's
+four passes, the benchmark grew from 3 questions (Section 21.132's hand-
+authored seed) to 25, 22 of them mined rather than hand-invented, spanning
+protection, requirement, copy, dynamicvalue, triggers, restriction, asthough,
+conditional, and now `single/` and `replacement`. `dynamicvalue` (beyond
+Armadillo Cloak and one un-converted Sewer Nemesis candidate) and the bulk of
+`single/`'s 940 files remain unmined — there is no shortage of remaining
+material, only of session time.
