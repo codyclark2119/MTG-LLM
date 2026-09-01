@@ -1,0 +1,140 @@
+# mlx_lm.lora settings for the Phase 1 adapter, run 6.
+#
+# PURPOSE: change the PROMPT SHAPE the adapter trains on, and only that.
+#
+# Every adapter through v5-gameplay trained on the bare question with NO
+# retrieved context attached — `data/datasets/verified`'s own builder
+# (`build_examples` in `build_sft_verified.py`) says so explicitly: "No
+# retrieved context is attached." That was a reasoned choice at the time
+# (these questions carry their own card references and cite their own
+# rules), but it has a real cost `stamp_adapter.unseen_arms` has been
+# warning about since Section 21.50: the `finetuned_rag` and
+# `finetuned_rag_cards_rulings` eval arms hand the adapter a
+# RAG_SYSTEM_PROMPT/CARDS_RAG_SYSTEM_PROMPT-shaped prompt with a real
+# context block, and the adapter has never once seen that shape in
+# training. Every number those arms have ever produced describes the
+# adapter's behavior on an input distribution it was never trained for.
+#
+# Scoping this run took one more finding first (Section 21.136): the
+# reason `eval.py --with-cards` looked unremarkable in every past run is
+# that `card_lookup.CardIndex.find_in_text` only resolves `[[bracket]]`
+# syntax, and NEITHER `gold_questions.jsonl` NOR `gold_candidates.jsonl`
+# has ever contained any — 0/99 and 0/1202 measured directly. So
+# `retrieve_hybrid.build_context()` has been falling through to a
+# card-and-ruling-free "Rules text:" block on literally every real gold
+# question, meaning the `_cards`/`_cards_rulings` arms have quietly been
+# running the plain `_rag` arm twice under a different name this whole
+# project. Fixed here (for dataset-building purposes only) by resolving
+# cards from each record's own hand-verified `cards` field via
+# `CardIndex.resolve` — exact/normalized dictionary lookup, not
+# text-scanning — which reaches 1200/1202 candidates and 1152/1202
+# official rulings. `eval.py` itself is unchanged; that is a separate,
+# not-yet-actioned decision (PLAN_NEXT.md item 4).
+#
+# `data/datasets/verified_rag_retrofit` is `build_sft_verified.py
+# --with-retrieved-context`'s output: the SAME 1,001 train / 111 valid
+# human-verified RulesGuru pairs as `data/datasets/verified` (same
+# contamination-safe exclusion, same records), but every line now carries
+# real retrieved "Cards referenced:" / "Official rulings:" / "Rules text:"
+# context ahead of the question, exactly the shape `retrieve_hybrid.
+# build_context()` builds at eval time. Measured over the actual built set:
+#
+#   999/1001  train lines carry real card context
+#   960/1001  train lines also carry an official ruling
+#   111/111   valid lines carry real card context
+#   108/111   valid lines also carry an official ruling
+#
+# This is the FIRST of two rulings-focused experiments the user chose
+# (PLAN_NEXT.md item 3): retrofit the existing verified set onto the real
+# prompt shape first, then author a genuinely new ruling-grounded training
+# corpus (mirroring the card/ruling benchmark's XMage-mining method, at
+# volume) for a second, independent comparison. This run answers a
+# narrower, cheaper question than that second one: does training on the
+# shape the model is actually evaluated under change anything, holding
+# every other variable fixed against v4.
+#
+# Audited against BOTH the standard eval-set list (gold_questions.jsonl,
+# gold_questions_eval.jsonl, reddit_card_questions.jsonl,
+# reddit_questions.jsonl, rules_questions.jsonl) and, explicitly, this
+# session's new `data/gold/card_ruling_candidates.jsonl` benchmark — the
+# instrument this experiment's rulings half would naturally be judged
+# against. Clean on both: no exact matches, nothing at or above 75% token
+# overlap, across 1,112 training lines.
+#
+# ---------------------------------------------------------------------------
+# EPOCH ARITHMETIC, RECOMPUTED FOR THIS EXACT DATASET (not inherited from v4)
+#
+# audit_sft.py: data/datasets/verified_rag_retrofit train=1001 (same count
+# as v4 — the retrofit changes prompt SHAPE, not which records are kept).
+#
+#   iters  500  ->  1.00 epochs
+#   iters 1001  ->  2.00 epochs   <- this run, matching v4's bracket exactly
+#
+# Same 2-epoch bracket as v4, for the same reason (Section 8's 1.41-epoch
+# overfit vs Section 18.2's clean 1.00-epoch run) — this experiment isolates
+# the PROMPT SHAPE change, so the epoch target stays fixed rather than
+# becoming a second variable.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY UNCHANGED FROM v4
+#
+# Model, LoRA geometry, batch size, learning rate, sequence length, seed,
+# val_batches: -1, iters (numerically identical — same train count). Only
+# `data` and `adapter_path` move. Sequence length is worth a second look
+# in practice: these lines are now longer (question + card text + rulings
+# + rules text + answer) than v4's bare-question lines, so truncation at
+# max_seq_length is more likely here than it was for v4 — check the
+# training log for truncation warnings, which v4 would not have produced
+# at the same rate.
+#
+# ---------------------------------------------------------------------------
+# WHAT TO EXPECT, STATED IN ADVANCE
+#
+# PREDICTED, so it can be wrong in public, same as v4's and v5's headers:
+#
+#   1. `finetuned_rag` and `finetuned_rag_cards_rulings` are the arms most
+#      likely to move, since those are the shapes this adapter now has
+#      in-distribution examples of and v4/v5 do not.
+#   2. Plain `finetuned` (no context) may regress slightly relative to v4,
+#      since none of this adapter's training examples are context-free —
+#      the opposite trade v5-gameplay made in the other direction.
+#   3. This run CANNOT settle whether ruling-grounded ANSWERS (as opposed
+#      to ruling-grounded CONTEXT) help — every target here is the same
+#      verified RulesGuru answer v4 trained on, unchanged. That is
+#      specifically what the second, not-yet-started experiment
+#      (a genuinely new ruling-grounded corpus) is for.
+#
+# Usage:
+#   mlx_env/bin/python3 -m mlx_lm lora -c configs/phase1_lora_v6_rag_retrofit.yaml
+# Then evaluate on BOTH the main gold set and the card/ruling benchmark, same
+# judges as Section 21.133/21.134, WITH retrieval context on since that is what
+# this adapter actually trained on:
+#   python scripts/eval.py --adapter-path models/mtg-rules-adapter-v6-rag-retrofit --gold-only --gold data/gold/gold_questions.jsonl --with-cards --with-rulings --judge-model mlx-community/Qwen2.5-32B-Instruct-4bit
+#   python scripts/eval.py --adapter-path models/mtg-rules-adapter-v6-rag-retrofit --gold-only --gold data/gold/card_ruling_candidates.jsonl --with-cards --with-rulings --judge-model mlx-community/Qwen2.5-32B-Instruct-4bit
+
+model: mlx-community/Qwen2.5-7B-Instruct-4bit
+train: true
+data: ./data/datasets/verified_rag_retrofit
+adapter_path: ./models/mtg-rules-adapter-v6-rag-retrofit
+
+fine_tune_type: lora
+num_layers: 16
+lora_parameters:
+  rank: 16
+  dropout: 0.0
+  scale: 20.0
+
+# Unchanged from v4/v5 — measured, not guessed.
+batch_size: 2
+grad_checkpoint: true
+clear_cache_threshold: 8
+iters: 1001
+learning_rate: 1.0e-4
+max_seq_length: 2048
+
+val_batches: -1
+steps_per_report: 10
+steps_per_eval: 150
+save_every: 100
+
+seed: 42

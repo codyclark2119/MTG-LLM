@@ -11955,3 +11955,366 @@ hypothesis. Session total: 3 -> 50 questions across eight mining passes,
 44 of them mined from currently-passing XMage tests. Halfway to the ~100
 low end of the sample size CLAUDE.md wants for a powered effect —
 `PLAN_NEXT.md` item 4 carries the pause-and-reassess decision forward.
+
+**Reassessing at the halfway checkpoint surfaced a real imbalance, and the
+user asked for it to be fixed before continuing toward 100.** Counting
+precisely rather than estimating: at n=50, 14 of 50 questions (28%) carried
+NEITHER an `official_rulings_used` entry NOR a `cr_rule_citations` entry —
+answered purely by careful reading of the card's own printed text, with
+nothing for `validate_card_ruling_benchmark.py`'s retrieval-recall check to
+measure at all. For a benchmark whose stated purpose is proving or
+disproving RULING retrieval specifically, a mining process that keeps
+surfacing clean self-contained interactions (which read as the *strongest*
+candidates by the existing `score()` heuristic) was quietly skewing the mix
+away from the thing being measured.
+
+Fixed two ways, same session:
+
+1. **Retrofitted 4 of the 14 citation-less questions with real CR
+   citations**, found by searching `rules.jsonl` for the actual mechanic
+   each answer depends on rather than guessing a plausible-sounding number:
+   `crb-jinxed-ring-0001` -> 400.3 ("If an object would go to any library,
+   graveyard, or hand other than its owner's, it goes to its owner's
+   corresponding zone" — exactly the owner-vs-controller point the question
+   turns on); `crb-genesis-ultimatum-0001` -> 701.18a (defines "play a
+   land" precisely enough to show why putting one onto the battlefield via
+   a resolving spell isn't that); `crb-noxious-ghoul-0001` -> 603.2
+   ("automatically triggers" whenever the event matches, with no
+   once-per-turn exception — the reason a second Zombie ETB fires it
+   again); `crb-tamiyo-field-researcher-0001` -> 603.7b (delayed triggered
+   abilities with a stated duration, distinguishing this from the default
+   "triggers only once" case). The other 10 were checked and genuinely have
+   no single citable rule — forcing one would have been a plausible-sounding
+   citation the answer doesn't actually depend on, which is worse than
+   leaving the field honestly empty.
+2. **Mined a further 3 questions specifically selected for the sufficiency
+   category, not just novelty** — re-ran `mine_xmage_tests.py` and
+   deliberately picked candidates already known to carry an official ruling
+   rather than the top of the raw ranking: **Clone + Nightmare**
+   (`CloneTest.testCopyNightmare`, 7/7) — a fourth angle on the new-object
+   rule in this benchmark: a Clone-of-Nightmare bounced to hand reverts to
+   its own printed 0/0, because the copy effect (and the P/T-setting
+   ability it copied) applied only to that battlefield object, not to
+   whatever the card becomes in a new zone; **The Mimeoplasm + Clone**
+   (`TheMimeoplasmTest.testCloneMimeoplasm`, 1/1) — Cloning a Mimeoplasm
+   that gave itself bonus counters produces a plain, counter-less copy of
+   whatever creature it's currently displaying as, reinforcing (from a
+   different angle) the counters-aren't-copied lesson Phantasmal Image
+   already established; **Show of Confidence** (`ShowOfConfidenceTest.
+   test_SpellsCastWatcher`, 1/1) — a "copy for each other instant/sorcery
+   cast this turn" trigger counts a flashback-cast spell the same as one
+   cast from hand, confirmed directly by its own ruling.
+
+**Grounding stays clean at n=53** (card recall 53/53, ruling recall 31/31).
+The citation-less share dropped from 14/50 (28%) to 10/53 (19%); CR-citation
+coverage rose from 16/50 (32%) to 21/53 (40%); ruling coverage held roughly
+flat at 31/53 (58%). The lesson generalizes beyond this one fix: **a mining
+tool's ranking heuristic optimizes for what it can measure (card count,
+assertion count), not for what the downstream benchmark actually needs
+(ruling-groundedness) — the two only coincide by accident, and drift apart
+exactly when mining runs long enough to exhaust the easy, obviously-rich
+candidates first.** Worth checking this balance again at every future
+size checkpoint, not just at the end.
+
+### 21.136 The `_cards`/`_cards_rulings` eval arms have been resolving zero cards against the real gold set, this whole project — found while scoping the rulings-training retrofit
+
+Deciding how to build a "train on real retrieved ruling context" dataset
+(PLAN_NEXT.md item 3, the user's explicit choice: retrofit `data/datasets/
+verified` before authoring an all-new ruling-grounded corpus) meant first
+checking what the existing retrieval pipeline actually resolves against the
+existing verified questions. It resolves nothing.
+
+**`card_lookup.CardIndex.find_in_text` matches only `[[Bracket]]` syntax in
+the question text — documented already, in Section 21.132, as a lesson
+learned while authoring the card/ruling benchmark's first three questions.
+What had not been checked is whether the MAIN gold set has any.** Measured
+directly:
+
+```
+0/99  gold_questions.jsonl questions resolve any card via find_in_text
+0/1202 gold_candidates.jsonl questions resolve any card via find_in_text
+```
+
+Neither corpus's `question` field contains `[[bracket]]` syntax anywhere —
+the bracket pairs that DO appear in these records live in `key_points` and
+`common_errors` as `[[card1]]`/`[[card2]]` TEMPLATE SLOTS
+(`common.templatize`/`untemplatize`), a completely different mechanism for
+normalizing player/card names for scoring, not the retrieval convention.
+The two uses of `[[...]]` in this codebase look identical and mean
+opposite things — the exact "one name, two meanings" trap CLAUDE.md's own
+traps section already warns about, for a third pair of meanings.
+
+**The consequence: `eval.py --with-cards` (and `--with-rulings`) has never
+once attached real card or ruling text to a `gold_questions.jsonl` run.**
+`retrieve_hybrid.build_context()` calls `card_index.find_in_text(question)`
+first; with zero cards resolved, `cards` and `rulings` are both empty
+lists, and the function falls through to emitting ONLY the `"Rules text:"`
+section — byte-for-byte the same context the plain `_rag` arm already
+uses. Every `finetuned_rag_cards` and `finetuned_rag_cards_rulings` (and
+`base_rag_cards`/`base_rag_cards_rulings`) result this project has ever
+published against `gold_questions.jsonl` was measuring the plain rules-RAG
+arm running twice under a different name. This is NOT the Section 21.132
+finding restated — that one was about a benchmark under active
+construction, caught before anything was measured with it; this is a
+silent gap in arms that have already produced published numbers.
+
+**Not a contamination-severity finding — nothing was trained on the eval
+set, and no comparison was reversed by it** (a `_cards` arm identical to
+its own `_rag` arm doesn't favor one model over another; it just fails to
+test the thing its name claims to test). But it is exactly the shape
+CLAUDE.md's own traps section describes: *"A harness bug whose trigger
+rate depends on the condition under test... A bug that fires uniformly is
+visible as a bug; one correlated with the treatment is indistinguishable
+from a finding about the treatment."* Here the "treatment" is the presence
+of `[[brackets]]`, and it fires at 100% on one corpus (Section 21.132's
+original three questions, later the card/ruling benchmark, all deliberately
+bracketed) and 0% on another (the entire main gold set, authored before
+that convention existed) — so every historical `_cards` result read as "no
+measurable card-augmentation lift" when the honest reading is "never
+tested."
+
+**Fix, scoped to what's needed right now rather than rewriting
+`find_in_text`:** `gold_candidates.jsonl` and `gold_questions.jsonl`
+records already carry a hand-verified `cards` field (1,200 of 1,202
+candidates have one) — real card names authored alongside the question,
+not scanned from its prose. Resolving THOSE names via `CardIndex.resolve`
+(exact-or-normalized dictionary lookup, no text-scanning, no new
+false-positive surface) reaches:
+
+```
+1200/1202 records resolve >= 1 card this way
+1152/1202 records resolve >= 1 official ruling this way
+```
+
+That is the safe path for the v6 retrofit dataset below, and arguably the
+right fix for `eval.py --with-cards` too — a decision for `PLAN_NEXT.md`,
+not made here, since changing a published eval arm's behavior needs its
+own explicit sign-off and a re-run of whatever it's compared against.
+Left as a flagged, not-yet-actioned finding.
+
+### 21.137 v6-rag-retrofit's first launch diverged to permanent NaN at iteration 260 — the retrieved context was long enough to truncate the answer away on 96% of training lines
+
+The user kicked off `configs/phase1_lora_v6_rag_retrofit.yaml` and asked for
+a periodic check-in rather than continuous monitoring. The check-in caught
+it: **`Train loss` was healthy and falling (1.86 at iter 10 -> ~0.76-0.82
+through iter 240), spiked to 1.39 then 2.34 at iters 250 and 260, and has
+been `nan` — permanently, every iteration since — from iter 270 onward.**
+The run kept going for another 150 iterations on a dead model (Adam's
+moment estimates go NaN and never recover on their own) before the check-in
+happened, saving two more corrupted checkpoints (`0000300`, `0000400`)
+along the way. Killed immediately once found, and the checkpoint directory
+removed — nothing from that run is usable.
+
+**Root cause, found by testing the actual built dataset with the actual
+tokenizer rather than theorizing:**
+
+```
+966/1001 train lines exceed 2048 tokens (max_seq_length) once tokenized
+960/1001 of those have the PREFIX (system + context + question) alone
+         already >= 2048 tokens — meaning mlx_lm.lora's fixed-length
+         truncation cut the ANSWER away entirely or almost entirely
+```
+
+`build_examples_with_context` (Section 21.136) resolves real cards and
+rulings and attaches them as context — exactly the intent — but nothing
+bounded how MUCH context that could be. Some cards carry many long
+official rulings (a handful of resolved records pushed total length past
+6,000 tokens, three times the budget), and `mlx_lm.lora` truncates from a
+fixed sequence length with no awareness of where the assistant turn
+starts. For 96% of this dataset, the model was being trained to predict a
+target it was given no room to see. A batch containing several such
+lines — near-empty or garbage supervision on nearly every step — is
+exactly the kind of numerically degenerate signal that produces a loss
+spike large enough to blow through fp16/bf16 range and land on NaN, which
+then poisons every subsequent step regardless of that step's own content.
+
+**A second, independent bug compounded it, caught while fixing the
+first**: `build_examples_with_context` called `build_rag_messages(question,
+context)` without `preformatted=True`. `build_rag_messages`'s own
+docstring names this exact failure — *"Sniffing for the prefix instead of
+passing this explicitly once double-labeled every no-card prompt as
+'Rules text:\nRules text:\n...'"* — and that is precisely what happened
+here: every context, already opening with `"Cards referenced:\n..."`,
+was wrapped in a second, redundant `"Rules text:\n"` prefix. Harmless to
+which system prompt gets chosen (that check reads the raw `context` string
+before wrapping), but it inflated every example's token count for no
+reason, making the truncation problem measurably worse than it had to be.
+
+**Fixed both, verified by re-running the same diagnostic that found the
+bug, not by reasoning that the fix should work:**
+
+- `_record_context` now takes the training tokenizer and `max_seq_length`
+  and enforces a real budget: build the full candidate message set
+  (system + context + question + answer) via `build_rag_messages` itself
+  (reusing the shared function rather than re-deriving its shape a second
+  time — the exact drift this project's #1 documented failure mode warns
+  about), and if it doesn't fit, drop sections least-essential-first —
+  `Rules text:` (redundant with the plain rules-RAG shape v4 already
+  covers) first, then `Official rulings:`, then `Cards referenced:` — until
+  it does. The question and answer are never among the things sacrificed.
+- `build_examples_with_context` now passes `preformatted=True`, matching
+  every other caller of `build_rag_messages` with pre-labeled context.
+- New `--max-seq-length` flag, defaulted to 2048 to match the training
+  config, so the dataset is trimmed to the SAME budget the trainer will
+  actually enforce rather than a guess that could drift from it.
+
+**Measured on the rebuilt dataset, with the actual Qwen2.5-7B-Instruct
+tokenizer, the same way the bug was found:**
+
+```
+train: 0/1001 lines exceed 2048 tokens, 0 have the answer truncated
+valid: 0/111  lines exceed 2048 tokens, 0 have the answer truncated
+```
+
+999/1001 train lines still carry real card context and 950/1001 still
+carry an official ruling (down slightly from 960 before the fix — a small
+number of examples now drop rulings text specifically to make room, which
+is the algorithm working as designed: the ruling detail lost is worth less
+than an intact answer). Re-audited clean against both the standard
+eval-set list and `card_ruling_candidates.jsonl` explicitly — no exact
+matches, nothing at or above 75% overlap, on the corrected set. Full test
+suite green. Training relaunched.
+
+**The lesson, stated plainly**: attaching real retrieved context to a
+training set changes the LENGTH distribution of every line, and nothing
+about `build_rag_messages`, `audit_sft.py`, or the training config checks
+that the new length still leaves room for what the model is supposed to
+learn to produce. `max_seq_length` truncation is silent — it does not
+error, warn distinctly, or refuse; it just cuts, and a model trained on
+enough cut targets fails in a way (NaN) that looks like an unrelated
+numerical problem rather than a data problem, unless someone reads the
+loss curve closely enough to notice WHEN it started and goes looking at
+the data that iteration was drawn from. Any future change that grows what
+gets attached to a training prompt — more retrieved chunks, longer
+context, a richer system prompt — needs the same check this section
+just ran: tokenize the actual built lines with the actual training
+tokenizer and confirm the answer survives, before spending a training run
+finding out the hard way.
+
+**The relaunched run completed cleanly**: 1001/1001 iterations, val loss
+1.163 (iter 150) -> 0.786 (750) -> 0.732 (900) -> 0.722 (1001), monotonic,
+no overfitting spike, zero `nan` anywhere in the log. Stamped
+(`30badae98696`, matching v4/v5 exactly — the message SHAPE is unchanged,
+only its content distribution differs).
+
+**One more nuance, found immediately when evaluation started, worth
+recording BEFORE results come in rather than after (the project's own
+"predicted, so it can be wrong in public" discipline)**: `gold_candidates.
+jsonl`'s `cards` field is populated for 1200/1202 records, so
+`build_examples_with_context`'s card-resolution almost never falls through
+to a card-less context. Measured directly on the built set:
+
+```
+SYSTEM_PROMPT            :    2 / 1112
+RAG_SYSTEM_PROMPT        :    0 / 1112
+CARDS_RAG_SYSTEM_PROMPT  : 1110 / 1112
+```
+
+The retrofit didn't just add context exposure — it trained almost
+EXCLUSIVELY on the cards+rulings shape and essentially never on the
+plain rules-only RAG shape or the bare question. `eval.py` printed this
+as a live warning the moment it ran: `finetuned_rag` uses a system
+prompt this adapter's training set contains ZERO times. The consequence
+for reading results: on `gold_questions.jsonl`, where `--with-cards`
+resolves nothing (Section 21.136), NONE of the eval arms actually
+reproduce the one shape this adapter has real exposure to — `finetuned`
+and `finetuned_rag` are both out-of-distribution for it, and
+`finetuned_rag_cards_rulings` degrades to the same card-less context as
+`finetuned_rag` on this specific corpus, so it's out-of-distribution too.
+Only the second eval, against `card_ruling_candidates.jsonl` (authored
+with real `[[bracket]]` syntax, so `--with-cards` actually resolves
+cards there), puts `finetuned_rag_cards_rulings` in the shape this
+adapter was trained on. **Any comparison on `gold_questions.jsonl` should
+be read as "how does an adapter trained almost entirely on
+cards+rulings prompts behave when handed a bare or cards-free prompt,"
+not as a fair test of the cards+rulings arm** — that fair test is what
+the second eval run is for.
+
+**Both evals finished. The `gold_questions.jsonl` run confirmed the
+predicted out-of-distribution reading exactly**: `base_rag_cards_rulings`
+was byte-identical to `base_rag` (1.63/86/1 both), and
+`finetuned_rag_cards_rulings` byte-identical to `finetuned_rag`
+(1.30/83/14 both) — live proof that zero cards resolved, so those two
+arms never diverged from their card-free counterparts. Within-run,
+`finetuned`/`finetuned_rag`/`finetuned_rag_cards_rulings` all scored
+~1.29-1.30, below `base` (1.45) and `base_rag` (1.63) — the same
+"fine-tuned loses to base" shape as v4, on an eval this adapter was not
+built to be measured by.
+
+**The `card_ruling_candidates.jsonl` run is the real test — cards
+resolved on 53/53 questions, rulings on 50/53 — and the result is a
+clear, large NEGATIVE, not a null result:**
+
+| Arm | Avg (1-5) | Grounded | Fabricated |
+| --- | --- | --- | --- |
+| base_rag | 2.92 | 44/53 | 0/53 |
+| base | 2.96 | 30/53 | 16/53 |
+| base_rag_cards_rulings | 3.03 | 22/53 | 0/53 |
+| finetuned_rag | 1.42 | 51/53 | 2/53 |
+| finetuned | 1.60 | 51/53 | 2/53 |
+| finetuned_rag_cards_rulings | 1.86 | 51/53 | 2/53 |
+
+This time `base_rag_cards_rulings` (3.03) genuinely differs from
+`base_rag` (2.92), and `finetuned_rag_cards_rulings` (1.86) genuinely
+differs from `finetuned_rag` (1.42) and `finetuned` (1.60) — real card
+and ruling context reached all of them, unlike the first run. So this
+number is not confounded the way the first eval's was, and it answers
+the actual question v6-rag-retrofit was built to ask: **`finetuned_rag_
+cards_rulings` scores 1.86 against `base_rag_cards_rulings`'s 3.03 — a
+1.17-point gap, roughly four times the size of any gap v4 ever showed on
+the general gold set.** Fine-tuning on the retrofit dataset did not fail
+to help on this harder benchmark; on this single run, it looks actively
+harmful.
+
+**Grounding moved in the opposite direction from what that low a score
+would suggest**: the fine-tuned arms are MORE grounded (51/53) than every
+base arm (22-44/53), and fabricate less (2/53 vs 0-16/53). So this is not
+a return to the refusal/fabrication failure mode Section 21.6 and v4
+fixed — the adapter is still citing real things, confidently, at a
+higher rate than base. The low score is a CORRECTNESS failure specific to
+this benchmark's content: `card_ruling_candidates.jsonl` is built from
+this session's own mining work, deliberately selected for subtle,
+often-conflated interactions (`ruling_relevant_insufficient`
+reasoning, new-object-rule edge cases, layered dependency chains) — a much
+harder and more adversarial distribution than the RulesGuru-sourced
+questions `data/datasets/verified` (and therefore this retrofit) trains
+on. The working hypothesis: fine-tuning on the RulesGuru-style Q&A
+distribution, even wrapped in the right prompt shape, teaches a response
+style or a shallower reasoning pattern that does not transfer to genuinely
+novel, harder interactions — the base model's broader pretraining
+generalizes better here than 2 epochs of narrow SFT does. That is a
+hypothesis, not yet a finding on its own — it needs the "lowest-scoring
+cases" qualitative read and, ideally, a second judge, before being stated
+as settled.
+
+**Caveats, stated plainly rather than let stand as an unqualified
+verdict**: this is a SINGLE run (`mlx_lm.generate` has no fixed seed —
+PLAN_NEXT.md's own documented finding), scored by ONE judge
+(Qwen2.5-32B), on a benchmark of 53 machine-drafted, `needs_review: true`
+questions that have not yet had human review (this session's mining
+convention, stated on every one of them). The one internal reproducibility
+check this run has — `finetuned_rag`, rerun on 15 of 53 questions, 15/15
+identical — says this specific arm's generation was stable within this
+run, which rules out this particular gap being generation-noise on that
+one arm, but does not by itself rule out judge-variance or benchmark-
+composition effects across arms. Two judges, and a look at whether the
+`needs_review` questions hold up under human read, are the next checks
+before this result should move any decision beyond "the retrofit
+hypothesis, as tested, did not pan out."
+
+**A small process trap, worth a line for the next person running two evals
+back to back**: both invocations were launched without `--out`/
+`--report-out`, so both wrote to the same default `eval/runs/latest.jsonl`
+/ `eval/reports/latest.md` — the second run (`card_ruling_candidates.
+jsonl`) silently overwrote the first's raw per-question output
+(`gold_questions.jsonl`'s). Nothing analytical was lost — the summary
+table above was captured from the console log before the second run
+started — but the first run's raw JSONL (individual answers, per-question
+judge verdicts) is gone and cannot be regenerated identically, since
+`mlx_lm.generate` has no fixed seed. The second run's raw output was
+copied to `eval/runs/v6_rag_retrofit_card_ruling53.jsonl` / `eval/reports/
+v6_rag_retrofit_card_ruling53.md` immediately after being found, before
+anything else could overwrite it too. Pass `--out`/`--report-out` with a
+distinct name on every invocation when chaining more than one eval run,
+the same discipline `rules_v3_ckpt1322.jsonl`-style filenames already show
+for single runs.

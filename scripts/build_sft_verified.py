@@ -82,6 +82,126 @@ def build_examples(records: list[dict]) -> list[dict]:
     ]
 
 
+def _record_context(rec: dict, card_index, ruling_index, embed_model,
+                     lm_tokenizer, max_seq_length: int) -> str:
+    """The same context shape `retrieve_hybrid.build_context` emits at eval
+    time, but resolving cards from the record's own verified `cards` field
+    (exact/normalized dictionary lookup) rather than `find_in_text` scanning
+    the question prose for `[[brackets]]`.
+
+    That distinction is the whole point (Section 21.136): `gold_candidates.
+    jsonl` questions are plain prose with no bracket syntax anywhere, so
+    `find_in_text` resolves zero cards on essentially all of them — which is
+    exactly why `eval.py --with-cards` has never attached real card or
+    ruling text to a `gold_questions.jsonl` run. The `cards` field was
+    authored alongside the question, not scanned from it, so resolving
+    THOSE names carries none of find_in_text's need for bracket markup.
+
+    Truncated to fit `max_seq_length` ALONGSIDE the question and answer,
+    never at their expense (Section 21.137). The first version of this
+    function had no such budget: 960 of 1,001 built examples had a context
+    long enough that `mlx_lm.lora`'s fixed-length truncation cut the
+    ANSWER away entirely, training on empty or near-empty targets, and the
+    resulting run's loss diverged to permanent NaN around iteration 260.
+    Sections are dropped least-essential-first — Rules text (redundant with
+    the plain rules-RAG shape v4 already covers), then Official rulings,
+    then Cards referenced — until what remains plus the question and answer
+    fits, so a training line's target is NEVER the thing sacrificed to fit
+    a token budget.
+    """
+    from rag import retrieve as rag_retrieve
+
+    names = rec.get("cards") or []
+    resolved, seen = [], set()
+    for n in names:
+        card, _how = card_index.resolve(n)
+        if card and card["name"] not in seen:
+            seen.add(card["name"])
+            resolved.append(card)
+    rulings = ruling_index.find_for_cards(resolved) if ruling_index else []
+    rules_hits = rag_retrieve(rec["question"], k=3, model_and_tokenizer=embed_model)
+
+    cards_part = "Cards referenced:\n" + "\n\n".join(c["text"] for c in resolved) if resolved else None
+    rulings_part = "Official rulings:\n" + "\n\n".join(r["text"] for r in rulings) if rulings else None
+    rules_part = "Rules text:\n" + "\n\n".join(h["text"] for h in rules_hits)
+
+    def _fits(context: str) -> bool:
+        messages = (build_rag_messages(rec["question"], context, preformatted=True)
+                    + [{"role": "assistant", "content": rec["answer"]}])
+        return len(lm_tokenizer.apply_chat_template(messages, add_generation_prompt=False)) <= max_seq_length
+
+    # Dropped least-essential-first until the question and answer, which are
+    # never sacrificed, fit alongside whatever context remains.
+    for combo in ([cards_part, rulings_part, rules_part],
+                  [cards_part, rulings_part],
+                  [cards_part],
+                  []):
+        combo = [p for p in combo if p]
+        context = "\n\n".join(combo)
+        if not combo or _fits(context):
+            return context
+    return ""
+
+
+def build_examples_with_context(records: list[dict], max_seq_length: int = 2048) -> list[dict]:
+    """Like `build_examples`, but each line carries REAL retrieved context —
+    the CARDS_RAG_SYSTEM_PROMPT/RAG_SYSTEM_PROMPT shape `finetuned_rag` and
+    `finetuned_rag_cards_rulings` are evaluated under.
+
+    Off by default (`--with-retrieved-context`). Every adapter trained so
+    far (v1-v5) trained on the bare question with NO retrieval context at
+    all — `stamp_adapter.unseen_arms` has been warning about exactly this
+    gap since Section 21.50, and it is why `finetuned_rag`'s own numbers
+    have never been more than a guess at how the adapter behaves outside
+    the one shape it was actually trained on. This is the retrofit
+    half of the two-part rulings experiment the user chose (PLAN_NEXT.md
+    item 3): train on the real shape first, author a new ruling-grounded
+    corpus second, and compare.
+    """
+    from card_lookup import CardIndex
+    from retrieve_hybrid import RulingIndex
+    from rag import MODEL_ID as EMBED_MODEL_ID
+    from mlx_embeddings import load as load_embed_model
+    from mlx_lm import load as load_lm
+    from eval import BASE_MODEL_ID
+
+    print("loading card index, ruling index, embedding model, and tokenizer for retrieved context ...")
+    card_index = CardIndex()
+    ruling_index = RulingIndex()
+    # Loaded once and passed to every _record_context call — rag.retrieve
+    # reloads the embedding model from scratch on every call when this is
+    # left as None, which is fine for a single lookup but would reload it
+    # ~1,100 times here.
+    embed_model = load_embed_model(EMBED_MODEL_ID)
+    # Only the tokenizer is needed (to measure what mlx_lm.lora will actually
+    # count), but mlx_lm.load returns model+tokenizer together; the model
+    # itself is never used below and MLX does not materialize its weights
+    # until they are read.
+    _unused_model, lm_tokenizer = load_lm(BASE_MODEL_ID)
+
+    out = []
+    n_with_cards = n_with_rulings = n_trimmed = 0
+    for i, r in enumerate(records, 1):
+        context = _record_context(r, card_index, ruling_index, embed_model,
+                                   lm_tokenizer, max_seq_length)
+        if context.startswith("Cards referenced:"):
+            n_with_cards += 1
+        if "Official rulings:" in context:
+            n_with_rulings += 1
+        if "Rules text:" not in context:
+            n_trimmed += 1
+        out.append({"messages": build_rag_messages(r["question"], context, preformatted=True)
+                     + [{"role": "assistant", "content": r["answer"]}]})
+        if i % 200 == 0 or i == len(records):
+            print(f"  context built: {i}/{len(records)}")
+    print(f"  {n_with_cards}/{len(records)} examples carry real card context "
+          f"({n_with_rulings}/{len(records)} also carry official rulings)")
+    print(f"  {n_trimmed}/{len(records)} examples had their context trimmed "
+          f"(Rules text dropped, or further) to keep the full answer inside "
+          f"max_seq_length={max_seq_length}")
+    return out
+
+
 def stratified_split(records: list[dict], valid_frac: float, seed: int):
     """Split within category, so a thin category cannot land entirely in one side."""
     by_cat: dict[str, list[dict]] = {}
@@ -188,6 +308,21 @@ def main() -> None:
                          "experiment). OFF by default and deliberately explicit — a "
                          "separate, labelled experiment, not folded into the default set.")
     ap.add_argument("--positions", type=Path, default=REPO_ROOT / "data/gold/positions.jsonl")
+    ap.add_argument("--with-retrieved-context", action="store_true",
+                    help="build every train/valid line with REAL retrieved card/ruling/"
+                         "rules context (Section 21.136), instead of the bare question "
+                         "every adapter through v5 trained on. Resolves cards from each "
+                         "record's own verified `cards` field, not by scanning the "
+                         "question for [[brackets]] (which gold_candidates.jsonl's prose "
+                         "never contains). This changes the SHAPE of the whole default "
+                         "set, not an additive mixture like --with-wiki/--with-gameplay — "
+                         "point --out-dir at a new directory rather than overwriting "
+                         "data/datasets/verified.")
+    ap.add_argument("--max-seq-length", type=int, default=2048,
+                    help="only used with --with-retrieved-context: the training "
+                         "config's own max_seq_length, so context gets trimmed to "
+                         "the SAME budget mlx_lm.lora will actually enforce, rather "
+                         "than a mismatched guess (Section 21.137).")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -265,15 +400,22 @@ def main() -> None:
         print(f"  batch={batch} iters={iters} -> "
               f"{iters * batch / max(1, len(train)):.2f} epochs")
 
+    if args.with_retrieved_context:
+        def builder(records):
+            return build_examples_with_context(records, max_seq_length=args.max_seq_length)
+    else:
+        builder = build_examples
+
     if args.dry_run:
         print("\nDRY RUN — nothing written.")
-        ex = build_examples(train[:1])[0]
+        ex = builder(train[:1])[0]
+        print("sample system prompt (first 80 chars):", ex["messages"][0]["content"][:80])
         print("sample assistant target:")
         print("  " + ex["messages"][-1]["content"][:220])
         return
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    train_lines = build_examples(train)
+    train_lines = builder(train)
     # Wiki lines go to TRAIN only, never to valid. Validation loss is read as a
     # signal about the verified gold set; mixing a second distribution into it
     # would move the curve for a reason unrelated to the thing being measured.
@@ -289,7 +431,7 @@ def main() -> None:
         print(f"  + {len(gameplay)} gameplay reference-line examples "
               f"(reviewed, legal_actions-verified) -> train only")
     write_jsonl_atomic(args.out_dir / "train.jsonl", train_lines)
-    write_jsonl_atomic(args.out_dir / "valid.jsonl", build_examples(valid))
+    write_jsonl_atomic(args.out_dir / "valid.jsonl", builder(valid))
     # Every exclusion, with WHICH filter caught it. Recording only the `id`
     # matches would leave the file describing 72 of the 90 — and an audit trail
     # that silently omits the cases the audit was written to find is worse than
