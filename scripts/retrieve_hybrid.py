@@ -76,20 +76,52 @@ def build_context(
     ruling_index: RulingIndex | None = None,
     chunks_path: Path = CHUNKS_PATH,
     index_path: Path = INDEX_PATH,
+    card_names: list[str] | None = None,
 ) -> dict:
-    cards = card_index.find_in_text(question, max_cards=max_cards)
+    # `card_names` bypasses `find_in_text`, which resolves ONLY `[[bracket]]`
+    # syntax and therefore resolves nothing at all on either real gold corpus
+    # — 0/99 on gold_questions.jsonl and 0/1202 on gold_candidates.jsonl,
+    # because neither ever adopted that convention in its question text
+    # (Section 21.136). Callers that already know which cards a record is
+    # about — every gold record carries a hand-verified `cards` field — pass
+    # them here and get exact/normalized dictionary resolution instead of
+    # text-scanning. Same technique `build_sft_verified._record_context`
+    # already uses; shared here rather than reimplemented so the two cannot
+    # drift into disagreeing about what "the cards for this question" means.
+    if card_names:
+        cards, seen = [], set()
+        for name in card_names:
+            card, how = card_index.resolve(name)
+            if card and card["name"] not in seen:
+                seen.add(card["name"])
+                # `matched_as`/`match_type` are part of find_in_text's contract
+                # and downstream metadata reads them; omitting them here made
+                # build_context raise KeyError on the very first call.
+                cards.append({**card, "matched_as": name, "match_type": how})
+            if len(cards) >= max_cards:
+                break
+    else:
+        cards = card_index.find_in_text(question, max_cards=max_cards)
     rulings = ruling_index.find_for_cards(cards) if ruling_index else []
+    # k_rules=0 omits the dense-retrieved CR section entirely. Not a
+    # micro-optimisation: Section 21.141 measured rules-only RAG scoring BELOW
+    # no-retrieval at both model sizes, with cited-rule recall stuck near 25%
+    # and no available fix (k, BM25, finer chunks, query rewriting and a
+    # second embedding model were all tested and all failed). Three
+    # mostly-wrong rules chunks are worse than none, so being able to turn the
+    # broken component off is a real configuration, not an ablation.
     rules_hits = retrieve(
         question, k=k_rules, chunks_path=chunks_path, index_path=index_path,
         model_and_tokenizer=embed_model,
-    )
+    ) if k_rules > 0 else []
 
     parts = []
     if cards:
         parts.append("Cards referenced:\n" + "\n\n".join(c["text"] for c in cards))
     if rulings:
         parts.append("Official rulings:\n" + "\n\n".join(r["text"] for r in rulings))
-    parts.append("Rules text:\n" + "\n\n".join(h["text"] for h in rules_hits))
+    if rules_hits:
+        parts.append("Rules text:\n" + "\n\n".join(h["text"] for h in rules_hits))
 
     # Returned as METADATA ONLY — these ids are not injected into `context`.
     # The original comment here claimed a card's keyword rules were "worth

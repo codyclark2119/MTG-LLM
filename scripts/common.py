@@ -590,7 +590,8 @@ GAMEPLAY_SYSTEM_PROMPT = (
 
 
 def build_rag_messages(question: str, context: str | None = None,
-                       preformatted: bool = False) -> list[dict]:
+                       preformatted: bool = False,
+                       exemplars: list[tuple[str, str]] | None = None) -> list[dict]:
     """The single definition of a prompt's shape, for training AND inference.
 
     Section 8.7's fine-tune failure was a train/inference mismatch: the model
@@ -608,21 +609,49 @@ def build_rag_messages(question: str, context: str | None = None,
     (retrieve_hybrid emits "Cards referenced:" / "Rules text:"). Sniffing for
     the prefix instead of passing this explicitly once double-labeled every
     no-card prompt as "Rules text:\\nRules text:\\n...".
+
+    `exemplars` are (question, answer) pairs injected as completed prior turns
+    between the system message and the real question — the idiomatic
+    in-context-learning shape for an instruct model, and deliberately NOT
+    appended to the system prompt. Two reasons, both load-bearing:
+
+      * `prompt_fingerprint()` hashes the three system prompts and the
+        assembled message shape, and it calls this function with no
+        exemplars. Defaulting to None keeps that call byte-identical, so
+        turning few-shot on cannot silently invalidate every adapter on disk
+        — which is exactly the Section 8.7 failure this fingerprint exists
+        to catch.
+      * exemplars carry no retrieved context of their own. A demonstration is
+        meant to teach the SHAPE of a good answer (state the rule, apply it,
+        commit to a verdict), not to smuggle in extra rules text that the
+        real question's retrieval did not surface.
     """
     if not context:
-        return [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ]
+        head = [{"role": "system", "content": SYSTEM_PROMPT}]
+        shots = _exemplar_turns(exemplars)
+        return head + shots + [{"role": "user", "content": question}]
     body = context if preformatted else f"Rules text:\n{context}"
     # The rules-only prompt says "use ONLY the provided rules text", which
     # would instruct the model to ignore card text handed to it in the same
     # turn — the unsatisfiable instruction Section 9.5 flagged.
     system = CARDS_RAG_SYSTEM_PROMPT if "Cards referenced:" in context else RAG_SYSTEM_PROMPT
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": f"{body}\n\nQuestion: {question}"},
-    ]
+    return ([{"role": "system", "content": system}]
+            + _exemplar_turns(exemplars)
+            + [{"role": "user", "content": f"{body}\n\nQuestion: {question}"}])
+
+
+def _exemplar_turns(exemplars: list[tuple[str, str]] | None) -> list[dict]:
+    """Few-shot demonstrations as completed user/assistant turns.
+
+    Returns [] for None, which is what keeps the no-exemplar prompt shape —
+    and therefore `prompt_fingerprint()` — byte-identical to every run
+    before few-shot existed.
+    """
+    turns: list[dict] = []
+    for q, a in exemplars or []:
+        turns.append({"role": "user", "content": q})
+        turns.append({"role": "assistant", "content": a})
+    return turns
 
 
 # The best-calibrated judge measured. All three positive-control trip-wires,

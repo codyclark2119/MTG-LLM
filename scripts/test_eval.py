@@ -707,6 +707,46 @@ def test_carry_diagnostics() -> int:
     return failed
 
 
+def test_card_names_override() -> int:
+    """`build_context(card_names=...)` must resolve without bracket syntax (21.136).
+
+    The bug this guards was silent for the project's entire history:
+    `find_in_text` matches ONLY `[[Bracket]]` syntax, neither real gold corpus
+    ever used it in question text, so `--with-cards` resolved 0/99 and the
+    `_cards` arms were the plain RAG arm under a different name. Three things
+    are asserted, because fixing only the first two still leaves a no-op:
+
+      * plain prose with a `cards` list resolves (the fix);
+      * the returned cards carry `match_type`/`matched_as`, which is
+        `find_in_text`'s contract and which downstream metadata indexes into —
+        omitting them raised KeyError on the first real call;
+      * `load_gold_questions` CARRIES the `cards` field through, since dropping
+        it there would make the whole fix a silent no-op again, one layer up.
+    """
+    import inspect
+
+    from eval import load_gold_questions
+    from retrieve_hybrid import build_context
+
+    failed = 0
+    # build_context also does dense rules retrieval, which needs a real index
+    # and an embedding model; assert on the card-resolution branch's source
+    # rather than standing the whole pipeline up inside a unit test.
+    src = inspect.getsource(build_context)
+    if "card_names" not in src:
+        print("  FAIL build_context lost its card_names parameter")
+        failed += 1
+    for field in ('"match_type"', '"matched_as"'):
+        if field not in src:
+            print(f"  FAIL build_context's card_names branch does not set {field}")
+            failed += 1
+
+    if '"cards"' not in inspect.getsource(load_gold_questions):
+        print("  FAIL load_gold_questions drops the `cards` field — the fix is a no-op")
+        failed += 1
+    return failed
+
+
 def test_base_only_arms() -> int:
     """`--base-only` must drop the adapter arms and keep the base ones (21.138).
 
@@ -2767,6 +2807,7 @@ def main() -> None:
                      ("half_answer", test_half_answer),
                      ("unseen_arms", test_unseen_arms),
                      ("base_only_arms", test_base_only_arms),
+                     ("card_names_override", test_card_names_override),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),
                      ("judge_identity", test_judge_identity),

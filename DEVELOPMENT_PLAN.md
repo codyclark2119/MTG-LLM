@@ -12482,3 +12482,262 @@ Section 21.135's caveat applies), one run per model, and `mlx_lm.generate`
 has no fixed seed. What would strengthen it: the same comparison on the
 99-question gold set, and human adjudication on a sample — the only ground
 truth that is not another model's opinion.
+
+### 21.140 Few-shot prompting fails the same way fine-tuning does, at both model sizes — because it teaches the same terse answer style
+
+The second never-tried inference lever (zero hits for
+`few-shot|in-context|exemplar|demonstration` anywhere in this repo before
+now). Implemented as `--few-shot N`, with exemplars injected as **completed
+prior user/assistant turns**, never appended to a system prompt — so
+`prompt_fingerprint()` is byte-identical (verified: still `30badae98696`,
+matching v6's stamp) and turning it on cannot silently invalidate a stored
+adapter, which is Section 8.7's failure. Exemplars come from
+`gold_candidates.jsonl` and are screened against the eval set on **question
+text**, not id: `build_sft_verified.py` already proved id-only matching lets
+18 eval questions through a filter that asserts it caught everything
+(21.13). 0 were skipped, so the two corpora are genuinely disjoint.
+
+Both sizes, `base_rag_cards_rulings`, Mistral-24B judge, paired per question:
+
+| Model | zero-shot | 3-shot | delta | W/L/T | sign p | answer chars |
+| --- | --- | --- | --- | --- | --- | --- |
+| 7B | 3.69 | 3.33 | **−0.36** | 11/19/23 | 0.20 | 1551 → 1271 |
+| 32B | 4.19 | 4.16 | **−0.03** | 9/14/30 | 0.41 | 1178 → 996 |
+
+**Neither delta is significant, so the honest statement is "few-shot did not
+help", not "it hurt".** But the direction is negative at both sizes and the
+mechanism is visible in the length column: the three exemplars are 251, 135
+and 402 characters — RulesGuru's terse house style — and the model's own
+answers shortened by 18% (7B) and 15% (32B) to match, losing rubric
+coverage (7B points-hit 2.66 → 2.32) with them.
+
+**That is the identical mechanism Section 21.137 found for fine-tuning**,
+reached through a completely different transfer path. v2–v6 put RulesGuru
+answers in the *weights*; this put them in the *context*; both produced
+terser answers and lower rubric coverage.
+
+> **CORRECTION (Section 21.143).** The paragraph originally continued: *"The
+> unifying diagnosis is therefore not 'fine-tuning does not work here' but
+> 'RulesGuru's answer style is the wrong teaching target for this metric' —
+> and it now has two independent confirmations."* **That claim was wrong for
+> few-shot and is retracted.** The follow-up experiment it proposed — verbose
+> exemplars — was run, restored answer length to zero-shot levels, and scored
+> *worse still*. Terseness is therefore not why few-shot failed; context
+> dilution is the better explanation. The style diagnosis may still hold for
+> fine-tuning, which adds nothing to the prompt and so cannot dilute it, but
+> it is **one mechanism with one confirmation**, not two. The shared length
+> signature was a coincidence of two different causes, which is exactly the
+> kind of tidy-looking unification this project's own rules warn against
+> accepting on correlation alone.
+
+The size split is its own small finding: the 7B moved −0.36 and the 32B
+−0.03. The bigger model absorbed the same style pressure (its answers
+shortened too) without losing much score, consistent with style and
+substance being more separable for it. Style transfer hurts a weak model
+more than a strong one.
+
+**Not tested, and the obvious follow-up**: verbose, step-by-step exemplars.
+Style-transfer predicts they would help; context-dilution (three extra Q&A
+pairs crowding the retrieved rules) predicts they would hurt too. That
+single experiment separates the two explanations, and `--few-shot-source`
+already makes it a data change rather than a code change.
+
+### 21.141 Retrieval of CR rules cannot be fixed by k, by BM25, by finer chunks, or by better queries — five hypotheses killed offline for the price of one eval run
+
+Step 3 of the post-v6 plan was retrieval upgrades, motivated by a real
+number: cited-rule recall has sat near 25% for the whole project. Rather
+than run a full eval per idea (~1h each on the 32B), every hypothesis was
+first tested **offline against recall alone**, which needs no generation.
+All five failed.
+
+Starting point, and the reason this mattered: **rules-only RAG is BELOW
+no-retrieval at both model sizes**, while cards+rulings is above both
+(Mistral-judged, Section 21.139's runs):
+
+| | `base` | `base_rag` | `base_rag_cards_rulings` |
+| --- | --- | --- | --- |
+| 7B | 3.23 | **2.91** | 3.69 |
+| 32B | 3.70 | **3.41** | 4.19 |
+
+Injecting three retrieved CR chunks makes answers *worse* than injecting
+nothing. With ~25% recall that is exactly what you would predict: three
+out of four times the model is handed rules that are not the ones the
+question needs, and it tries to use them anyway.
+
+**The five hypotheses, all measured on the 21 benchmark questions that cite
+a CR rule:**
+
+| Hypothesis | Result |
+| --- | --- |
+| Raise `k` (3 → 20) | 24% → 33%, for **6.7x** the retrieved text |
+| BM25 lexical hybrid | 29% alone — and **0 questions** dense misses that BM25 catches |
+| Finer chunks (1 rule each, 448 → 3,162) | 24–29%, no better than the bundled index |
+| Query rewriting, **oracle upper bound** | 38% *querying with the reference answer itself* |
+| Different embedding model (`bge-small-en-v1.5`) | 19–24%, **worse** than MiniLM |
+
+Two of those deserve emphasis:
+
+- **BM25 and dense retrieve the same questions.** At k=5 the split is
+  6 both / 0 dense-only / 0 BM25-only / 15 neither. The union is 29%,
+  identical to either side alone. Section 21.135 hypothesised that
+  card-language questions fail to *lexically* match CR-language rules and
+  that a lexical hybrid was the fix; that hypothesis is now dead. Lexical
+  and semantic search agree on which questions are findable, which means
+  the barrier is not the matching method.
+- **The oracle bound is the decisive one.** Handing the retriever the
+  *reference answer* as its query — text that contains the rules
+  vocabulary and frequently the rule number itself — reaches only 38%.
+  No amount of query rewriting can beat a query that already contains the
+  answer, so **query-side fixes are capped at 38% with this index**, and
+  the real ceiling for realistic queries is lower.
+
+Ruled out as an explanation: the rules simply not being indexed. All 26
+cited rules are present, across 3,162 rule ids in 448 chunks — the corpus
+has them, retrieval just cannot surface them.
+
+**What this leaves.** The failure is not k, not lexical-vs-semantic, not
+chunk size, not query phrasing, and not corpus coverage. It is the
+embedding model's ability to bridge card-scenario language to abstract
+rules language at all — and the one alternative available in MLX
+(`bge-small`) is worse, not better. A materially stronger retrieval
+embedder is not currently available in this stack, which makes this a
+**blocked** lever rather than an untried one.
+
+**The actionable consequence is the opposite of the plan's assumption.**
+The retrieval that works in this project uses no embeddings at all: card
+resolution is exact dictionary lookup and official rulings are keyed off
+it, and that is the arm that wins at both model sizes. Dense CR-rule
+retrieval is the component that is both broken and harmful. The obvious
+next experiment is therefore **cards + rulings with the "Rules text:"
+section removed entirely** — if the best arm gets better without it, the
+right fix for rules retrieval is to stop doing it until a retriever exists
+that can actually do it.
+
+### 21.142 `eval.py --with-cards` fixed: 0/99 -> 91/99 cards resolved on the real gold set
+
+Section 21.136 found that `--with-cards` had never attached card or ruling
+text to a `gold_questions.jsonl` run in this project's history, because
+`card_lookup.CardIndex.find_in_text` resolves ONLY `[[Bracket]]` syntax and
+neither real gold corpus ever adopted that convention in its question text.
+It was left flagged-but-unactioned at the time, since changing a published
+eval arm's behaviour deserved its own decision. That decision is now made:
+fixed, as step 4 of the post-v6 plan.
+
+`build_context` gains a `card_names` parameter that bypasses text-scanning
+and resolves through `CardIndex.resolve` (exact/normalized dictionary
+lookup) instead — the same technique `build_sft_verified._record_context`
+already proved when building the v6 retrofit dataset, shared rather than
+reimplemented so the two cannot drift about what "the cards for this
+question" means. `eval.py` passes each record's own hand-verified `cards`
+field, falling back to bracket-scanning when a record has none, so a corpus
+that does use the convention is unaffected.
+
+Measured, which is the only reason to believe it:
+
+| corpus | n | cards, bracket-scan (old) | cards, `cards` field (new) | + rulings |
+| --- | --- | --- | --- | --- |
+| `gold_questions.jsonl` | 99 | **0** | **91** | 84 |
+| `card_ruling_candidates.jsonl` | 53 | 53 | 53 | 50 |
+
+The bracket-using corpus is unchanged at 53/53, which is the control that
+says the fix did not simply replace one path with another.
+
+**Two silent-no-op traps had to be closed for this to do anything**, and
+both were found by running rather than reading:
+
+- `build_context`'s metadata reads `c["match_type"]` on every resolved
+  card, part of `find_in_text`'s contract. The new branch did not set it and
+  raised `KeyError` on the first real call; it now carries `matched_as` and
+  `match_type` like the path it replaces.
+- `load_gold_questions` did not carry `cards` through into the question
+  dicts at all. Fixing `build_context` alone would have left the whole thing
+  a no-op one layer up — the same shape as the original bug.
+
+`test_card_names_override` asserts all three: the parameter exists, the
+branch sets the contract fields, and `load_gold_questions` still carries
+`cards`. A test over inputs and outputs cannot see a dropped field in a
+loader, which is why it asserts on the loader specifically.
+
+**Not yet done, and deliberately separate**: re-running the historical
+`_cards`/`_cards_rulings` comparisons now that the arm does something. Every
+such number published before this commit describes the plain RAG arm, and
+they are not silently corrected by this fix — they are simply void, and any
+re-run is a new measurement with a new arm count and its own row in the
+archive.
+
+### 21.143 The two Phase 1 alternatives: verbose exemplars refute the style diagnosis, and switching CR retrieval OFF produces the best score yet — with a confound that stops it being a result
+
+Two follow-ups, run to round out Phase 1 before committing it. Both used the
+53-question card/ruling benchmark, `--max-tokens 800`, `--base-only`, and the
+Mistral-24B judge, so every number below is comparable to Sections
+21.139–21.141. All paired per question on `base_rag_cards_rulings`:
+
+| Experiment | n | before | after | delta | W/L/T | sign p | answer chars |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 7B verbose-shot vs **zero**-shot | 53 | 3.69 | 2.96 | **−0.73** | 11/20/22 | 0.15 | 1551 → 1530 |
+| 7B verbose-shot vs **terse**-shot | 53 | 3.33 | 2.96 | −0.37 | 14/18/21 | 0.60 | 1271 → 1530 |
+| 32B **k=0** (no CR text) vs k=3 | 53 | 4.19 | **4.54** | **+0.35** | 17/9/27 | 0.17 | 1178 → 1195 |
+
+**Alternative A — verbose exemplars refute Section 21.140's diagnosis.** The
+three exemplars were rewritten from 251/135/402 characters to 715/824/935,
+same questions, same facts, same citations, only the reasoning structure
+expanded — a controlled isolation of style from content
+(`data/gold/fewshot_exemplars_verbose.jsonl`, provenance recorded in each
+row). The style fix worked mechanically: answer length went back up to 1530
+characters, essentially matching zero-shot's 1551. **And the score got
+worse anyway** — 2.96, below both the terse run (3.33) and zero-shot (3.69).
+
+That is a clean refutation of the tidy story. If terseness were why few-shot
+hurt, restoring length should have restored score; it restored length and
+lost another 0.37. **Context dilution, not style, is the better explanation
+for few-shot's failure** — three worked examples occupy the window and pull
+attention off the retrieved cards and rulings, and longer exemplars dilute
+more, which is exactly the ordering observed (zero-shot 3.69 > terse 3.33 >
+verbose 2.96). Section 21.140's "two independent confirmations of one
+mechanism" claim is retracted inline there. Fine-tuning adds nothing to the
+prompt and so cannot dilute it, meaning the style diagnosis may still stand
+for v2–v6 — but as one mechanism with one confirmation, not two.
+
+**Few-shot is now closed as a lever**: three variants (terse 7B, terse 32B,
+verbose 7B), all at or below their zero-shot baseline, none significant
+individually but consistently signed.
+
+**Alternative B — turning CR retrieval off gives the highest score this
+project has recorded, and cannot yet be believed.** Section 21.141 had
+established that dense CR retrieval scores *below* no-retrieval at both
+model sizes, sits near 25% recall, and resists all five fixes tried. The
+direct consequence — remove it and keep only what works (exact card lookup
+plus official rulings) — was implemented as `--k-rules 0` and produced
+**4.54**, above the previous best of 4.19, on 17 wins to 9 losses. Answer
+length barely moved (1178 → 1195), so this is not a verbosity artifact, and
+the removed section was **87% of the context** (6,611 → 833 characters).
+
+**The confound, which is disqualifying for now.** At `k=0` the plain
+`base_rag` arm receives an empty context, falls back to the no-context
+prompt, and becomes **byte-identical to `base` on 53 of 53 questions**
+(measured, not assumed — 0/53 identical at k=3). So the batched judge graded
+three candidates of which two were the same text. Section 21.5 measured a
+byte-identical arm moving 23 points when arm COUNT changed; arm count is
+held at 3 here, but composition is not, and a batch containing a duplicate
+is not the batch the 4.19 baseline was scored in. **4.54 is therefore not a
+measurement of "CR retrieval off is better" — it is that number entangled
+with a degenerate batch**, and the sign test (p = 0.17) does not clear the
+bar on its own either.
+
+**What would settle it**: an arm-selection flag that drops the plain `_rag`
+arm, so `k=0` and `k=3` can both be run as two DISTINCT arms (`base`,
+`base_rag_cards_rulings`) and compared without a duplicate in either batch.
+That is a small change and two runs, and it is the honest precondition for
+acting on the most promising configuration this project has found.
+
+**Phase 1 scoreboard, all Mistral-judged, best arm, one benchmark:**
+
+| Configuration | Score | Status |
+| --- | --- | --- |
+| 32B, cards+rulings, **no CR text** | **4.54** | confounded, needs clean re-run |
+| 32B, cards+rulings, k=3 | 4.19 | established (+0.50 over 7B, p = 0.014) |
+| 32B + terse 3-shot | 4.16 | no gain |
+| 7B, cards+rulings, k=3 | 3.69 | baseline |
+| 7B + terse 3-shot | 3.33 | no gain |
+| 7B + verbose 3-shot | 2.96 | worse |
+| v6 fine-tuned 7B | 1.86 | negative (and under a favourable judge) |

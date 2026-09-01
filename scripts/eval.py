@@ -708,6 +708,11 @@ def load_gold_questions(path: Path, limit: int | None = None, stratify: bool = T
                 "common_errors": r.get("common_errors", []),
                 "gold_id": r.get("gold_id") or r.get("id"),
                 "difficulty": r.get("difficulty"),
+                # Carried so card-augmented arms can resolve cards by exact
+                # lookup instead of scanning the question for `[[brackets]]`
+                # that neither real gold corpus contains (Section 21.136).
+                # Dropping it here is what would make that fix a silent no-op.
+                "cards": r.get("cards") or [],
             }
         )
     return questions
@@ -729,11 +734,55 @@ def score_one_question(lm_generate, judge_model, judge_tokenizer, q: dict,
     )
 
 
-def build_prompt(tokenizer, question: str, context: str | None, preformatted: bool = False) -> str:
+def build_prompt(tokenizer, question: str, context: str | None, preformatted: bool = False,
+                 exemplars: list[tuple[str, str]] | None = None) -> str:
     # Shape comes from common.build_rag_messages so that what is evaluated is
     # what build_sft.py trained on — see Section 8.7.
-    messages = build_rag_messages(question, context, preformatted)
+    messages = build_rag_messages(question, context, preformatted, exemplars)
     return tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+
+
+def load_exemplars(path: Path, n: int, eval_questions: list[dict]) -> list[tuple[str, str]]:
+    """Few-shot demonstrations, drawn from a corpus disjoint from the eval set.
+
+    Contamination discipline is the same here as for training data, for the
+    same reason: an exemplar that IS an eval question makes the model's answer
+    a lookup rather than a demonstration of reasoning, and it would read as a
+    capability gain. `build_sft_verified.py` learned this the expensive way —
+    matching on `id` alone let 18 eval questions through a filter that
+    asserted it had excluded them (Section 21.13) — so this checks the
+    QUESTION TEXT, which is the thing that would actually leak, rather than
+    trusting that two files with different names hold different questions.
+
+    Picked deterministically (first N after sorting by id) rather than
+    randomly: a few-shot result that moves when the seed moves is a result
+    about the seed, and this project already has one unseeded-sampling
+    finding it did not want (Section 18.2's validation curve).
+    """
+    from audit_sft import jaccard as _jaccard
+    from audit_sft import tokens as _tokens
+
+    pool = [r for r in read_jsonl(path)
+            if (r.get("question") or "").strip() and (r.get("answer") or "").strip()]
+    eval_toks = [_tokens(q.get("question") or "") for q in eval_questions]
+
+    picked: list[tuple[str, str]] = []
+    skipped = 0
+    for rec in sorted(pool, key=lambda r: str(r.get("id", ""))):
+        qt = _tokens(rec["question"])
+        if qt and max((_jaccard(qt, et) for et in eval_toks), default=0.0) >= 0.5:
+            skipped += 1
+            continue
+        picked.append((rec["question"], rec["answer"]))
+        if len(picked) >= n:
+            break
+    if len(picked) < n:
+        raise SystemExit(
+            f"only {len(picked)} uncontaminated exemplars available in {path} "
+            f"(asked for {n}); {skipped} were too close to an eval question")
+    print(f"  {len(picked)} few-shot exemplars from {path.name} "
+          f"({skipped} skipped as too close to an eval question)")
+    return picked
 
 
 def retrieve_context(question: str, embed_model, k: int = 3) -> str:
@@ -746,12 +795,13 @@ def generate_all_answers(
     with_cards: bool = False, with_rulings: bool = False,
     base_model_id: str = BASE_MODEL_ID, base_only: bool = False,
     truncation_out: dict[str, int] | None = None,
+    exemplars: list[tuple[str, str]] | None = None, k_rules: int = 3,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
 
     answers: dict[str, list[str]] = {}
-    contexts = [retrieve_context(q["question"], embed_model) for q in questions]
+    contexts = [retrieve_context(q["question"], embed_model, k=k_rules) for q in questions]
 
     card_contexts = None
     if with_cards:
@@ -764,13 +814,22 @@ def generate_all_answers(
         print("loading card index for card-augmented arms ...")
         card_index = CardIndex()
         ruling_index = RulingIndex() if with_rulings else None
+        # Prefer the record's own hand-verified `cards` field over scanning the
+        # question for `[[brackets]]` it almost certainly does not contain
+        # (Section 21.136: find_in_text resolves 0/99 on the real gold set).
+        # Falls back to text-scanning when a record carries no `cards`, so a
+        # corpus that DOES use bracket syntax keeps working unchanged.
         card_contexts = [
             build_context(q["question"], card_index, embed_model=embed_model,
-                          ruling_index=ruling_index)["context"]
+                          ruling_index=ruling_index, k_rules=k_rules,
+                          card_names=q.get("cards") or None)["context"]
             for q in questions
         ]
         named = sum(1 for c in card_contexts if c.startswith("Cards referenced:"))
-        print(f"  {named}/{len(questions)} questions had at least one card resolved")
+        from_field = sum(1 for q in questions if q.get("cards"))
+        print(f"  {named}/{len(questions)} questions had at least one card resolved"
+              f"  ({from_field} via their own `cards` field, "
+              f"{len(questions) - from_field} via [[bracket]] scanning)")
         if with_rulings:
             with_official = sum(1 for c in card_contexts if "Official rulings:" in c)
             print(f"  {with_official}/{len(questions)} questions had official rulings")
@@ -825,7 +884,7 @@ def generate_all_answers(
             out = []
             for i, q in enumerate(questions, 1):
                 ctx = ctxs[i - 1] if ctxs is not None else None
-                prompt = build_prompt(tokenizer, q["question"], ctx, preformatted)
+                prompt = build_prompt(tokenizer, q["question"], ctx, preformatted, exemplars)
                 out.append(lm_generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False))
                 if i % 25 == 0 or i == len(questions):
                     print(f"  {out_key}: {i}/{len(questions)}")
@@ -1334,6 +1393,24 @@ def main() -> None:
     parser.add_argument("--judge-max-tokens", type=int, default=500)
     parser.add_argument("--consistency-sample", type=int, default=15)
     parser.add_argument("--adapter-path", default=ADAPTER_PATH, help="adapter under test for the finetuned arms")
+    parser.add_argument("--k-rules", type=int, default=3, metavar="K",
+                        help="how many CR rules chunks to retrieve per question. The default of 3\n"
+                             "was never varied against ANSWER quality — Section 21.68 measured\n"
+                             "cited-rule recall rising 17%%/23%%/34%% at k=3/5/10 but nobody ever\n"
+                             "checked whether the answers improved (Section 21.141).")
+    parser.add_argument("--few-shot", type=int, default=0, metavar="N",
+                        help="prepend N worked (question, answer) examples as completed "
+                             "prior turns before the real question — in-context learning, "
+                             "never tried in this project before (Section 21.140). Drawn "
+                             "from --few-shot-source, which must be a corpus DISJOINT from "
+                             "the eval set; overlap is checked on question text, not just "
+                             "id. Leaves the system prompts and therefore "
+                             "prompt_fingerprint() untouched, so it cannot invalidate a "
+                             "stored adapter.")
+    parser.add_argument("--few-shot-source", type=Path, default=GOLD_CANDIDATES_PATH,
+                        help="corpus to draw --few-shot exemplars from (default: the "
+                             "RulesGuru candidate pool, which is the training-data source "
+                             "and is not itself an eval set)")
     parser.add_argument("--base-only", action="store_true",
                         help="skip the finetuned arms entirely and evaluate the base model "
                              "alone. Required when --base-model differs from the one the "
@@ -1420,11 +1497,16 @@ def main() -> None:
     print(f"loading {EMBED_MODEL_ID} for retrieval ...")
     embed_model = load_embedder(EMBED_MODEL_ID)
 
+    exemplars = None
+    if args.few_shot:
+        exemplars = load_exemplars(args.few_shot_source, args.few_shot, questions)
+
     truncation: dict[str, int] = {}
     answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path,
                                    args.with_cards, args.with_rulings,
                                    base_model_id=args.base_model, base_only=args.base_only,
-                                   truncation_out=truncation)
+                                   truncation_out=truncation, exemplars=exemplars,
+                                   k_rules=args.k_rules)
     arm_names = list(answers.keys())
 
     # Consistency check: rerun a subset of finetuned_rag questions and see
@@ -1441,7 +1523,7 @@ def main() -> None:
     consistency_idx = list(range(min(args.consistency_sample, len(questions))))
     consistency_reruns = []
     for i in consistency_idx:
-        ctx = retrieve_context(questions[i]["question"], embed_model)
+        ctx = retrieve_context(questions[i]["question"], embed_model, k=args.k_rules)
         prompt = build_prompt(ft_tokenizer, questions[i]["question"], ctx)
         consistency_reruns.append(lm_generate(ft_model, ft_tokenizer, prompt=prompt, max_tokens=args.max_tokens, verbose=False))
     del ft_model, ft_tokenizer
@@ -1553,6 +1635,9 @@ def main() -> None:
            "- adapter: **none (`--base-only`)** — 3 arms, not 6. Comparable only "
            "to another `--base-only` run (Section 21.5: arm count changes scores)\n")
         + f"- max tokens: `{args.max_tokens}`\n"
+        + f"- k (rules chunks retrieved): `{args.k_rules}`\n"
+        + (f"- few-shot: **{args.few_shot} exemplars** from "
+           f"`{args.few_shot_source.name}`\n" if args.few_shot else "")
         + f"- judge: `{args.judge_model}`"
         + ("  (**same model as the `base` arm** — self-preference bias is not "
            "ruled out; re-judge with --rescore-from and an independent judge, Section 9.9)"
