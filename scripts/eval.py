@@ -744,7 +744,8 @@ def retrieve_context(question: str, embed_model, k: int = 3) -> str:
 def generate_all_answers(
     questions: list[dict], embed_model, max_tokens: int, adapter_path_under_test: str,
     with_cards: bool = False, with_rulings: bool = False,
-    base_model_id: str = BASE_MODEL_ID,
+    base_model_id: str = BASE_MODEL_ID, base_only: bool = False,
+    truncation_out: dict[str, int] | None = None,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
@@ -796,7 +797,20 @@ def generate_all_answers(
             print(f"  WARNING: arm `{arm}` uses a system prompt this adapter's "
                   f"training set contains ZERO times.")
 
-    for arm_name, adapter_path in [("base", None), ("finetuned", adapter_path_under_test)]:
+    # `base_only` skips the adapter arms entirely. Two reasons, both real:
+    # an adapter trained on one base model cannot load onto a different-sized
+    # one at all (a 7B LoRA has the wrong dimensions for a 32B), and a
+    # base-model capability comparison does not want to pay for three arms
+    # it will not read. Note this CHANGES THE ARM COUNT, so a base-only run
+    # is comparable only to another base-only run -- Section 21.5 measured a
+    # byte-identical arm moving 23 points when an arm was added, because
+    # `judge_batch_rubric` grades every candidate for a question in one
+    # batched call.
+    arm_specs = [("base", None)]
+    if not base_only:
+        arm_specs.append(("finetuned", adapter_path_under_test))
+
+    for arm_name, adapter_path in arm_specs:
         print(f"loading {base_model_id} for arm(s) using adapter_path={adapter_path} ...")
         model, tokenizer = load_lm(base_model_id, adapter_path=adapter_path)
 
@@ -816,6 +830,24 @@ def generate_all_answers(
                 if i % 25 == 0 or i == len(questions):
                     print(f"  {out_key}: {i}/{len(questions)}")
             answers[out_key] = out
+
+            # How many answers ran to the token ceiling instead of finishing.
+            # This is measured, printed and stored because it is invisible
+            # otherwise and it is CORRELATED WITH THE TREATMENT: a verbose arm
+            # gets cut off mid-reasoning while a terse one never does, so the
+            # rubric metric (points_hit / n_points) silently penalises the
+            # verbose arm for a setting rather than for its answer. Found at
+            # the default max_tokens=300, where the 7B base arms hit the cap on
+            # 26-40 of 53 questions (median answer exactly 300 tokens) while
+            # the v6 adapter's terse arms hit it on 2-4. See Section 21.138.
+            capped = sum(1 for a in out if len(tokenizer.encode(a)) >= max_tokens)
+            if truncation_out is not None:
+                truncation_out[out_key] = capped
+            if capped:
+                pct = capped / max(1, len(out))
+                flag = "  <-- HIGH, scores for this arm are truncation-limited" if pct >= 0.25 else ""
+                print(f"  {out_key}: {capped}/{len(out)} answers hit the "
+                      f"{max_tokens}-token ceiling ({pct:.0%}){flag}")
 
     return answers
 
@@ -1302,6 +1334,12 @@ def main() -> None:
     parser.add_argument("--judge-max-tokens", type=int, default=500)
     parser.add_argument("--consistency-sample", type=int, default=15)
     parser.add_argument("--adapter-path", default=ADAPTER_PATH, help="adapter under test for the finetuned arms")
+    parser.add_argument("--base-only", action="store_true",
+                        help="skip the finetuned arms entirely and evaluate the base model "
+                             "alone. Required when --base-model differs from the one the "
+                             "adapter was trained on (a 7B LoRA cannot load onto a 32B). "
+                             "CHANGES THE ARM COUNT, so a --base-only run is comparable only "
+                             "to another --base-only run (Section 21.5).")
     parser.add_argument("--base-model", default=BASE_MODEL_ID,
                         help="base model for every arm and for the consistency rerun. A larger "
                              "4-bit model fits at 36GB for inference even though training one "
@@ -1382,16 +1420,24 @@ def main() -> None:
     print(f"loading {EMBED_MODEL_ID} for retrieval ...")
     embed_model = load_embedder(EMBED_MODEL_ID)
 
+    truncation: dict[str, int] = {}
     answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path,
                                    args.with_cards, args.with_rulings,
-                                   base_model_id=args.base_model)
+                                   base_model_id=args.base_model, base_only=args.base_only,
+                                   truncation_out=truncation)
     arm_names = list(answers.keys())
 
     # Consistency check: rerun a subset of finetuned_rag questions and see
     # how often the judge would even need to know — same generation config,
-    # does the model give a stable answer.
-    print(f"loading {args.base_model} (adapter) for consistency rerun ...")
-    ft_model, ft_tokenizer = load_lm(args.base_model, adapter_path=args.adapter_path)
+    # does the model give a stable answer. Under --base-only there is no
+    # adapter to load (and loading one trained on a different base model
+    # would fail outright), so the rerun uses the plain base model and
+    # measures the same thing for the arm that actually exists: `base_rag`.
+    consistency_arm = "base_rag" if args.base_only else "finetuned_rag"
+    print(f"loading {args.base_model} "
+          f"({'no adapter' if args.base_only else 'adapter'}) for consistency rerun ...")
+    ft_model, ft_tokenizer = load_lm(
+        args.base_model, adapter_path=None if args.base_only else args.adapter_path)
     consistency_idx = list(range(min(args.consistency_sample, len(questions))))
     consistency_reruns = []
     for i in consistency_idx:
@@ -1489,7 +1535,7 @@ def main() -> None:
 
     consistency_agree = sum(
         1 for i in consistency_idx
-        if results[i]["arms"]["finetuned_rag"]["answer"].strip() == consistency_reruns[i].strip()
+        if results[i]["arms"][consistency_arm]["answer"].strip() == consistency_reruns[i].strip()
     )
 
     lines = ["# Section 9 Evaluation Report\n"]
@@ -1502,12 +1548,32 @@ def main() -> None:
     # variable in its name.
     lines.append(
         f"\n- base model: `{args.base_model}`\n"
-        f"- adapter under test: `{args.adapter_path}`\n"
-        f"- judge: `{args.judge_model}`"
+        + (f"- adapter under test: `{args.adapter_path}`\n"
+           if not args.base_only else
+           "- adapter: **none (`--base-only`)** — 3 arms, not 6. Comparable only "
+           "to another `--base-only` run (Section 21.5: arm count changes scores)\n")
+        + f"- max tokens: `{args.max_tokens}`\n"
+        + f"- judge: `{args.judge_model}`"
         + ("  (**same model as the `base` arm** — self-preference bias is not "
            "ruled out; re-judge with --rescore-from and an independent judge, Section 9.9)"
            if args.judge_model == args.base_model else "")
     )
+    # Truncation, beside the scores rather than only in the run log. An arm
+    # that ran out of tokens did not finish its reasoning, so its rubric
+    # coverage is capped by a setting rather than by its ability — and the
+    # rate is correlated with how verbose an arm is, which is exactly the
+    # thing being compared (Section 21.138).
+    if truncation and any(truncation.values()):
+        n_q = len(questions)
+        worst = max(truncation.values()) / max(1, n_q)
+        lines.append(
+            "\n**Answers stopped by the token ceiling** (not by finishing): "
+            + ", ".join(f"`{a}` {c}/{n_q}" for a, c in truncation.items() if c)
+            + (f"\n\n> At {worst:.0%} on the worst arm, scores below are "
+               "truncation-limited, not ability-limited — re-run with a higher "
+               "`--max-tokens` before comparing arms of different verbosity."
+               if worst >= 0.25 else "")
+        )
     # Beside the table, not only in the run log. The generation-time warning
     # prints at the start of a run and the number it qualifies arrives at the
     # end of one; the number is what gets quoted (Section 21.50).
@@ -1573,7 +1639,7 @@ def main() -> None:
                 "fabricated rule id is not one of them, so it costs almost nothing here. "
                 "Do not read the score column without this one (Section 19.1).\n"
             )
-    lines.append(f"Consistency (finetuned_rag, {len(consistency_idx)} questions rerun): {consistency_agree}/{len(consistency_idx)} identical on rerun.\n")
+    lines.append(f"Consistency ({consistency_arm}, {len(consistency_idx)} questions rerun): {consistency_agree}/{len(consistency_idx)} identical on rerun.\n")
 
     if summary.get("finetuned_rag") and summary.get("base_rag"):
         ft_scores = summary["finetuned_rag"]["scores"]

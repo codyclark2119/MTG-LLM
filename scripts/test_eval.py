@@ -707,6 +707,54 @@ def test_carry_diagnostics() -> int:
     return failed
 
 
+def test_base_only_arms() -> int:
+    """`--base-only` must drop the adapter arms and keep the base ones (21.138).
+
+    Two failure modes this guards, both silent:
+
+      * the flag existing but not actually skipping the finetuned arms, which
+        would crash on a size experiment (a 7B LoRA cannot load onto a 32B)
+        or, worse, quietly evaluate a stale adapter against the wrong base;
+      * the arm COUNT changing without anyone noticing. `judge_batch_rubric`
+        grades every candidate for a question in one batched call, so 3 arms
+        and 6 arms are different prompts — Section 21.5 measured a
+        byte-identical arm moving 23 points when an arm was added. A
+        --base-only run is comparable only to another --base-only run, and
+        that is only true if the flag really produces the arms it claims.
+
+    The arm-name construction is duplicated here rather than imported because
+    `generate_all_answers` loads a model before it builds any names; this
+    asserts the naming CONTRACT the report and the judge both depend on.
+    """
+    failed = 0
+    for base_only, with_cards, expected in (
+        (True, True, ["base_rag", "base", "base_rag_cards_rulings"]),
+        (True, False, ["base_rag", "base"]),
+        (False, True, ["base_rag", "base", "base_rag_cards_rulings",
+                       "finetuned_rag", "finetuned", "finetuned_rag_cards_rulings"]),
+    ):
+        arm_specs = ["base"] + ([] if base_only else ["finetuned"])
+        got = []
+        for arm_name in arm_specs:
+            got.extend([f"{arm_name}_rag", arm_name])
+            if with_cards:
+                got.append(f"{arm_name}_rag_cards_rulings")
+        if got != expected:
+            print(f"  FAIL base_only={base_only} with_cards={with_cards}: "
+                  f"expected {expected}, got {got}")
+            failed += 1
+
+    # The consistency rerun names an arm that must exist in the run it reruns.
+    for base_only, arms in ((True, ["base_rag", "base"]),
+                            (False, ["base_rag", "base", "finetuned_rag", "finetuned"])):
+        consistency_arm = "base_rag" if base_only else "finetuned_rag"
+        if consistency_arm not in arms:
+            print(f"  FAIL consistency arm {consistency_arm!r} absent when "
+                  f"base_only={base_only}")
+            failed += 1
+    return failed
+
+
 def test_unseen_arms() -> int:
     """An arm whose system prompt the training set never contained (21.50).
 
@@ -2718,6 +2766,7 @@ def main() -> None:
                      ("error_assertions", test_error_assertions),
                      ("half_answer", test_half_answer),
                      ("unseen_arms", test_unseen_arms),
+                     ("base_only_arms", test_base_only_arms),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),
                      ("judge_identity", test_judge_identity),

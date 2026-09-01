@@ -12318,3 +12318,167 @@ anything else could overwrite it too. Pass `--out`/`--report-out` with a
 distinct name on every invocation when chaining more than one eval run,
 the same discipline `rules_v3_ckpt1322.jsonl`-style filenames already show
 for single runs.
+
+### 21.138 `--max-tokens` defaults to 300 and the base arms have been running into it on half to three-quarters of every rules question — a truncation rate correlated with the treatment
+
+Scoping the "is a bigger base model the answer" experiment (Section 21.139)
+meant first checking what `eval.py`'s defaults actually do to a verbose
+answer. They cut it off. Measured on the stored v6 run with the model's own
+tokenizer, against `--max-tokens`' default of **300**:
+
+| Arm | median answer (tokens) | hit the 300 ceiling |
+| --- | --- | --- |
+| `base` | **300** | **40/53 (75%)** |
+| `base_rag` | 296 | 26/53 (49%) |
+| `base_rag_cards_rulings` | **300** | **36/53 (68%)** |
+| `finetuned` | 53 | 2/53 |
+| `finetuned_rag` | 72 | 3/53 |
+| `finetuned_rag_cards_rulings` | 69 | 4/53 |
+
+A median of exactly 300 means more than half of those answers never
+finished a sentence, let alone an argument. Spot-checking confirms it —
+the longest `base_rag_cards_rulings` answer ends mid-clause: *"...since
+Wall of Pine Needles is no longer blocking The Wretched"*, no verdict, no
+period.
+
+**This is the "harness bug whose trigger rate depends on the condition
+under test" shape CLAUDE.md's traps section already names, in its purest
+form yet.** The rubric metric is `points_hit / n_points`. Truncation caps
+how many enumerated points an answer can possibly state. And the
+truncation rate is set by how verbose an arm is — which is precisely the
+axis fine-tuning moved (Section 21.137: the adapter learned RulesGuru's
+277-character house style, producing 250–320-character answers). So the
+base arms were being cut off on 49–75% of questions while the fine-tuned
+arms were cut off on 4–8%, and the metric read that difference as a
+difference in ability.
+
+**This does NOT reverse Section 21.137's conclusion — it strengthens it.**
+The truncation handicap fell on the arms that WON. `base_rag_cards_rulings`
+scored 3.03 against the adapter's 1.86 *while being cut off on 68% of its
+answers*; the honest gap is therefore at least that large, probably larger.
+What it does invalidate is any attempt to read the *magnitude* precisely,
+and — much more importantly — it would have silently wrecked the
+model-size experiment, where a bigger, more verbose model would have been
+handed the same 300-token cap and scored on how much it could fit inside
+it.
+
+**Worse, nothing recorded the setting.** `max_tokens` appears in neither
+the report header nor the stored run rows — only `base model`, `adapter`
+and `judge` were provenance-tracked. So a run at 300 and a run at 2000 are
+indistinguishable in the archive, which is exactly the failure CLAUDE.md's
+first listed trap warns about: *"Defaults are overridable **and recorded in
+the output**."* That rule had simply never been applied to this parameter.
+
+Fixed three ways in `eval.py`, all of them making the instrument state its
+own limits rather than relying on anyone remembering:
+
+- **Measured and printed per arm during generation**: how many answers
+  stopped at the ceiling instead of finishing, with a loud marker past 25%.
+- **Recorded in the report header** (`- max tokens: \`N\``) and surfaced as
+  its own section beside the score table, with an explicit warning that
+  scores are truncation-limited rather than ability-limited when the worst
+  arm exceeds 25%.
+- **`--base-only`** added, because the size experiment needs it: an adapter
+  trained on a 7B cannot load onto a 32B at all, and a base-capability
+  comparison should not pay to generate three arms it will not read. The
+  flag's help text and the report header both state the consequence —
+  3 arms is not 6 arms, and Section 21.5 measured a byte-identical arm
+  moving 23 points when the arm count changed, so a `--base-only` run is
+  comparable only to another `--base-only` run. The consistency rerun,
+  which hardcoded `finetuned_rag`, now follows the same switch and reruns
+  `base_rag` instead.
+
+Verified by running, not by reading: a 3-question smoke run at a
+deliberately cruel `--max-tokens 120` reported `base_rag_cards_rulings 3/3
+answers hit the 120-token ceiling (100%) <-- HIGH`, printed the header line
+and the warning block, ran 3 arms rather than 6, and reported consistency
+against `base_rag`.
+
+### 21.139 Model size beats every fine-tune, by +0.50 — and the default judge was inflating its own model by +0.73
+
+The experiment the `--base-model` flag's own help text has described as
+"the cheap capability lever" since Section 16.8, and which nobody had ever
+run: **a 32B has never answered a single eval question in this project's
+history.** Only the 7B (36 reports) and one confounded Qwen3-14B gameplay
+run (§21.24, a reasoning model that spent its budget on `<think>`) ever
+generated an answer. Meanwhile `Qwen2.5-32B-Instruct-4bit` sits resident on
+this machine, 17GB, loaded every time it judges, on a 64GB box.
+
+Design, following this repo's own rules rather than the convenient path:
+`--base-only` (3 arms, since a 7B LoRA cannot load onto a 32B), the same
+53-question card/ruling benchmark, the same judge, and **`--max-tokens 800`
+rather than the default 300** — Section 21.138 found the default was
+truncating base answers on 49–75% of questions, which would have handed a
+bigger, more verbose model a rigged test. Both runs stable on rerun (15/15
+identical). Arm count matches between runs, so §21.5's batched-judge
+warning is satisfied.
+
+**The first result looked spectacular, and was partly an artifact.** Under
+the default Qwen2.5-32B judge:
+
+| Arm | 7B | 32B |
+| --- | --- | --- |
+| `base` | 3.13 | 3.94 |
+| `base_rag` | 2.98 | 3.79 |
+| `base_rag_cards_rulings` | **3.30** | **4.53** |
+
++1.23 on the best arm, paired 22 wins / 4 losses, sign test p = 0.0005.
+But the judge was **the same model as one of the answerers** — maximum
+exposure to the self-preference bias CLAUDE.md explicitly lists as
+untested ("every judge that passes is a Qwen and every `base` arm is a
+Qwen ... that needs a different vendor, not a different generation").
+`eval.py` auto-flagged it in the report header, which is what made the
+problem impossible to miss.
+
+**Two more judges, changing only the judge (`--rescore-from`), on
+byte-identical stored answers:**
+
+| Judge | n | 7B | 32B | delta | W/L/T | sign test |
+| --- | --- | --- | --- | --- | --- | --- |
+| Qwen2.5-32B *(judged itself)* | 53 | 3.30 | 4.53 | **+1.23** | 22/4/27 | p = 0.0005 |
+| Llama-3.1-8B *(at ceiling)* | 46 | 4.54 | 4.72 | **+0.18** | 11/6/29 | p = 0.33 |
+| **Mistral-Small-24B** | 53 | 3.69 | 4.19 | **+0.50** | 24/9/20 | **p = 0.014** |
+
+**Mistral is the arbiter and lands almost exactly between the two biased
+estimates**, which is what two real biases pointing opposite ways predicts.
+It is the right instrument for this specific question and the choice has
+precedent: §21.47 already used Mistral-Small-24B to close a self-preference
+question, and its paired-control separation is **+100%**, marginally better
+than the Qwen-32B's +96%. It is a different vendor from *both* models under
+test, and it graded all 53 (Llama dropped 7 to unparseable JSON).
+
+Three things are now established, none of which were before:
+
+1. **The size effect is real**: +0.50 on the best arm, 24 wins to 9 losses,
+   p = 0.014 under an unbiased, well-calibrated judge.
+2. **Self-preference is real, large, and now has a number**: the default
+   judge inflated its own model's advantage by **+0.73** (1.23 vs 0.50).
+   Every past result where a Qwen judged a Qwen carries some share of this,
+   though none of them had the answerer and judge be the *identical* model
+   the way this run did. This closes a trip-wire CLAUDE.md has flagged as
+   open since the judge-calibration table was written.
+3. **Llama was ceiling-limited, not dissenting.** It rated the *7B* at
+   4.54/5 — 0.46 of scale left above it — and its whole range across six
+   arm-instances was 0.26 against the Qwen judge's 1.55. Its p = 0.33 is an
+   instrument that cannot resolve the question, not evidence of no effect.
+   Mistral confirms the direction Llama pointed at.
+
+**Ordering across everything this project has measured, on one benchmark
+under one unbiased judge**: 32B base + cards/rulings (4.19) > 7B base +
+cards/rulings (3.69) >> the v6 fine-tuned 7B (1.86, and that under the
+*favourable* Qwen judge). Five fine-tuning attempts moved this metric
+backwards; one flag that already existed moved it forward. **Retrieval
+still helps and still matters** — the cards+rulings arm is the best arm for
+both model sizes, and the no-retrieval arms fabricate citations heavily
+(17–19/53 vs ~0 for RAG arms) — but the model-size lever is larger than
+anything fine-tuning produced.
+
+**Honest limits.** +0.50 on a 1–5 scale is meaningful, not transformative,
+and it is bought with ~4x the parameters and materially slower generation —
+a real tradeoff for an interactive chatbot, not a free win, and one that
+needs a tokens/sec measurement before Phase 2 commits to it. This is one
+benchmark (53 machine-drafted questions, `needs_review: true` throughout,
+Section 21.135's caveat applies), one run per model, and `mlx_lm.generate`
+has no fixed seed. What would strengthen it: the same comparison on the
+99-question gold set, and human adjudication on a sample — the only ground
+truth that is not another model's opinion.
