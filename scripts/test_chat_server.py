@@ -11,12 +11,14 @@ milliseconds with no GPU, matching every other test in this repo.
 
 import json
 import sys
+import time
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import chat_server
+import chat_auth
 from chat_server import (append_rating, build_app, read_ratings,
                          validate_ask, validate_rating)
 
@@ -75,7 +77,7 @@ def test_roundtrip() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         ratings = Path(tmp) / "ratings.jsonl"
-        client = TestClient(build_app(FakeEngine(), ratings, token=None))
+        client = TestClient(build_app(FakeEngine(), ratings))
 
         check("health reports config", client.get("/api/health").json()["k_rules"], 3)
 
@@ -111,18 +113,83 @@ def test_roundtrip() -> None:
         check("timestamp recorded", bool(row.get("rated_at")), True)
 
 
-def test_token_gate() -> None:
+def test_login_gate() -> None:
+    """The gate must cover the PAGE, not only the API.
+
+    Serving the app shell to an unauthenticated visitor and relying on the
+    endpoints to refuse leaks the surface's shape and wording, and invites the
+    next endpoint to be added without a check.
+    """
     from fastapi.testclient import TestClient
 
     with tempfile.TemporaryDirectory() as tmp:
-        client = TestClient(build_app(FakeEngine(), Path(tmp) / "r.jsonl", token="s3cret"))
-        check("no token refused", client.post("/api/ask", json={"question": "q"}).status_code, 401)
-        check("wrong token refused",
-              client.post("/api/ask", json={"question": "q"},
-                          headers={"x-token": "nope"}).status_code, 401)
-        check("right token accepted",
-              client.post("/api/ask", json={"question": "q"},
-                          headers={"x-token": "s3cret"}).status_code, 200)
+        auth = chat_auth.Auth("s3cret", secret_key="k" * 64)
+        client = TestClient(build_app(FakeEngine(), Path(tmp) / "r.jsonl", auth))
+
+        check("locked out of the API", client.post("/api/ask", json={"question": "q"}).status_code, 401)
+        check("locked out of the PAGE too",
+              "Enter the access password" in client.get("/").text, True)
+        check("health degrades to liveness only",
+              client.get("/api/health").json(), {"ok": True})
+
+        check("wrong password refused",
+              client.post("/api/login", json={"password": "nope"}).status_code, 401)
+        check("still locked out after a failed login",
+              client.post("/api/ask", json={"question": "q"}).status_code, 401)
+
+        ok = client.post("/api/login", json={"password": "s3cret"})
+        check("correct password accepted", ok.status_code, 200)
+        check("session cookie issued", chat_auth.COOKIE_NAME in ok.cookies, True)
+        # TestClient keeps the cookie, so these exercise the real session path.
+        check("API reachable after login",
+              client.post("/api/ask", json={"question": "q"}).status_code, 200)
+        check("page served after login", "MTG Rules Assistant" in client.get("/").text, True)
+        check("health full after login", "k_rules" in client.get("/api/health").json(), True)
+
+        client.post("/api/logout")
+        check("logout ends the session",
+              client.post("/api/ask", json={"question": "q"}).status_code, 401)
+
+
+def test_session_cookie_cannot_be_forged() -> None:
+    """A cookie is `expiry.HMAC`; neither half may be attacker-controlled."""
+    auth = chat_auth.Auth("pw", secret_key="k" * 64)
+    good = auth.issue()
+    check("a freshly issued session is valid", auth.valid_session(good), True)
+    expiry, _, sig = good.partition(".")
+
+    check("garbage refused", auth.valid_session("nonsense"), False)
+    check("empty refused", auth.valid_session(""), False)
+    check("no signature refused", auth.valid_session(f"{expiry}."), False)
+    check("tampered signature refused", auth.valid_session(f"{expiry}.{'0' * len(sig)}"), False)
+    # The attack the HMAC exists to stop: keep a real signature, extend the life.
+    check("expiry cannot be extended with a stolen signature",
+          auth.valid_session(f"{int(expiry) + 999999}.{sig}"), False)
+    check("an expired session is refused",
+          auth.valid_session(f"{int(time.time()) - 10}.{auth._sign(int(time.time()) - 10)}"),
+          False)
+    # A different key must not accept another server's cookie.
+    other = chat_auth.Auth("pw", secret_key="j" * 64)
+    check("a cookie from another key is refused", other.valid_session(good), False)
+
+
+def test_lockout_and_public_bind() -> None:
+    auth = chat_auth.Auth("pw", secret_key="k" * 64)
+    for _ in range(8):
+        auth.check_password("wrong", ip="1.2.3.4")
+    check("brute force locks out", auth.locked_out("1.2.3.4"), True)
+    check("...and the right password is refused while locked",
+          auth.check_password("pw", ip="1.2.3.4"), False)
+    check("a different client is unaffected", auth.locked_out("5.6.7.8"), False)
+
+    # Fail closed: a public bind with no password must be refused outright.
+    off = chat_auth.Auth(None)
+    check("no password + public bind refused",
+          bool(chat_auth.require_password_for_public(off, "0.0.0.0")), True)
+    check("no password + loopback allowed",
+          chat_auth.require_password_for_public(off, "127.0.0.1"), [])
+    check("password + public bind allowed",
+          chat_auth.require_password_for_public(auth, "0.0.0.0"), [])
 
 
 def test_trailing_blank_line() -> None:
@@ -190,7 +257,9 @@ def main() -> None:
     test_triage_classification()
     test_validation()
     test_roundtrip()
-    test_token_gate()
+    test_login_gate()
+    test_session_cookie_cannot_be_forged()
+    test_lockout_and_public_bind()
     test_trailing_blank_line()
     test_no_model_import_at_module_level()
     if FAILED:

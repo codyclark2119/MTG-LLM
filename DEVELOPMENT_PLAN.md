@@ -12983,3 +12983,170 @@ as a **benchmark candidate, never as a training signal**. Six fine-tunes and
 one few-shot attempt all scored below the base model (21.139, 21.140, 21.143),
 so "the model reasoned badly" has no lever behind it here, while retrieval
 misses do.
+
+### 21.148 A password gate that fails closed, in its own module because the relay needs it too
+
+`chat_auth.py` is deliberately a separate module from `chat_server.py`.
+`chat_server.py` imports mlx and holds a 4.4 GB model, so it is
+Apple-Silicon-only and **can never run on fly.io** (plan finding #6:
+`requirements.txt` pins `mlx-metal`). The public relay that will eventually
+front it CAN run there and needs exactly this logic, so the gate lives where
+both import it rather than being written twice — a second copy of an auth
+check is how one copy ends up missing a guard, and this repo has paid for
+duplicated helpers five separate times with far less at stake.
+
+Two environment variables, both intended as `fly secrets set` rather than
+`fly.toml` `[env]`: `fly.toml` is committed and its env values are visible in
+the app's public config, while secrets are encrypted and injected at runtime.
+
+    CHAT_PASSWORD     the shared password
+    CHAT_SECRET_KEY   HMAC key signing the session cookie
+
+**It fails closed, and the check runs before the model loads.** A
+non-loopback bind with no `CHAT_PASSWORD` exits 2 with the commands needed to
+fix it — verified by running. Two details are deliberate: the check is on the
+BIND ADDRESS rather than on a flag, because reachability is what actually
+matters and a flag can be forgotten; and it runs first, because discovering
+an auth misconfiguration after a 40-second model load is how a server gets
+started with the check skipped "just this once". An auth layer whose default
+is off is the shape of every accidental exposure, and this project already
+has a 5.0 GB near-miss on that theme.
+
+Security properties, each with a test:
+
+- **the page is gated, not only the API.** Serving the app shell to an
+  unauthenticated visitor and trusting the endpoints to refuse leaks the
+  surface's shape and invites the next endpoint to be added without a check.
+- **`/api/health` degrades to `{"ok": true}`.** Liveness is owed to a load
+  balancer; the model id, k, and rating count are not owed to the internet.
+- **the session cookie carries nothing to forge.** It is `expiry.HMAC(expiry)`
+  under the server's key. The specific attack tested is keeping a valid
+  signature and extending the expiry, which fails because the signature is
+  over the expiry itself. A cookie signed by a different key is also refused.
+- **`secrets.compare_digest` for both the password and the signature**, so
+  neither leaks a prefix through timing.
+- **HttpOnly, SameSite=Lax, Secure-on-demand.** HttpOnly keeps the session out
+  of `document.cookie`; SameSite stops a third-party page posting as the
+  logged-in user. Confirmed live in the cookie jar.
+- **per-IP lockout after 8 failures.** `X-Forwarded-For` is used ONLY to
+  bucket counters and never to authorize, because fly's proxy sets it and
+  nothing strips it — a forged header buys an attacker their own bucket and
+  nothing else. This is a brute-force speed bump, not a substitute for a
+  strong password, and the docstring says so because a lockout can otherwise
+  read as one.
+
+An absent `CHAT_SECRET_KEY` signs sessions with a key generated at startup:
+safe, but everyone is signed out on restart. The server says so at boot rather
+than letting it surface later as a bug.
+
+`LOGIN_HTML` is registered in `test_webui.py` alongside every other served
+page. Verified live: unauthenticated `/` returns the login page, `/api/ask`
+401s, a wrong password 401s, the right one sets an HttpOnly cookie, the
+authenticated session answers a real question in 5.0s, and a forged cookie
+401s.
+
+**Nothing here is deployed.** `deploy/Dockerfile` still copies six paths and
+neither `chat_server.py` nor `chat_auth.py` appears in it or in
+`.dockerignore`. This commit makes the surface *lockable*; putting it on the
+internet remains a separate decision with its own review.
+
+### 21.149 The deploy pivot, attempted and reverted: hosting it elsewhere means not hosting OUR model
+
+The requirement arrived as "it should not run on my Mac", and the honest
+answer turned out to be that it cannot run anywhere else and still be this
+project. Recorded because the reasoning is reusable, and because a rejected
+design is cheaper to find in the log than to rediscover.
+
+**Why the model cannot leave this machine.** `chat_server.py` imports mlx and
+`requirements.txt` pins `mlx-metal`, which is Apple-Silicon-only. fly.io has
+no Apple hardware, so the options were:
+
+| option | cost | latency | verdict |
+| --- | --- | --- | --- |
+| 7B on fly CPU (GGUF port) | 8 GB machine, **$44.44/mo** | ~40–130s per answer | fails 21.145's own >45s bar |
+| fly GPU | L40S $1.25/hr ≈ **$900/mo** always-on | fast | far outside the stated $5–10 budget |
+| retrieval on fly + hosted API | ~$2–12/mo + usage | fast | **built, then rejected — see below** |
+
+The third was implemented end to end: a `chat_relay.py` serving the same
+pages, a second Dockerfile and `fly.toml`, the root `.dockerignore` widened to
+a union invariant over two apps, and BM25 standing in for the mlx-pinned dense
+index. It worked, and it was reverted on the correct objection: **routing
+generation to a hosted API means the deployed product is a RAG wrapper around
+someone else's model, and every number in Sections 21.139–21.148 describes a
+7B that is then not being served.** The research would have become decorative
+— the benchmark, the judge calibration, the retrieval work and the latency
+gate would all measure a system no user touches.
+
+So the constraint that actually binds is not cost or latency. It is that
+**this project's deliverable is a specific local model**, and any hosting plan
+that drops it has changed the subject. Self-hosting on the Mac is the design;
+exposure is the problem to solve, not the model.
+
+**What survives the revert.** `chat_auth.py` (Section 21.148) was written as
+its own module precisely so a relay could import it, and it is still the right
+shape — the gate is independent of what sits behind it. `chat_common.py`
+survives for the same reason it was created: both a local and any future
+front-end must serve one definition of the login page, not two. And
+`bm25.py` survives as a *measurement*, not a serving path: Section 21.141's
+central negative claim — that BM25 finds the same questions dense retrieval
+does — existed only as a throwaway prototype, and `--compare-recall` now
+reproduces the table on demand. Nothing imports it.
+
+**What was reverted**: `chat_relay.py`, `deploy/chat/*`, the two-app
+`.dockerignore` union, and the `test_deploy.py` changes that admitted it. The
+deploy surface is back to one app and six COPY lines.
+
+**The lesson worth keeping.** The cost table above is real and the pivot was
+technically sound; what made it wrong was a fact about the project rather than
+about the infrastructure. When a constraint ("not on my Mac") and a purpose
+("serve the model this repo built") conflict, restating the purpose is what
+resolves it — the alternatives all silently answered a different question.
+
+### 21.150 Public access without the model leaving the Mac: an outbound tunnel
+
+21.149 rejected every off-machine hosting plan because mlx is
+Apple-Silicon-only, so anywhere else means serving a different model than the
+one Sections 21.139-21.148 measure. That leaves exposure as the problem, not
+hosting, and exposure has a solution that costs nothing and changes nothing
+about what is served.
+
+`scripts/serve_chat.sh` runs `chat_server.py` on **loopback only** and starts
+`cloudflared`, which dials OUT to Cloudflare; inbound requests are proxied back
+down that connection. Consequences worth stating: no router port is opened, no
+static IP is needed, no inbound firewall rule exists to get wrong, and the
+service is not on the LAN either — the tunnel is the only path in. TLS
+terminates at Cloudflare (`server: cloudflare`, `cf-ray` present).
+
+Verified end to end against the live public hostname, not just locally:
+
+| check | result |
+| --- | --- |
+| unauthenticated `/` | login page |
+| unauthenticated `/api/ask` | 401 |
+| unauthenticated `/api/health` | `{"ok": true}` only |
+| wrong password | 401 |
+| correct password | 200, session issued |
+| `/api/health` after login | reports `Qwen2.5-7B-Instruct-4bit` — the local model |
+| a real question | correct answer citing 120.3c/120.3f in **5.05s** |
+
+**One real defect found by running it.** The session cookie came back
+`HttpOnly=yes Secure=no`. `chat_server.py` defaults `--secure-cookies` off,
+which is right for loopback HTTP and wrong the moment a proxy puts an HTTPS
+hostname in front — and nothing in the process can observe that, because
+uvicorn still only speaks plain HTTP on 127.0.0.1. **The flag describes how
+the USER reaches the service, not how the socket is bound**, and that
+distinction is what a reverse proxy makes easy to get wrong. The launcher
+passes it; re-verified `Secure=yes`.
+
+The script also fails closed before loading the model: no `CHAT_PASSWORD`
+means the tunnel would publish an unauthenticated page, so it exits in a
+second rather than after a 40-second load. It kills the tunnel if the server
+dies, because a tunnel pointing at a dead port serves a Cloudflare error page
+under the user's own hostname, which reads as broken rather than stopped.
+
+**Limits, none of them subtle.** A quick tunnel's hostname is random and
+changes on every restart, which is fine for a rated-feedback round and wrong
+for anything durable — a named tunnel needs a Cloudflare account and a domain.
+The Mac must be awake. Traffic crosses a home connection. And generation is
+serialized behind a lock (21.146), so concurrent users queue at ~5-8s each;
+that is a study instrument, not a service.

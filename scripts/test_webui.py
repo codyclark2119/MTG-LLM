@@ -137,8 +137,9 @@ def main() -> None:
     # without a line here is a page whose JavaScript nothing parses. This one
     # is the first intended for people outside the project, where a blank page
     # is not a debugging inconvenience but the entire product.
-    import chat_server
-    check_page("chat_server/index", chat_server.INDEX_HTML)
+    import chat_common
+    check_page("chat/index", chat_common.INDEX_HTML)
+    check_page("chat/login", chat_common.LOGIN_HTML)
 
     # Grouped adjudication must not re-submit already-saved arms when revisiting
     # a record. The guard is in-page JavaScript so keep a string-level check.
