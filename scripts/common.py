@@ -245,6 +245,17 @@ REFUSAL_RE = re.compile(
 # that the adapter is being evaluated out of distribution (Section 13.5
 # measured exactly that failure for card-formatted context).
 
+# The model every arm is measured against, and the one the chat surface
+# serves. It lived in `eval.py` until Section 21.146, which meant three
+# modules — and a public-facing server — imported the whole research harness
+# to read one string. Shared values belong here; that is what this file is.
+#
+# It is the 7B on purpose. Section 21.139 measured the 32B at +0.50
+# correctness, and Section 21.145 measured it at 4.0x the wall-clock and 4.9x
+# the time to first token, which the pre-committed latency gate resolved
+# against.
+BASE_MODEL_ID = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+
 SYSTEM_PROMPT = (
     "You are a Magic: The Gathering rules expert. Answer precisely and "
     "cite comprehensive rule numbers."

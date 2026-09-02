@@ -42,6 +42,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from common import BASE_MODEL_ID as _BASE_MODEL_ID
 from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
     CARDS_RAG_SYSTEM_PROMPT,
     GOLD_CANDIDATES_PATH,
@@ -72,7 +73,10 @@ from rag import retrieve
 # pass it down. That is what keeps swapping in a new checkpoint (or a larger
 # base model, which fits at 36GB for inference) a flag change rather than an
 # edit.
-BASE_MODEL_ID = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+# Re-exported so `from eval import BASE_MODEL_ID` keeps working for the
+# three modules that already do it; the definition moved to common.py
+# (Section 21.146) so a server can read it without importing this file.
+BASE_MODEL_ID = _BASE_MODEL_ID
 
 # v2-best, deliberately, after run 3 — NOT a stale default (Section 18.3).
 #

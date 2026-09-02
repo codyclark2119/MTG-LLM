@@ -133,6 +133,13 @@ def main() -> None:
     check_page("rubric_server/reference", rubric_server.REFERENCE_HTML)
     check_page("rubric_server/scenario", rubric_server.SCENARIO_HTML)
 
+    # The chat surface (Phase 2). Same rule as every page above: a page added
+    # without a line here is a page whose JavaScript nothing parses. This one
+    # is the first intended for people outside the project, where a blank page
+    # is not a debugging inconvenience but the entire product.
+    import chat_server
+    check_page("chat_server/index", chat_server.INDEX_HTML)
+
     # Grouped adjudication must not re-submit already-saved arms when revisiting
     # a record. The guard is in-page JavaScript so keep a string-level check.
     check("adjudication skips already-saved arms on grouped submit",

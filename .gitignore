@@ -45,3 +45,10 @@ PLAN_NEXT.md
 # data/gold/judge_adjudications.jsonl by `adjudicate.py --ingest-submissions`,
 # so the raw log is a working file and not a tracked artifact.
 submissions.jsonl
+
+# Chat ratings: user-submitted questions and free-text notes, appended by a
+# long-running server. Ignored for the same reasons data/submissions.jsonl is
+# — it is personal data written by people outside the project, and an
+# append-only log would otherwise produce a diff on every single rating.
+# Promotion into the gold set goes through review, never through git.
+data/chat/

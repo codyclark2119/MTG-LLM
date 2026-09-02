@@ -12851,3 +12851,71 @@ inherits the larger one's peak. `measure_throughput.py` records the peak before
 each load and reports **`n/a`** when a model did not set it, rather than a
 confidently wrong figure. Here the order is ascending, so both numbers are
 attributable.
+
+### 21.146 The chat surface: a third server, the 7B, and a rating that stores what the model was actually shown
+
+Phase 2 step 1. `scripts/chat_server.py` is a THIRD server, deliberately not
+an extension of either existing one:
+
+- `rubric_server.py` is the deployable half and is deliberately model-free —
+  no mlx import, four files in its image. Putting a model behind it would
+  destroy the property that makes it safe to deploy.
+- `webui.py` is LAN-only and contains a real subprocess runner, which is
+  remote code execution the moment it is public.
+
+Configuration is not taste; it is what Phase 1 measured. **The 7B**, because
+Section 21.145's pre-committed latency gate put the 32B's 30.8s in the "ship
+the 7B" band. **Cards plus official rulings**, because that is the best arm at
+both model sizes and the one that does not fabricate citations (3/53 against
+17/53 for no-retrieval, 21.139). **Model loaded once at startup**, because
+`infer.py` reloads per invocation — correct for a CLI, fatal for a chat
+surface.
+
+`--k-rules` defaults to 3, the established configuration, and every answer
+records the k it was generated under. Section 21.144 measured k=0 at +0.25
+with p = 0.078 — the strongest retrieval lead here and short of significance
+— so real user ratings accumulate into the A/B test 53 questions could not
+settle. That is the one thing external users provide that the benchmark
+cannot.
+
+**The rating stores the retrieved context that was actually used**, verified
+live at 8,784 characters on a real answer. This is the field the whole design
+turns on: a low rating alone cannot distinguish a retrieval miss from a
+reasoning miss, and that distinction is the entire subject of 21.139–21.144.
+
+**A rating names an answer the SERVER issued.** The client posts an
+`answer_id`; the server holds the question, answer and context. Accepting a
+client-supplied pair would let anyone write arbitrary rows into a
+training-adjacent record — the same class of mistake `webui.py`'s allowlist
+exists to prevent, where the fix was also "the client sends an id, the server
+assembles the rest". Forged ids return 400 and write nothing (tested both
+ways: the refusal AND that the file stays empty).
+
+Verified by running, per the plan's ship gate — *"a form can look wired and
+save nothing"*, which is exactly what happened to the adjudication form's
+ambiguity checkbox (21.55): collected, stored, and read by nothing. So
+`test_chat_server.py` reads the row back **off disk** rather than asserting on
+the HTTP response, and the live check did the same with a real 7B answer that
+correctly cited 702.19b in 5.4s — consistent with 21.145's 7.7s median.
+
+`chat_server.INDEX_HTML` is registered in `test_webui.py`. A page added
+without that line is a page whose JavaScript nothing parses, which is how
+four views shipped blank for several commits; this is the first page intended
+for people outside the project, where a blank page is not a debugging
+inconvenience but the entire product.
+
+**`BASE_MODEL_ID` moved from `eval.py` to `common.py`.** Three modules — and
+now a public-facing server — imported the whole research harness to read one
+string. Shared values belong in `common.py`; `eval.py` re-exports the name so
+every existing importer is untouched.
+
+**The deploy surface did not grow**: `deploy/Dockerfile` still copies six
+paths and `chat_server.py` is absent from both it and `.dockerignore`. This
+service is not deployable and is not meant to be — it holds a 4.4 GB model and
+reaches the card, ruling and rules indexes. Exposure is a separate decision
+with its own threat model (the plan's thin-relay architecture), not a
+consequence of this commit. `data/chat/` is gitignored, matching
+`data/submissions.jsonl`: user-written text, promoted by review, never by git.
+
+**Not done here**: the public relay, rate limiting, and any abuse handling.
+Nothing about this commit puts anything on the internet.
