@@ -145,7 +145,49 @@ def test_no_model_import_at_module_level() -> None:
         check(f"module level does not {banned}", banned in head, False)
 
 
+def test_triage_classification() -> None:
+    """Triage must separate the three failure halves, including the subtle one.
+
+    `eval.score_citations` reports fabrication by EXISTENCE, which cannot see
+    the case a real user question produced: an answer citing 702.7a
+    "(Deathtouch)" and 702.13a "(Trample)" — both real ids, and both actually
+    First Strike and Intimidate. A citation pointing at a real rule that says
+    something else survives a spot check, so it needs its own category.
+    """
+    from common import load_rule_ids
+    from triage_ratings import classify
+
+    valid = load_rule_ids()
+    ctx = "702.2c. Any nonzero amount of combat damage assigned to a creature ..."
+
+    cases = [
+        ("had the rules, reasoned wrong",
+         {"answer": "By 702.2c it is lethal.", "context": ctx}, "reasoning_miss"),
+        ("invented a rule id",
+         {"answer": "See 999.9z.", "context": ctx}, "nonexistent_citation"),
+        ("cited a real rule never shown to it",
+         {"answer": "See 702.19b.", "context": ctx}, "unretrieved_citation"),
+        ("nothing retrieved at all",
+         {"answer": "See 702.7a.", "context": ""}, "no_context"),
+        ("cited nothing",
+         {"answer": "It just dies.", "context": ctx}, "no_citation"),
+    ]
+    for label, row, want in cases:
+        check(f"triage: {label}", classify(row, valid)["category"], want)
+
+    # The evidence must survive even when a coarser category wins, or the
+    # diagnosis is a label with nothing behind it.
+    d = classify({"answer": "See 702.7a and 702.13a.", "context": ""}, valid)
+    check("triage keeps unretrieved ids under no_context",
+          d["unretrieved"], ["702.13a", "702.7a"])
+    # Every category must map to an action, or triage sorts without directing.
+    from triage_ratings import CATEGORY_ACTION
+    for _, row, want in cases:
+        check(f"category {want} has an action", want in CATEGORY_ACTION, True)
+
+
 def main() -> None:
+    test_triage_classification()
     test_validation()
     test_roundtrip()
     test_token_gate()

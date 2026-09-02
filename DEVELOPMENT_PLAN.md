@@ -12919,3 +12919,67 @@ consequence of this commit. `data/chat/` is gitignored, matching
 
 **Not done here**: the public relay, rate limiting, and any abuse handling.
 Nothing about this commit puts anything on the internet.
+
+### 21.147 One real user question falsifies the k=0 lead for card-free questions, and a citation can point at a real rule that says something else
+
+The first question asked through the chat surface was rated **down**, and the
+stored context settled which half failed in one step — which is the entire
+reason `chat_server.py` records it.
+
+**The question**: *"If a 5/5 creature has deathtouch and trample how much
+damage is dealt to a 4/4 blocker and how much goes to the defending player."*
+Correct answer: deathtouch makes any nonzero damage lethal for trample
+assignment (702.2c), so **1 to the blocker and 4 to the player**.
+
+**The answer (k=3)**: 5 to the blocker, 1 to the player — it computed
+`5 − 4 = 1` off the blocker's toughness and never applied deathtouch. Then it
+quoted 702.2c **verbatim and correctly** immediately below.
+
+**Retrieval was not at fault.** 702.2b, 702.2c and 702.19b were all in the
+8,442-character context. The model was handed the governing rule, restated it
+accurately, and did not use it — Section 21.139's "high grounding, low
+correctness" signature, reproduced on the first live question by someone
+outside the project.
+
+**Rerunning the same question at k=0 is worse, and worse in the dangerous
+direction.** Both configurations get the arithmetic wrong; the citations come
+apart completely:
+
+| | answer | citations |
+| --- | --- | --- |
+| k=3 | wrong (1, should be 4) | **honest** — 702.2c quoted verbatim |
+| k=0 | wrong, same error | **702.7a "(Deathtouch)"**, **702.13a "(Trample)"** with invented quoted text |
+
+702.7a is **First Strike**. 702.13a is **Intimidate**. Both ids are real, so
+`eval.score_citations` — which reports fabrication by EXISTENCE — sees nothing
+wrong with either. **A citation that points at a real rule and misstates it is
+worse than an invented number, because it survives a spot check.**
+
+Two consequences.
+
+**Section 21.144's k=0 lead does not generalise to card-free questions.** It
+was measured on a card-grounded benchmark where cards and official rulings
+carry the context; with no card named, k=0 means no context at all, and the
+model falls back on memory and fabricates. That is 21.139's 17/53-vs-3/53
+fabrication gap arriving as a live failure. `k_rules` stays at 3 by default,
+and the lead is now explicitly scoped to card-grounded questions.
+
+**Card-free questions get the worst configuration and nothing measured it.**
+The benchmark is card-grounded by construction, so the rules-only path — the
+arm that scores 2.91–3.41 and sits *below* no-retrieval at both model sizes —
+is what a user asking a general question actually receives. That is a real
+coverage gap in the benchmark, not just in the model.
+
+**`triage_ratings.py` turns this diagnosis into a routine.** It classifies a
+low-rated answer from its stored context into `no_context`,
+`nonexistent_citation`, `unretrieved_citation`, `reasoning_miss` or
+`no_citation`, and prints the action each implies. `unretrieved_citation` is
+the category `score_citations` cannot express and the one this question
+needed. Run against the real rating it independently reproduces the manual
+diagnosis: **reasoning_miss — it HAD the rules and reasoned wrong.**
+
+The routing discipline is in the tool itself: a `reasoning_miss` is recorded
+as a **benchmark candidate, never as a training signal**. Six fine-tunes and
+one few-shot attempt all scored below the base model (21.139, 21.140, 21.143),
+so "the model reasoned badly" has no lever behind it here, while retrieval
+misses do.
