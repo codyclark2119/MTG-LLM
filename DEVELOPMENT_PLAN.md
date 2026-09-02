@@ -13744,3 +13744,71 @@ while being wrong. A subrule is the parent followed by letters only. Third
 appearance of this repo's substring trap, and the one that happened to
 over-count **0** on both benchmarks — luck, not safety, so it is asserted in
 `test_eval`.
+
+### 21.160 The largest effect in the project, decomposed: retrieval is worth +1.38 on the gold set, both halves significant, and 21.141's negative does not hold here
+
+21.144 named the open item plainly: *"What would settle it: the same comparison
+on the 99-question gold set, now that 21.142 makes `--with-cards` actually
+resolve cards there (91/99)."* It had never been run. Both historical gold-set
+card runs (`cards_rulings_n99`, `cards_rulings_n99_mistral`) have
+`base_rag == base_rag_cards_rulings` on **99/99** — the card arm was the plain
+RAG arm under a different name, exactly as 21.136 found and 21.142 fixed. Those
+numbers are void, so this is the first valid measurement.
+
+7B, gold set n=99, Mistral judge, **three arms in one batched call**:
+
+| arm | score | step | W/L/tie | p |
+| --- | --- | --- | --- | --- |
+| `base` | 1.37 | | | |
+| `base_rag` | 1.88 | **+0.52** rules text alone | 29/11/59 | **0.006** |
+| `base_rag_cards_rulings` | 2.75 | **+0.87** adding cards + rulings | 41/16/42 | **0.001** |
+| | | **+1.38** full stack vs nothing | 47/8/44 | **0.000** |
+
+**+1.38 is the largest effect this project has measured** — nearly three times
+the model-size result (+0.50) — and unusually, *both halves are separately
+significant*. Retrieval is not a marginal contributor here; it is most of what
+the system does.
+
+**21.141's headline does not hold on the main benchmark.** That section measured
+rules-only RAG scoring **below** no-retrieval and concluded retrieval was
+broken; on the gold set the same arm scores **+0.52 above** at p = 0.006. This
+is the third condition to split that way, after 21.155 (card-free questions) and
+21.159 (recall). The pattern is now unmistakable: **the negative results all
+come from the 53-question XMage-mined benchmark, and do not generalise to the
+questions people actually ask.** That set is 53 hard interaction puzzles chosen
+for difficulty; the gold set is RulesGuru-derived. Neither is wrong — but every
+conclusion of the form "X is broken" in this project traces back to the narrow
+one, and 21.158 already showed one such conclusion reversing on a model change.
+
+**Fabricated citations tell a different story from correctness**, and it is the
+more actionable one:
+
+| arm | cites a rule | fabricates | rate |
+| --- | --- | --- | --- |
+| `base` | 96/99 | **45** | 47% |
+| `base_rag` | 89/99 | **1** | 1% |
+| `base_rag_cards_rulings` | 51/99 | 5 | 10% |
+
+Rules text takes fabrication from **45 to 1**. Then adding card text takes it
+back to 5 *and halves how often the model cites at all* (89 → 51) — the card
+text displaces the CR text proportionally, and the model leans on the cards.
+**So the shipped arm buys its +0.87 partly at the cost of grounding**, which no
+previous section could see because the shipped arm had never been measured
+against a rules-only one on this benchmark.
+
+**That reframes 21.159.** Keyword injection took this same arm from 5 fabricated
+to **1** — exactly the rules-only arm's level, reached independently in a
+different run. So it is not a speculative improvement; it is the candidate fix
+for a cost the card arm introduces, and it restores grounding without giving up
+the +0.87 (correctness was a null, +0.11). The fabrication result is still n=4
+at p = 0.125, so `--keyword-rules` stays opt-in — but the case is materially
+stronger than 21.159 could state on its own, and unlike 21.158's k=0 branch this
+change has **no measured cost anywhere**.
+
+**Section 21.5, demonstrated on this exact data.** `base_rag_cards_rulings` is
+byte-identical on **99/99** between the two-arm run of 21.159 and this three-arm
+one — same model, same context, deterministic generation — and scored **2.59**
+against **2.77**. Arm count alone moved a byte-identical arm by **+0.18**.
+Fabrication was 5 in both, as it must be: it is computed from the answer and the
+pinned CR, so no judge can move it. That is the cleanest illustration of why arm
+counts must match, and of why a judge-invariant metric is worth having.

@@ -87,9 +87,10 @@ class Engine:
     """
 
     def __init__(self, base_model_id: str, k_rules: int | str, max_tokens: int,
-                 adapter_path: str | None = None):
+                 adapter_path: str | None = None, keyword_rules: bool = False):
         self.base_model_id = base_model_id
         self.k_rules = k_rules
+        self.keyword_rules = keyword_rules
         self.max_tokens = max_tokens
         self.adapter_path = adapter_path
         self._lock = threading.Lock()
@@ -99,13 +100,19 @@ class Engine:
 
         from card_lookup import CardIndex
         from rag import MODEL_ID as EMBED_MODEL_ID
-        from retrieve_hybrid import RulingIndex
+        from retrieve_hybrid import KeywordRuleIndex, RulingIndex
 
         print(f"loading embedder {EMBED_MODEL_ID} ...", flush=True)
         self.embed_model = load_embedder(EMBED_MODEL_ID)
         print("loading card index and rulings ...", flush=True)
         self.card_index = CardIndex()
         self.ruling_index = RulingIndex()
+        # Opt-in. On the gold set the card arm fabricates 5/99 against the
+        # rules-only arm's 1/99 — card text displaces CR text (21.160) — and
+        # injection took that 5 back to 1 (21.159). Null on correctness, no
+        # measured cost, but n=4 at p=0.125, so it is not switched on for
+        # anyone by default.
+        self.keyword_rule_index = KeywordRuleIndex() if keyword_rules else None
         print(f"loading {base_model_id} ...", flush=True)
         self.model, self.tokenizer = load_lm(base_model_id, adapter_path=adapter_path)
         print("ready", flush=True)
@@ -117,6 +124,7 @@ class Engine:
         # the rules-only arm — the worst of the three (21.154).
         return build_context(question, self.card_index, embed_model=self.embed_model,
                              ruling_index=self.ruling_index, k_rules=self.k_rules,
+                             keyword_rule_index=self.keyword_rule_index,
                              scan_prose=True)
 
     def answer(self, question: str) -> dict:
@@ -164,6 +172,7 @@ class Engine:
             "adapter_path": self.adapter_path,
             "k_rules": self.k_rules,
             "max_tokens": self.max_tokens,
+            "keyword_rules": bool(self.keyword_rule_index),
         }
 
 
@@ -324,6 +333,9 @@ def main() -> None:
                          "configuration — it is not the default here because the +0.25 "
                          "behind it was measured on a model this service does not run. "
                          "Recorded on every answer, per question.")
+    ap.add_argument("--keyword-rules", action="store_true",
+                    help="inject the CR text for rules a resolved card's own keywords\nname. Card text displaces CR text and the card arm fabricates 5/99\nagainst the rules-only arm's 1/99 (21.160); injection took that back\nto 1 (21.159). Correctness is a null and nothing measured got worse,\nbut n=4 at p=0.125, so it is off by default."
+)
     ap.add_argument("--max-tokens", type=int, default=800)
     ap.add_argument("--ratings", type=Path, default=RATINGS_PATH)
     args = ap.parse_args()
@@ -348,7 +360,8 @@ def main() -> None:
     if not auth.enabled:
         print("  note: no CHAT_PASSWORD set — loopback only, no sign-in required.")
 
-    engine = Engine(args.base_model, args.k_rules, args.max_tokens, args.adapter_path)
+    engine = Engine(args.base_model, args.k_rules, args.max_tokens, args.adapter_path,
+                    keyword_rules=args.keyword_rules)
     app = build_app(engine, args.ratings, auth, secure_cookies=args.secure_cookies)
 
     where = socket.gethostbyname(socket.gethostname()) if args.lan else host
