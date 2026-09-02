@@ -122,8 +122,11 @@ def build_context(
     # (k, BM25, finer chunks, query rewriting and a second embedding model were
     # all tested and all failed). But that was measured only WHERE CARD TEXT WAS
     # ALREADY PRESENT; on card-free questions the same retrieval is worth +0.65
-    # (21.155). So k=0 is the right setting for one half of the traffic and the
-    # wrong one for the other half, which is what AUTO exists to decide.
+    # (21.155), which is what AUTO exists to decide.
+    #
+    # AUTO is a 32B setting. On the 7B, k=0 on card questions is worth -0.02 and
+    # costs five fabricated citations where there were none (21.158), so the
+    # served default is a flat k=3 and this branch is off by default.
     rules_hits = retrieve(
         question, k=k_rules, chunks_path=chunks_path, index_path=index_path,
         model_and_tokenizer=embed_model,

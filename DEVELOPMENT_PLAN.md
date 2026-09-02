@@ -13598,3 +13598,74 @@ significant" to "null, and the judges disagree on its sign".
 caveat applies to this benchmark as much as to the gameplay track), and both
 passing judges are Qwens, so cross-vendor self-preference remains untested —
 Mistral is the independent judge here precisely because of that.
+
+### 21.158 The router's k=0 branch does not survive the model that ships: no gain, five fabricated citations, and a "Grounded" column that moved the wrong way
+
+21.156 shipped a router whose card branch drops the CR section. 21.144
+justified that with +0.25 — measured on the **32B**, which this project does
+not serve (21.145 ships the 7B). Re-run on the 7B, same benchmark, same judge,
+same design, changing only the base model:
+
+| | correctness k=3 → k=0 | W/L/tie | p | cited a rule | fabricated | rate |
+| --- | --- | --- | --- | --- | --- | --- |
+| 32B | 4.05 → 4.30, **+0.25** | 15/6/32 | 0.078 | 32 → 41 | 3 → 7 | 9% → 17% |
+| **7B (ships)** | 3.45 → 3.43, **−0.02** | 12/11/30 | 1.000 | 24 → 21 | **0 → 5** | **0% → 24%** |
+
+**The benefit does not transfer and the cost does.** On the shipping model k=0
+buys nothing — −0.02 on a 12/11 coin flip — while taking fabricated citations
+from **zero to five**, one-sided (+5/−0, p = 0.062). The 32B's +0.25 was real
+and is reproduced here exactly (15/6/32, p = 0.078, matching 21.144); it is
+simply a fact about a model that is not deployed.
+
+**Positive control**: the context-free `base` arm is byte-identical on **53/53**
+across each k-pair, so generation is deterministic and every difference above is
+attributable to k and nothing else. The card arm differs on 53/53, as it must.
+
+**Dose-response, three levels, 32B**: no context 17/53 fabricated; cards and
+rulings only 7/53; cards, rulings and CR text 3/53. Monotone, which is stronger
+evidence than either underpowered pairwise test. The mechanism is legible —
+**removing the rules text makes the model cite rules MORE** (32 answers to 41
+on the 32B), from memory, and get more of them wrong.
+
+**Consequence: `chat_server` defaults to `--k-rules 3` again.** `auto` and
+`route_k_rules` stay — they are tested, and k=0 is still the measured-better
+setting on a 32B — but the shipped default may not rest on a model the service
+does not run. For a rules bot the trade is bad in any case: 21.144's +0.25 costs
+a doubled fabrication rate, and a confidently-cited wrong answer is the failure
+mode Phase 2's ship gate names as the worst one. What survives from 21.156 is
+the machinery, the per-question `k_rules_used` stamping, and the k=3 branch —
+which 21.157 confirmed under two judges.
+
+**Both fabrication numbers were printed in both reports the whole time.** 21.144
+read the score column across two report tables and not the fabrication column on
+the same two tables. Four instrument defects made that easy, all now fixed:
+
+- **The "Grounded" column moved the wrong way.** It was `cited_any −
+  fabricated`, so it RISES whenever an arm cites more, whatever the accuracy: on
+  the 32B it went **29 → 34** while fabrication went 3 → 7. Replaced by `Cited a
+  rule` plus a **Fabrication rate** with the denominator in it, which cannot
+  invert. An arm that stays silent cannot fabricate, so `fabricated/n` alone
+  rewards not citing at all.
+- **The existing trip-wire could not see this.** "The highest-scoring arm is not
+  the least-fabricating one" compares ARMS WITHIN a run; this comparison is
+  across two runs. A `k=0` run now says on its own face that no CR text was
+  retrieved while the prompt still asks for citations, and to read the
+  fabrication rate against a `k=3` run before reading the score.
+- **The arm-count header lied.** `--base-only` printed "3 arms, not 6"
+  unconditionally; with `--no-plain-rag` these runs have **two**, and arm count
+  is exactly what 21.5 makes load-bearing for comparability. It is counted from
+  `arm_names` now and names them.
+- **`--candidates` is accepted and silently ignored** by the generation path —
+  it is read only by `--compare`. `--candidates data/gold/card_ruling_
+  candidates.jsonl` looks exactly like "evaluate that benchmark", and instead
+  ran an hour of 7B generation against the DEFAULT 110 prose questions before
+  the count in the log gave it away. Same family as the `--judge-model` that was
+  accepted and ignored on one code path. Both compare-only flags now refuse a
+  generation run and name `--gold-only --gold <path>`.
+
+**A fabricated citation is judge-invariant** — computed from the answer and the
+pinned CR with no model — which makes it the rules track's version of
+`protocol_truth`: a parser-decided fact that can arbitrate where judges
+disagree. That is exactly how 21.157 explained a +0.65/+1.30 spread between two
+judges. It is also why the rescore report omits the column and should keep
+omitting it: re-judging cannot change it.

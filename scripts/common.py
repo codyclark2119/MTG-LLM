@@ -278,14 +278,23 @@ CARDS_RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
 # context, and the two halves were measured separately, in opposite directions:
 #
 #   cards resolve    -> k=0   21.144: +0.25 WITHOUT the CR section (p = 0.078),
-#                             n=53 card/ruling benchmark, 32B, 17 wins to 9
+#                             n=53 card/ruling benchmark, ON THE 32B
 #   no cards resolve -> k=3   21.155: +0.65 WITH it (p = 0.039), n=20 card-free
 #                             benchmark, 7B, 10 wins to 2 -- and it takes
-#                             fabricated rule citations from 4/20 to 0/20
+#                             fabricated rule citations from 4/20 to 0/20;
+#                             replicated at +1.30 by a second judge (21.157)
 #
-# Section 21.141 read the first half as a fact about retrieval ("rules-only RAG
+# Section 21.141 read the second half as a fact about retrieval ("rules-only RAG
 # scores below no-retrieval") when it was a fact about the PAIRING: every
 # question in that benchmark named a card, so the condition was never varied.
+#
+# THE FIRST HALF IS MODEL-SPECIFIC AND DOES NOT HOLD ON THE 7B THIS PROJECT
+# SERVES (Section 21.158). Re-run identically on the 7B, k=0 scores -0.02
+# (12/11/30, p = 1.000) and takes fabricated citations from 0/53 to 5/53. So
+# `route_k_rules` is correct for the model it was measured on and wrong for the
+# one that ships: chat_server defaults to a flat k=3, and AUTO is a deliberate
+# 32B configuration. Do not restore it as a default without re-measuring on
+# whatever model is actually being served.
 #
 # Here rather than in `retrieve_hybrid` because four CLIs parse this flag and
 # `retrieve_hybrid` pulls in `rag`, which imports mlx_embeddings at module

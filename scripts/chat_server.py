@@ -26,18 +26,18 @@ Configuration is not a free choice — it is what Phase 1 measured:
   * **The model is loaded ONCE at startup.** `infer.py` reloads per
     invocation, which is right for a CLI and fatal for a chat surface.
 
-`--k-rules` defaults to `auto`, which decides PER QUESTION (Section 21.156).
-The two halves were measured separately and point in opposite directions: with
-card text already in the context, dropping the CR section is worth +0.25
-(21.144, p = 0.078); with no card resolved, keeping it is worth +0.65 (21.155,
-p = 0.039) and takes fabricated rule citations from 4/20 to 0/20. Live traffic
-contains both, so a fixed k is wrong for one of them either way — and both live
-questions rated so far were the second kind, which the card/ruling benchmark
-could not measure at all.
+`--k-rules` defaults to **3**, for both halves of live traffic. On card-free
+questions retrieval is worth +0.65 under two judges (21.155, 21.157) and takes
+fabricated rule citations from 4/20 to 0/20. On card questions the +0.25 that
+once argued for dropping it (21.144) was measured on the **32B**; re-measured on
+the 7B this service actually serves, k=0 buys −0.02 and takes fabricated
+citations from **0/53 to 5/53** (Section 21.158). A confidently-cited wrong
+answer is the worst failure mode for a rules bot, so the default is the grounded
+setting.
 
-Every answer records `k_rules_used`, not just the policy, so ratings still
-accumulate into an A/B test — now a within-policy one, split by which branch
-each question took.
+`auto` still routes per question (Section 21.156) and remains the better setting
+on a 32B. Every answer records `k_rules_used`, not just the policy, so ratings
+stay diagnosable whichever is in force.
 
 **Ratings store the retrieved context that was actually used.** Without it a
 low rating cannot be diagnosed: a retrieval miss and a reasoning miss look
@@ -68,8 +68,8 @@ import chat_auth
 from chat_common import (INDEX_HTML, LOGIN_HTML, MAX_QUESTION_CHARS,  # noqa: F401
                          append_rating, read_ratings, validate_ask,
                          validate_rating)
-from common import (AUTO_K_RULES, BASE_MODEL_ID, REPO_ROOT, build_rag_messages,
-                    k_rules_arg)
+from common import (BASE_MODEL_ID, K_RULES_NO_CARDS, REPO_ROOT,
+                    build_rag_messages, k_rules_arg)
 
 RATINGS_PATH = REPO_ROOT / "data" / "chat" / "ratings.jsonl"
 MAX_QUESTION_CHARS = 2000
@@ -315,12 +315,15 @@ def main() -> None:
     ap.add_argument("--adapter-path", default=None,
                     help="not recommended: six fine-tunes all scored BELOW the "
                          "base model on the card/ruling benchmark (21.139)")
-    ap.add_argument("--k-rules", type=k_rules_arg, default=AUTO_K_RULES,
-                    help="default `auto`: 0 CR chunks when the question resolved a "
-                         "card (21.144, +0.25), 3 when it did not (21.155, +0.65 and "
-                         "no fabricated citations). Neither fixed value is right for "
-                         "both halves of live traffic (Section 21.156). Pass an integer "
-                         "to pin it. Recorded on every answer, per question.")
+    ap.add_argument("--k-rules", type=k_rules_arg, default=K_RULES_NO_CARDS,
+                    help="CR chunks per question. Default 3 for BOTH halves of live "
+                         "traffic: +0.65 on card-free questions (21.155, two judges) "
+                         "and, on the 7B this serves, k=0 buys -0.02 on card questions "
+                         "while taking fabricated citations from 0/53 to 5/53 (Section "
+                         "21.158). `auto` routes per question and is a 32B "
+                         "configuration — it is not the default here because the +0.25 "
+                         "behind it was measured on a model this service does not run. "
+                         "Recorded on every answer, per question.")
     ap.add_argument("--max-tokens", type=int, default=800)
     ap.add_argument("--ratings", type=Path, default=RATINGS_PATH)
     args = ap.parse_args()

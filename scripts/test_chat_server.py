@@ -44,8 +44,10 @@ class FakeEngine:
                 "rules_chunks": ["c1"], "k_rules_used": 0, "elapsed_s": 0.1}
 
     def config(self) -> dict:
-        # `auto` is the shipped default (Section 21.156), and it is the POLICY:
-        # the k a given answer actually got is `k_rules_used`, per question.
+        # The fake runs ROUTED even though the shipped default went back to a
+        # flat k=3 in 21.158 — routing is still a supported configuration and
+        # this test exists to prove `k_rules_used` survives to the stored row,
+        # which is only observable when the policy and the treatment differ.
         return {"base_model": "fake", "adapter_path": None, "k_rules": "auto",
                 "max_tokens": 800}
 

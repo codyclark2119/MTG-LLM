@@ -1501,6 +1501,22 @@ def main() -> None:
     if args.with_rulings and not args.with_cards:
         raise SystemExit("--with-rulings requires --with-cards")
 
+    # `--candidates` and `--gold-set` are read ONLY by compare_judges. Passing
+    # either to a generation run is accepted by argparse and then does nothing,
+    # and the failure is silent and expensive: `--candidates
+    # data/gold/card_ruling_candidates.jsonl` looks exactly like "evaluate that
+    # benchmark", so the run proceeds on the DEFAULT 110 prose questions and
+    # produces a plausible report against the wrong question set an hour later.
+    # The benchmark flags are `--gold-only --gold <path>`. Same family as the
+    # `--judge-model` that was accepted and ignored on one code path.
+    if not args.compare:
+        for flag, value, default in (("--candidates", args.candidates, GOLD_CANDIDATES_PATH),
+                                     ("--gold-set", args.gold_set, GOLD_PATH)):
+            if value != default:
+                raise SystemExit(
+                    f"{flag} is only read by --compare and would be silently ignored here.\n"
+                    f"To evaluate a question set, use:  --gold-only --gold {value}")
+
     # --judge-model defaults to whatever base model is under test rather than to
     # a hardcoded id, so pointing --base-model at something else doesn't leave
     # the judge silently behind on the old model.
@@ -1698,8 +1714,16 @@ def main() -> None:
         f"\n- base model: `{args.base_model}`\n"
         + (f"- adapter under test: `{args.adapter_path}`\n"
            if not args.base_only else
-           "- adapter: **none (`--base-only`)** — 3 arms, not 6. Comparable only "
-           "to another `--base-only` run (Section 21.5: arm count changes scores)\n")
+           # Counted, not asserted. This said "3 arms, not 6" unconditionally,
+           # which is right only for --base-only --with-cards; the 21.144 runs
+           # that decided the router's k=0 branch have TWO arms and their
+           # headers claimed three. Arm count is exactly what 21.5 makes
+           # load-bearing for comparability, so a header stating the wrong one
+           # invites the bad comparison the sentence exists to prevent.
+           f"- adapter: **none (`--base-only`)** — {len(arm_names)} arm"
+           f"{'s' if len(arm_names) != 1 else ''}"
+           f" ({', '.join(f'`{a}`' for a in arm_names)}), not 6. Comparable only to a "
+           "run with the SAME arms (Section 21.5: arm count changes scores)\n")
         + f"- max tokens: `{args.max_tokens}`\n"
         + f"- k (rules chunks retrieved): `{args.k_rules}`\n"
         + (f"  - **routed per question** (Section 21.156): "
@@ -1770,18 +1794,45 @@ def main() -> None:
     #
     # This costs no judge call and has no judge noise: a rule id either resolves
     # against the pinned CR or it does not.
-    lines.append("| Arm | Avg score (1-5) | N scored | Grounded | Fabricated citation | "
-                 "Citation matches reference |")
-    lines.append("| --- | --- | --- | --- | --- | --- |")
+    # "Grounded" used to sit here as `cited_any - fabricated`: the answers that
+    # cited a rule and invented none. It reads as a quality measure and is not
+    # one -- it RISES whenever an arm cites more, whatever the accuracy. Section
+    # 21.158 caught it inverting on the comparison it mattered for: dropping the
+    # CR section took this arm from 32 citing answers to 41 and from 3
+    # fabrications to 7, and "grounded" went UP, 29 to 34. The rate carries the
+    # denominator, so it cannot do that.
+    lines.append("| Arm | Avg score (1-5) | N scored | Cited a rule | Fabricated citation | "
+                 "Fabrication rate | Citation matches reference |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
     for arm in arm_names:
         s = summary[arm]
         avg = sum(s["scores"]) / len(s["scores"]) if s["scores"] else float("nan")
         match_rate = f"{s['matches']}/{s['match_total']}" if s["match_total"] else "n/a"
-        # Grounded: cited at least one rule id and fabricated none of them.
-        grounded = s["cited_any"] - s["fabricated"]
+        # Of the answers that cited anything -- an arm that stays silent cannot
+        # fabricate, so `fabricated/n` alone rewards not citing at all.
+        fab_rate = (f"{s['fabricated'] / s['cited_any']:.0%}" if s["cited_any"]
+                    else "n/a (cited nothing)")
         lines.append(f"| {arm} | {avg:.2f} | {len(s['scores'])}/{len(questions)} | "
-                     f"{grounded}/{len(questions)} | {s['fabricated']}/{len(questions)} | {match_rate} |")
+                     f"{s['cited_any']}/{len(questions)} | {s['fabricated']}/{len(questions)} | "
+                     f"{fab_rate} | {match_rate} |")
     lines.append("")
+
+    # The within-run trip-wire below compares ARMS. It structurally cannot see
+    # the comparison 21.158 got wrong, which was across two RUNS: k=0 scored
+    # +0.25 and doubled fabrication, both printed, in two reports both read.
+    # A k=0 run is the one configuration where the model is asked to cite the
+    # CR with no CR text in front of it, so it says so on its own face.
+    if args.k_rules == 0 or (args.k_rules == AUTO_K_RULES):
+        lines.append(
+            "> **No CR text was retrieved for "
+            + ("the card arm in this run" if args.k_rules == AUTO_K_RULES
+               else "this run (`--k-rules 0`)")
+            + ", and the prompt still asks for rule citations.** Measured on the "
+            "32B card benchmark, removing that section made the model cite the CR "
+            "*more* -- 32 answers to 41 -- from memory, and fabricate on 3 against "
+            "7 (Section 21.158). Read the fabrication RATE against a `k=3` run "
+            "before reading the score column; the score alone moved +0.25 in the "
+            "opposite direction.\n")
 
     # The Section 19.1 misreading, detected rather than left to the reader: if
     # the top-scoring arm is not also the least-fabricating one, say so in the
@@ -1792,7 +1843,7 @@ def main() -> None:
         cleanest = min(scored_arms, key=lambda a: summary[a]["fabricated"])
         if top != cleanest and summary[top]["fabricated"] > summary[cleanest]["fabricated"]:
             lines.append(
-                f"> **The highest-scoring arm is not the best-grounded one.** `{top}` scores "
+                f"> **The highest-scoring arm is not the least-fabricating one.** `{top}` scores "
                 f"best while fabricating {summary[top]['fabricated']}/{len(questions)} "
                 f"citations, against `{cleanest}`'s {summary[cleanest]['fabricated']}/{len(questions)}. "
                 "The rubric judge scores which enumerated claims an answer made; a "
