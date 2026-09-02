@@ -13812,3 +13812,129 @@ against **2.77**. Arm count alone moved a byte-identical arm by **+0.18**.
 Fabrication was 5 in both, as it must be: it is computed from the answer and the
 pinned CR, so no judge can move it. That is the cleanest illustration of why arm
 counts must match, and of why a judge-invariant metric is worth having.
+
+### 21.161 Keyword injection switched on for the chat surface — a judgement call on p = 0.125, recorded as one
+
+`chat_server` now defaults to `--keyword-rules` (`--no-keyword-rules` disables
+it). **Authorised explicitly**, and written down as a decision rather than a
+finding, because the evidence does not reach this project's usual bar.
+
+What is established: card text *displaces* CR text, and the arm this service
+serves fabricates **5/99** rule citations against a rules-only arm's **1/99**
+(21.160). What is suggestive: injection takes that 5 back to **1** — four fixed,
+none broken, p = **0.125** at n=4 (21.159).
+
+The case for switching it on anyway is the shape of the downside, not the size
+of the upside:
+
+- **no measured cost anywhere.** Correctness was a null (+0.11, p = 0.824), and
+  where the treatment did not fire the answers were byte-identical and scored
+  identically (0W/0L/40T). Answer length moved 1,563 → 1,516 chars, so 21.140's
+  dilution is not biting;
+- **bounded context cost** — median 4 rules / 317 chars against ~8,600;
+- **no prompt change**, so `prompt_fingerprint` is unchanged at `30badae98696`
+  and no adapter is invalidated;
+- the mechanism is confirmed from two directions: three of the four fixed
+  fabrications were 702.x — exactly the class the lever supplies — and the 1/99
+  it lands on is the rules-only arm's rate, reached independently in a
+  different run.
+
+This is the opposite profile to 21.158's k=0 branch, which was reverted: there
+the benefit was measured on a model the service does not run and the **cost**
+was measured on the model it does. Here there is no measured cost on anything.
+That asymmetry is the whole argument; it is not that p = 0.125 became
+convincing.
+
+**The eval default is deliberately NOT changed.** `eval.py --keyword-rules`
+stays opt-in, because flipping it would silently change what every future run
+measures and make it non-comparable to every stored one — the "stale default
+silently evaluating the wrong thing" trap, which this repo has already paid for
+with `ADAPTER_PATH`. A serving default and a measurement default are different
+objects and should not move together.
+
+`keyword_rules` rides on every answer's config, so ratings stay diagnosable, and
+`triage_ratings` breaks ratings down by it — a field the server writes and no
+consumer reads changes no number while making the sample look
+better-characterised than it is (21.55). Verified on the live surface: asking
+about Kalonian Hydra resolves the card and leads the "Rules text:" section with
+701.10 and its subrules, the card's own keyword.
+
+**What would settle it**: headroom, not more questions. The gold set's baseline
+fabrication on this arm is 5/99, so five is the entire ceiling the lever can
+reach there. A benchmark where the shipped arm fabricates more often would
+power the test; the card-free set (0/20 already) will not.
+
+### 21.162 What actually limits correctness at 2.75/5, and why the plan's last untried lever is aimed at the wrong thing
+
+21.160 put the shipped arm at **2.75/5** with cards, rulings and CR text all in
+the context, and 21.159 showed that improving retrieval recall from 17% to 29%
+moves it not at all. So the ceiling is elsewhere. This is a diagnostic pass over
+that run — no GPU, no new measurement, just reading the 99 answers the judge
+already graded.
+
+**The distribution is bimodal, not mediocre.** Of 99 answers, **44 hit zero**
+rubric points and **25 hit all** of them; only 30 land in between (mean 3.3
+points per question, range 2-5). The model is not partially right on most
+questions — it either gets a question or misses it entirely.
+
+**Labeled difficulty does not stratify at all:**
+
+| difficulty | n | score |
+| --- | --- | --- |
+| basic | 14 | 2.79 |
+| intermediate | 33 | 2.74 |
+| advanced | 52 | 2.75 |
+
+Flat to within 0.05, while **category** spans 1.57:
+
+| category | n | score |
+| --- | --- | --- |
+| turn-structure walkthrough | 13 | **1.79** |
+| state-based actions | 13 | 2.67 |
+| priority reasoning | 13 | 2.69 |
+| layer-system question | 13 | 2.76 |
+| definition recall | 9 | 2.89 |
+| interaction puzzle | 13 | 2.90 |
+| zone transition | 12 | 3.00 |
+| templating/keyword meaning | 13 | **3.36** |
+
+What predicts failure is the *kind* of question, not its rated hardness. (The
+difficulty labels are hand-assigned and n=14 at "basic", so the flatness is
+suggestive rather than proof that the labels carry no signal — but no monotone
+gradient survives at all, which a capability ceiling should produce.)
+
+**The zero-point answers are genuinely wrong, not rubric mismatches.** That
+mattered to check, because "right but not stating the enumerated claims" would
+make this a prompting problem. It is not: the judge notes read *"Incorrectly
+applies madness and morph costs simultaneously"*, *"Incorrectly states damage is
+dealt simultaneously and gives choice to Player B"*, *"Incorrectly calculates
+damage and ignores first strike"*. Read in full, a *basic* turn-structure answer
+correctly identifies deathtouch, cites 509 and 510, and then hands the damage-
+assignment choice to the defending player. The rules text was in front of it.
+
+**This kills the premise of Phase 1 step 5.** That step says the one remaining
+fine-tune worth trying is "an SFT set whose targets model explicit step-by-step
+reasoning". But the model already does that, and does it *more* when it is
+wrong:
+
+| | structured step-by-step | mean answer length |
+| --- | --- | --- |
+| zero-point answers (n=44) | **34/44 (77%)** | 1,404 chars |
+| full-point answers (n=25) | 17/25 (68%) | 1,513 chars |
+
+Step-by-step structure is not what separates a right answer from a wrong one
+here, and neither is length (1,404 vs 1,513 — 21.140's dilution signature is
+absent in both directions). Training targets that model the *format* would teach
+the model a format it already has and deploys more often when it fails. If a
+sixth fine-tune is ever run, this says it must target the content of the steps,
+not their shape — and nothing in this repo currently measures that difference.
+
+**What this leaves.** Retrieval is maxed (21.159: recall +12 questions, score
++0.00). Few-shot is closed (21.140). Five fine-tunes have failed and the sixth
+as specified is aimed at a non-problem. The only lever ever measured to move
+reasoning is **model size**, at +0.50 on card-grounded questions (21.139) — and
+21.145 rejected the 32B on time-to-first-token with an explicit revisit trigger.
+So the honest position is that 7B quality is at its ceiling on everything except
+model size, and the next real decision is 21.145's: accept ~2.75 for the
+interactive surface, or add a slower "deep answer" path on the 32B. That is a
+product call, not a measurement one.

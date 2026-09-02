@@ -26,6 +26,14 @@ Configuration is not a free choice — it is what Phase 1 measured:
   * **The model is loaded ONCE at startup.** `infer.py` reloads per
     invocation, which is right for a CLI and fatal for a chat surface.
 
+`--keyword-rules` defaults to **on** (Section 21.161). A resolved card's own
+chunk names the rules for its keywords, so trample arrives with 702.19 and its
+subrules regardless of how the question was phrased. It is here because card
+text *displaces* CR text: the arm this serves fabricates 5/99 rule citations
+against a rules-only arm's 1/99, and injection takes it back to 1. Correctness
+is a null and nothing measured got worse — but n=4 at p=0.125, so this is a
+judgement call on a bounded downside, not a settled result.
+
 `--k-rules` defaults to **3**, for both halves of live traffic. On card-free
 questions retrieval is worth +0.65 under two judges (21.155, 21.157) and takes
 fabricated rule citations from 4/20 to 0/20. On card questions the +0.25 that
@@ -333,9 +341,15 @@ def main() -> None:
                          "configuration — it is not the default here because the +0.25 "
                          "behind it was measured on a model this service does not run. "
                          "Recorded on every answer, per question.")
-    ap.add_argument("--keyword-rules", action="store_true",
-                    help="inject the CR text for rules a resolved card's own keywords\nname. Card text displaces CR text and the card arm fabricates 5/99\nagainst the rules-only arm's 1/99 (21.160); injection took that back\nto 1 (21.159). Correctness is a null and nothing measured got worse,\nbut n=4 at p=0.125, so it is off by default."
-)
+    ap.add_argument("--keyword-rules", action=argparse.BooleanOptionalAction, default=True,
+                    help="ON by default. Inject the CR text for rules a resolved card's own "
+                         "keywords name. Card text displaces CR text, and the card arm this "
+                         "serves fabricates 5/99 against the rules-only arm's 1/99 (21.160); "
+                         "injection takes that back to 1 (21.159) with a null on correctness "
+                         "and no measured cost anywhere. The fabrication result is n=4 at "
+                         "p=0.125 — enabled as a deliberate decision on suggestive evidence "
+                         "(21.161), not because it is established. `--no-keyword-rules` to "
+                         "disable. Recorded on every answer.")
     ap.add_argument("--max-tokens", type=int, default=800)
     ap.add_argument("--ratings", type=Path, default=RATINGS_PATH)
     args = ap.parse_args()

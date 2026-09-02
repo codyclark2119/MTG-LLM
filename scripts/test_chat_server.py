@@ -49,7 +49,7 @@ class FakeEngine:
         # this test exists to prove `k_rules_used` survives to the stored row,
         # which is only observable when the policy and the treatment differ.
         return {"base_model": "fake", "adapter_path": None, "k_rules": "auto",
-                "max_tokens": 800}
+                "max_tokens": 800, "keyword_rules": True}
 
 
 def test_validation() -> None:
@@ -123,6 +123,10 @@ def test_roundtrip() -> None:
         check("the k this answer actually got rides on the row",
               row["config"]["k_rules_used"], 0)
         check("triage groups on it", effective_k(row), 0)
+        # 21.161 turned this on for everyone; a rating is only interpretable
+        # against the retrieval config that produced the answer.
+        check("keyword-rule injection stamped on the row",
+              row["config"]["keyword_rules"], True)
         check("timestamp recorded", bool(row.get("rated_at")), True)
 
 

@@ -175,6 +175,18 @@ def main() -> None:
         for obs, n in Counter(d["observation"] for _, d in diagnosed).most_common():
             print(f"  {n:3d}  {obs:21s} {action_for(obs, 'down')}")
 
+    # `keyword_rules` rides on every answer's config (21.161). A field a human
+    # or a server writes and no consumer reads changes no number and makes the
+    # sample look better-characterised than it is — this repo's 21.55 trap.
+    by_kw = Counter((r.get("config") or {}).get("keyword_rules") for r in rows)
+    if len(by_kw) > 1:
+        print("\nby keyword-rule injection (21.159/21.161):")
+        for kw, cnt in sorted(by_kw.items(), key=lambda kv: str(kv[0])):
+            d = sum(1 for r in rows if (r.get("config") or {}).get("keyword_rules") == kw
+                    and r.get("rating") == "down")
+            label = {True: "injected", False: "off", None: "before the flag existed"}.get(kw, str(kw))
+            print(f"  {label:24s} {cnt} rated, {d} down ({d / cnt:.0%})")
+
     by_k = Counter(effective_k(r) for r in rows)
     routed = sum(1 for r in rows
                  if (r.get("config") or {}).get("k_rules_used") is not None)
