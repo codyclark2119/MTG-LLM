@@ -61,13 +61,24 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (272)
+python scripts/test_eval.py                       # the scoring arithmetic (508)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
-python scripts/test_webui.py                      # the served page's JavaScript actually parses
-python scripts/test_deploy.py                     # what may leave the machine (83)
-python scripts/gameplay/test_actions.py           # the action grammar (107)
-python scripts/gameplay/test_eval_positions.py    # the gameplay gates (47)
+python scripts/test_webui.py                      # every served page's JavaScript parses (176)
+python scripts/test_deploy.py                     # what may leave the machine (136)
+python scripts/test_chat_server.py                # the chat surface's auth and rating durability
+python scripts/test_server_validation.py          # the rubric server's input validation
+python scripts/test_manifests.py                  # corpus and dataset manifests match the corpora
+python scripts/test_format_snapshot.py            # the pinned format snapshot
+python scripts/test_metagame.py                   # the metagame index
+python scripts/test_mtggoldfish.py                # the decklist importer and its provenance
+python scripts/test_decklist.py                   # decklist legality validation
+python scripts/gameplay/test_actions.py           # the action grammar (130)
+python scripts/gameplay/test_eval_positions.py    # the gameplay gates (61)
 ```
+
+That is the **whole** suite — 14 files. This list was seven for a while, with
+four stale assertion counts, so "I ran the tests" meant half of them; the
+counts are re-checked whenever they are quoted.
 
 `test_eval.py` covers the code that turns judge JSON into published numbers, and
 `test_eval_positions.py` covers the gate arithmetic. Add a case whenever you
@@ -942,8 +953,10 @@ Each cost real time. They recur in new code, so they are worth knowing.
   the chokepoint eleven call sites reach card text through. Scryfall is a live
   API, so a re-fetch returns errata'd oracle text at an unchanged record count.
   Re-pin with `python scripts/chunk_cards.py --update-pin`. Both pins share
-  `_verify_pin`; do not write a third copy. Note `ruling_chunks.jsonl` is
-  currently read by no script.
+  `_verify_pin`; do not write a third copy. `ruling_chunks.jsonl` is read by
+  `retrieve_hybrid.RulingIndex`, and therefore sits on the chat surface's
+  serving path as well as the eval one — it was described here as read by
+  nothing long after that stopped being true.
 - **`rules.jsonl` and `glossary.jsonl` are content-pinned** in `common.CR_PIN`,
   checked by `common.verify_cr_pin` from `load_rule_ids` (the chokepoint seven
   of nine readers reach) and directly from `chunk.py`/`chunk_cards.py`, which

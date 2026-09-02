@@ -77,6 +77,7 @@ def build_context(
     chunks_path: Path = CHUNKS_PATH,
     index_path: Path = INDEX_PATH,
     card_names: list[str] | None = None,
+    scan_prose: bool = False,
 ) -> dict:
     # `card_names` bypasses `find_in_text`, which resolves ONLY `[[bracket]]`
     # syntax and therefore resolves nothing at all on either real gold corpus
@@ -101,7 +102,11 @@ def build_context(
             if len(cards) >= max_cards:
                 break
     else:
-        cards = card_index.find_in_text(question, max_cards=max_cards)
+        # scan_prose is how a LIVE question reaches the card arm at all: a user
+        # types "Does Lightning Bolt kill a Grizzly Bears?" and, bracket-only,
+        # resolves nothing (Section 21.154).
+        cards = card_index.find_in_text(question, max_cards=max_cards,
+                                        scan_prose=scan_prose)
     rulings = ruling_index.find_for_cards(cards) if ruling_index else []
     # k_rules=0 omits the dense-retrieved CR section entirely. Not a
     # micro-optimisation: Section 21.141 measured rules-only RAG scoring BELOW

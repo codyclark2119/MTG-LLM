@@ -106,6 +106,57 @@ def duplicated_vocabularies(files) -> dict[str, list[str]]:
     return {k: v for k, v in seen.items() if len(v) > 1}
 
 
+# Names that legitimately recur: CLI entry points, and helpers whose two copies
+# are genuinely different code that happens to share a generic verb. Each is
+# here because it was checked, not because the check was noisy.
+DUPLICATE_FUNCTION_ALLOWED = {
+    "main", "check", "build_app", "emit", "normalize", "validate",
+    "export_tasks", "parse_worksheet", "read_submissions", "stratified_split",
+    "compare_judges",
+}
+
+
+def duplicated_helpers(files: list[Path], threshold: float = 0.85) -> dict:
+    """Module-level functions defined twice with NEARLY THE SAME BODY.
+
+    `duplicated_vocabularies` above catches a CONSTANT with two homes, and it
+    caught a real one. It does not catch a duplicated FUNCTION, because it
+    only inspects `ast.Assign` targets that are uppercase — and a duplicated
+    helper is precisely the trap this repo records: five jsonl readers, three
+    of which crashed on a trailing blank line because the guard was added to
+    some copies and not others.
+
+    Similarity is compared on the UNPARSED body, so formatting and comments do
+    not hide a copy. A shared name over genuinely different code is a weaker
+    smell and is allowed above by name; near-identical bodies are the thing
+    that rots, so the threshold is high and the failure is loud.
+    """
+    import difflib
+
+    bodies: dict[str, list[tuple[str, str]]] = {}
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name in DUPLICATE_FUNCTION_ALLOWED or node.name.startswith("_"):
+                    continue
+                bodies.setdefault(node.name, []).append((path.name, ast.unparse(node)))
+
+    out = {}
+    for name, seen in bodies.items():
+        if len(seen) < 2:
+            continue
+        for i in range(len(seen)):
+            for j in range(i + 1, len(seen)):
+                ratio = difflib.SequenceMatcher(None, seen[i][1], seen[j][1]).ratio()
+                if ratio >= threshold:
+                    out[name] = (seen[i][0], seen[j][0], ratio)
+    return out
+
+
 def main() -> None:
     files = sorted(p for p in [*SCRIPTS.glob("*.py"), *SCRIPTS.glob("gameplay/*.py")]
                    if p.name not in SKIP)
@@ -115,6 +166,10 @@ def main() -> None:
         failed += 1
         print(f"  FAIL {name} is defined in {len(where)} modules: "
               f"{', '.join(where)} — give it one home and re-export")
+    for name, (a, b, ratio) in sorted(duplicated_helpers(files).items()):
+        failed += 1
+        print(f"  FAIL {name}() is {ratio:.0%} identical in {a} and {b} — "
+              f"import one copy; a guard added to only one is the documented trap")
     for path in files:
         missing = unresolved(path)
         if missing:

@@ -42,13 +42,17 @@ Usage:
 """
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Imported, not reimplemented: this file had its own copy of read_ratings,
+# which is the trap CLAUDE.md records as five jsonl readers with the
+# blank-line guard in only three of them. Both copies happened to be
+# correct, which is luck rather than structure.
+from chat_common import read_ratings
 from common import RULE_ID_RE, REPO_ROOT, load_rule_ids, write_jsonl_atomic
 
 RATINGS_PATH = REPO_ROOT / "data" / "chat" / "ratings.jsonl"
@@ -89,13 +93,6 @@ RATING_ACTIONS = {
 
 def action_for(observation: str, rating: str) -> str:
     return RATING_ACTIONS.get((observation, rating), OBSERVATIONS.get(observation, "?"))
-
-
-def read_ratings(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()]
 
 
 def classify(row: dict, valid_rule_ids: set[str]) -> dict:

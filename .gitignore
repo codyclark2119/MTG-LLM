@@ -52,3 +52,7 @@ submissions.jsonl
 # append-only log would otherwise produce a diff on every single rating.
 # Promotion into the gold set goes through review, never through git.
 data/chat/
+
+# Tilt writes one log file per service here. Runtime output, not source: it is
+# what makes a restart diffable, and it must never be committed.
+logs/

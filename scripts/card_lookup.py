@@ -206,8 +206,23 @@ class CardIndex:
 
         return None, "unresolved"
 
-    def find_in_text(self, text: str, max_cards: int = 5) -> list[dict]:
-        """Cards named in a question, bracketed refs first."""
+    def find_in_text(self, text: str, max_cards: int = 5,
+                     scan_prose: bool = False) -> list[dict]:
+        """Cards named in a question, bracketed refs first.
+
+        `scan_prose` adds the fallback this docstring has implied since it was
+        written: match card names written as ordinary prose, with no brackets.
+        It is OPT-IN because bracket-only is what every stored eval number was
+        produced under, and because prose matching is only safe under the two
+        rules below — a caller that wants it should say so.
+
+        Section 21.136 fixed the eval path by resolving from a record's own
+        verified `cards` field. A live user has no such field: they type
+        "Does Lightning Bolt kill a Grizzly Bears?" and, bracket-only, resolve
+        NOTHING — which drops the question onto the rules-only arm, measured at
+        2.91-3.41 and BELOW no-retrieval at both model sizes (21.141). So the
+        serving path needs to read prose or it cannot reach the best arm at all.
+        """
         found: list[dict] = []
         seen: set[str] = set()
         for raw in BRACKET_RE.findall(text):
@@ -217,7 +232,55 @@ class CardIndex:
                 found.append({**card, "matched_as": raw.strip(), "match_type": how})
             if len(found) >= max_cards:
                 break
+        if scan_prose and len(found) < max_cards:
+            found.extend(self._scan_prose(text, max_cards - len(found), seen))
         return found
+
+    # Phrases that are card names AND ordinary rules language. Measured, not
+    # guessed: across all 1,202 hand-labelled RulesGuru questions these three
+    # are 19 of the 35 total false positives ("The End" 11x, "The Command Zone"
+    # 5x, "Deal Damage" 3x). "Red Mana" joins them for the same reason.
+    PROSE_STOPLIST = frozenset({"the end", "the command zone", "deal damage", "red mana"})
+
+    def _scan_prose(self, text: str, budget: int, seen: set[str]) -> list[dict]:
+        """Unbracketed card names, longest first, MULTI-WORD ONLY.
+
+        Two rules, both measured across `gold_candidates.jsonl` before shipping,
+        the discipline `common.find_players` is held to:
+
+        * **at least two words.** Eighteen ordinary rules words are also card
+          names — `exile`, `lifelink`, `regeneration`, `fear`, `shock`, `fog`,
+          `counterspell` among them — so "How does lifelink work?" would
+          otherwise inject a card into a pure rules question. Requiring two
+          words removes ALL eighteen and still covers 92% of the index. A
+          single-word card is still reachable by bracketing it.
+        * **longest match wins, and its span is masked**, so "Genesis" cannot
+          also match inside "Genesis Wave" and spend a card slot on the wrong
+          card.
+
+        Measured precision: 1,961 correct against 35 false positives (98.2%),
+        and 15 (99.2%) with the stoplist. It MISSES far more than it invents,
+        which is the right direction: a miss is a question answered with less
+        context, an invention is a question answered about the wrong card.
+        """
+        if not hasattr(self, "_prose_names"):
+            self._prose_names = sorted(
+                ((n.lower(), n) for n in self.by_name if len(n.split()) >= 2),
+                key=lambda p: -len(p[0]))
+        hay = re.sub(r"\s+", " ", " " + re.sub(r"[^a-z0-9 ]", " ", text.lower()) + " ")
+        out: list[dict] = []
+        for low, name in self._prose_names:
+            if len(out) >= budget:
+                break
+            if low in self.PROSE_STOPLIST or name in seen:
+                continue
+            if " " + low + " " in hay:
+                card, how = self.resolve(name)
+                if card and card["name"] not in seen:
+                    seen.add(card["name"])
+                    out.append({**card, "matched_as": name, "match_type": how + "+prose"})
+                hay = hay.replace(low, " " * len(low))
+        return out
 
 
 def main() -> None:

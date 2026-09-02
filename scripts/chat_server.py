@@ -104,8 +104,12 @@ class Engine:
 
     def build_context(self, question: str) -> dict:
         from retrieve_hybrid import build_context
+        # scan_prose=True: real users do not know the [[bracket]] convention,
+        # and without it a card question resolves NO card text and falls onto
+        # the rules-only arm — the worst of the three (21.154).
         return build_context(question, self.card_index, embed_model=self.embed_model,
-                             ruling_index=self.ruling_index, k_rules=self.k_rules)
+                             ruling_index=self.ruling_index, k_rules=self.k_rules,
+                             scan_prose=True)
 
     def answer(self, question: str) -> dict:
         from mlx_lm import generate as lm_generate

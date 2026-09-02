@@ -212,6 +212,47 @@ def test_no_model_import_at_module_level() -> None:
         check(f"module level does not {banned}", banned in head, False)
 
 
+def test_prose_card_resolution() -> None:
+    """Unbracketed card names must resolve, and rules words must NOT.
+
+    Bracket-only resolution meant a live user asking "Does Lightning Bolt kill
+    a Grizzly Bears?" got ZERO card text and fell onto the rules-only arm —
+    the worst of the three (21.154). Prose scanning fixes that, and is only
+    safe under two measured rules, both asserted here.
+    """
+    from card_lookup import CardIndex
+
+    ci = CardIndex()
+    names = lambda q, **kw: [c["name"] for c in ci.find_in_text(q, **kw)]
+
+    # Default is unchanged: bracket-only, because every stored eval number was
+    # produced under it.
+    check("default stays bracket-only",
+          names("Does Lightning Bolt kill a Grizzly Bears?"), [])
+    check("brackets still work", names("[[Shock]] it"), ["Shock"])
+
+    check("prose resolves multi-word names",
+          sorted(names("Does Lightning Bolt kill a Grizzly Bears?", scan_prose=True)),
+          ["Grizzly Bears", "Lightning Bolt"])
+
+    # Rule 1: >=2 words. Eighteen ordinary rules words are also card names, so
+    # a single-word match would inject a card into a pure rules question.
+    for word in ("How does lifelink work?", "Can I exile it?",
+                 "Does regeneration still apply?", "What about shock lands?"):
+        check(f"no card invented for: {word}", names(word, scan_prose=True), [])
+
+    # The stoplist: phrases that are card names AND ordinary rules language.
+    check("'the end' is stoplisted",
+          names("What happens at the end of the turn?", scan_prose=True), [])
+    check("'the command zone' is stoplisted",
+          names("Put it into the command zone", scan_prose=True), [])
+
+    # Rule 2: longest match wins and its span is masked, so a shorter card name
+    # cannot also match inside it and spend a slot on the wrong card.
+    check("a longer name shadows the shorter one it contains",
+          names("I cast Genesis Wave for five", scan_prose=True), ["Genesis Wave"])
+
+
 def test_triage_classification() -> None:
     """Triage must separate the three failure halves, including the subtle one.
 
@@ -273,6 +314,7 @@ def test_triage_classification() -> None:
 
 
 def main() -> None:
+    test_prose_card_resolution()
     test_triage_classification()
     test_validation()
     test_roundtrip()

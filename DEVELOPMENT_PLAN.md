@@ -13191,3 +13191,249 @@ thing the live surface has produced that no amount of further benchmark work
 would have found. The candidate fix is a card-free question set — which also
 happens to be the slice where 21.144's k=0 lead is known NOT to hold (21.147),
 so the two open threads meet here.
+
+### 21.152 Cleanup audit: the instruction file had drifted, and the duplicate-name guard could not see the trap it exists for
+
+A static audit run while the chat surface was live, so nothing competed for
+the GPU. Four real defects, all in the layer that tells the next person what
+is true.
+
+**CLAUDE.md listed 7 of 14 tests.** The suite has fourteen files and every one
+passes; the setup section named seven. Anyone following the documented
+workflow ran half the suite and reasonably believed they had run it. The
+missing seven are not stragglers — `test_chat_server`, `test_manifests`,
+`test_server_validation`, `test_decklist`, `test_format_snapshot`,
+`test_metagame`, `test_mtggoldfish`. Now listed in full, with a note saying so.
+
+**All four quoted assertion counts were stale**, every one an undercount:
+
+| test | documented | actual |
+| --- | --- | --- |
+| `test_eval.py` | 272 | **508** |
+| `test_deploy.py` | 83 | **136** |
+| `gameplay/test_actions.py` | 107 | **130** |
+| `gameplay/test_eval_positions.py` | 47 | **61** |
+
+Harmless individually, and exactly the shape of "a number that never was"
+(the 2,644-example dataset that held 1,478 lines): nobody lied, nobody
+recounted.
+
+**CLAUDE.md said `ruling_chunks.jsonl` "is currently read by no script".**
+Ten scripts read it, including `retrieve_hybrid.RulingIndex` — which puts it
+on the chat surface's **serving path**, not just the eval one. A file
+described as unread is a file someone eventually deletes.
+
+**The duplicate-name guard could not see a duplicated function.**
+`test_imports.duplicated_vocabularies` catches a CONSTANT with two homes and
+has caught a real one (`ACTIONS`, this session). It inspects only
+`ast.Assign` targets that are uppercase, so a duplicated *helper* passes
+straight through — and a duplicated helper is precisely the trap this repo
+records: five jsonl readers with the blank-line guard in only three of them.
+`read_ratings` was live in two modules at **97%** identity, introduced by the
+work that added the triage tool.
+
+`duplicated_helpers` now compares unparsed bodies, so formatting and comments
+cannot hide a copy, and fails at ≥85% similarity. Verified by re-introducing
+the duplicate: it reports *"read_ratings() is 97% identical in chat_common.py
+and triage_ratings.py"*. A shared name over genuinely different code is a
+weaker smell and is allow-listed by name — measured first, and 8 of the 9
+repo-wide collisions are that (`compare_judges` at 7% similarity,
+`stratified_split` at 32%), so a naive name-only check would have been noise.
+
+**Not changed, and listed so the decision is explicit**: six untracked files
+in the working tree (`eval/runs/latest.jsonl`, four `_smoke_*` artifacts, a
+root `tasks.json`) and a long-uncommitted `eval/reports/latest.md`. Deleting
+eval artifacts is the user's call, and `latest.*` is the documented trap of a
+default output path that two runs overwrite in turn (21.137).
+
+### 21.153 Local service management: Tilt, because the model services cannot be containerised
+
+A Docker container for the running chat instance was asked for and is not
+possible, for a reason now checked rather than assumed: **`mlx-metal`
+publishes macOS arm64 wheels only** — `macosx_14_0_arm64`,
+`macosx_15_0_arm64`, `macosx_26_0_arm64`. There is no Linux wheel on PyPI, and
+Docker on macOS runs a Linux VM with no Metal passthrough, so a containerised
+`chat_server` could not install mlx at all, never mind reach the GPU. Same
+constraint as Section 21.149's fly.io finding, one level closer to home.
+
+What was actually wanted — contained start/stop, easy rebuild, persistent
+logs, one place to run everything — needs a supervisor, not a container.
+`Tiltfile` provides it with `local_resource`, and `docs/SERVICES.md` is the
+table of what runs where.
+
+| resource | URL | auto-starts | notes |
+| --- | --- | --- | --- |
+| `chat` | 127.0.0.1:8800 | **yes** | loopback + `--secure-cookies`, restarts on source edit |
+| `tunnel` | random `trycloudflare.com` | no | publishes chat; `resource_deps=['chat']` |
+| `rubric` | 127.0.0.1:8000 | no | the authoring form, model-free |
+| `webui` | 127.0.0.1:8765 | no | research console; subprocess runner |
+| `tests` | — | no | all 14 files |
+
+**Every service is defined and visible; only `chat` starts.** The first version
+hid `webui` and `tunnel` behind `--with-*` flags, which was inconsistent with
+`rubric` and `tests` — those were already defined-but-not-started via
+`auto_init=False`, which is the same protection with none of the friction. A
+flag additionally made them **invisible**, and a service nobody can see is a
+service nobody knows exists. The real protection lives in the services
+themselves: `webui.py` binds loopback unless given `--lan`, and the tunnel
+cannot start before chat is up. `auto_init` is a real parameter, confirmed by
+feeding Tilt a bogus kwarg and watching it reject it.
+
+**Ports are the scripts' own defaults** (8800/8000/8765), so `tilt up` and
+running a script by hand agree about where a service lives. An earlier draft
+invented 8081 for the rubric form, which would have made the Tiltfile a second
+source of truth for a value the script already owns.
+
+Every resource tees to `logs/<name>.log` as well as the Tilt UI. The UI buffer
+is capped and dies with the process; the file survives a restart and can be
+diffed afterwards, which is the point of asking for a persistent log state.
+`logs/` is gitignored, and the tunnel's random public URL lands in
+`logs/tunnel.log`.
+
+**One real bug, found by running rather than evaluating.** The first version
+built commands as `exec . mlx_env/bin/activate && python ...`, which fails with
+`exec: .: not found` — `exec` cannot run a shell builtin. `tilt alpha
+tiltfile-result` passed it happily, because it parses the Tiltfile without
+executing a single command: the Tiltfile was syntactically perfect and every
+service would have failed to start. The fix removes the shell entirely and
+calls `mlx_env/bin/python` by path, which also cannot drift from whatever the
+ambient shell has activated. Verified by running the `tests` resource exactly
+as Tilt will invoke it — 14 files, exit 0.
+
+`deploy/Dockerfile` is untouched and still correct. It builds the model-free
+rubric form for a PUBLIC host, which is a different job from running services
+locally, and conflating the two is what would have put a model loader in a
+public image (21.149).
+
+### 21.154 The live surface could not resolve a card unless the user typed brackets
+
+Four overnight ratings, and the third one exposed a serving-path defect that
+no benchmark could have found.
+
+**The ratings**: 2 up, 2 down. Three of four named no card at all — "deathtouch
+and trample", "first strike vs deathtouch", "how does banding work" — extending
+21.151's observation to **3 of 4**. The fourth asked about two specific cards
+and was rated down with a note saying the ward cost was wrong.
+
+**That fourth question was typed with `[[brackets]]`**, which is what made the
+defect visible. `chat_server` reaches cards through `build_context` with no
+`card_names`, so it falls to `find_in_text` — **bracket-only**. Measured:
+
+| question | cards resolved |
+| --- | --- |
+| `If I have a [[Tolarian Terror]] and a [[Hexing Squelcher]] ...` | both |
+| `If I have a Tolarian Terror and a Hexing Squelcher ...` | **none** |
+| `Does Lightning Bolt kill a Grizzly Bears?` | **none** |
+
+An ordinary user does not know the convention. Without it a card question
+resolves **zero** card text and drops onto the rules-only arm — measured at
+2.91–3.41 and *below* no-retrieval at both model sizes (21.141). Section
+21.136 fixed this for the eval path by reading each record's verified `cards`
+field; a live user has no such field, so the serving path needed the prose
+fallback `find_in_text`'s own docstring has implied ("bracketed refs first")
+since it was written.
+
+**Prose matching is only safe under two rules, both measured before shipping**
+— the discipline `common.find_players` is held to.
+
+*At least two words.* **Eighteen ordinary rules words are also card names** —
+`exile`, `lifelink`, `regeneration`, `fear`, `shock`, `fog`, `counterspell`
+among them — so "How does lifelink work?" would otherwise inject a card into a
+pure rules question. Requiring two words removes **all eighteen** and still
+covers **92%** of the index. A single-word card stays reachable by bracketing
+it. (An earlier draft of this matcher used `len(name) >= 5`, which passes
+`exile`, `shock`, `island` and `lifelink` straight through — the measurement
+is what caught it, not review.)
+
+*Longest match wins, and its span is masked*, so `Genesis` cannot also match
+inside `Genesis Wave` and spend a card slot on the wrong card.
+
+**Precision, over all 1,202 hand-labelled RulesGuru questions: 1,961 correct
+against 35 false positives (98.2%), and 15 (99.2%) with a four-entry
+stoplist.** The false positives concentrate hard — `The End` 11x, `The Command
+Zone` 5x, `Deal Damage` 3x are 19 of the 35, all phrases that are card names
+*and* ordinary rules language. It misses far more than it invents (1,104
+misses), which is the correct direction: a miss answers with less context, an
+invention answers about the wrong card.
+
+**Opt-in, not default.** `scan_prose=False` everywhere except `chat_server`,
+because bracket-only is what every stored eval number was produced under and
+changing it silently would alter what those numbers describe.
+
+Effect on the actual down-rated question: **0 characters of context → 1,385**,
+carrying both cards *and* both official rulings — which is precisely the ward
+text the reviewer's note said the answer got wrong.
+
+### 21.155 A card-free benchmark reverses 21.141: rules retrieval is redundant, not broken
+
+Section 21.151 found that real users ask card-free questions — 3 of the first
+4 — and that the card/ruling benchmark is card-grounded **by construction**, so
+it structurally cannot measure the path those questions take. The gap turned
+out to be near-total across the whole project: **8** card-free questions in
+`gold_questions.jsonl` (and those are definitional — *"What does 'Face Down'
+mean?"*), **2** of 1,202 in the RulesGuru pool, **0** of 53 in the card/ruling
+benchmark. The keyword-*interaction* question a person actually asks was
+unrepresented everywhere.
+
+`data/gold/rules_only_candidates.jsonl` is 20 such questions, covering what the
+raters asked: deathtouch+trample, first strike vs deathtouch, double
+strike+deathtouch, flying/reach, menace, protection, ward, indestructible vs 0
+toughness, hexproof vs shroud, regeneration, sacrifice, SBA timing, priority.
+
+Two properties are machine-checked rather than asserted. **Every citation
+exists in the pinned CR** — 30 citations, 24 distinct, 0 invalid — a check that
+paid for itself immediately: the draft cited `701.15a` for regeneration (it is
+**goad**) and `701.17a` for sacrifice (it is **mill**), and four keyword rules
+needed their `b` sub-rule because `a` is only *"X is a static ability."* And
+**card-freeness is verified with `scan_prose=True`** (21.154), the strictest
+matcher available, not merely by an empty `cards` field.
+
+Same caveat as every generated set here: `needs_review: true`, machine-drafted,
+and 14.6's hand-authored-beats-generated margin applies.
+
+**The result reverses 21.141.** Two distinct arms, `--with-cards` deliberately
+omitted so the cards arm cannot degenerate into `base_rag` (21.143's confound):
+
+| benchmark | 7B | 32B |
+| --- | --- | --- |
+| card-grounded, n=53 (21.141) | **−0.32** retrieval hurts | **−0.29** retrieval hurts |
+| **card-free, n=20** | **+0.65**, 10/2, **p = 0.039** | **+0.40**, 6/3, p = 0.51 |
+
+Rules retrieval is not broken. It is **redundant when cards and official
+rulings already supply the context, and genuinely useful when they do not**.
+21.141 measured it only where card context was present, so its conclusion held
+a condition fixed that nobody had thought to vary — and stated the result as a
+property of retrieval rather than of the pairing. The 7B result is the first
+statistically significant retrieval finding in this project.
+
+**Retrieval also eliminates fabricated citations outright**: `base` invents
+rule ids on 4/20 (7B) and 2/20 (32B); `base_rag` on **0/20** for both. For a
+rules bot a confidently-cited wrong answer is the worst failure mode, and this
+is the cheapest available fix for it.
+
+**Second finding: the model-size advantage nearly vanishes here.**
+
+| arm | 7B → 32B | |
+| --- | --- | --- |
+| `base` | 3.04 → 3.34 | +0.30, p = 0.55 |
+| `base_rag` | 3.69 → **3.74** | **+0.05**, p = 1.000 |
+| *card-grounded best arm (21.139)* | *3.69 → 4.19* | *+0.50, p = 0.014* |
+
+On card-free questions the 32B buys **+0.05** — nothing. 21.139's +0.50 was
+specific to card-grounded questions, where a bigger model is better at *using*
+card text it is handed. That strengthens 21.145's decision to ship the 7B: on
+3 of 4 real questions the expensive model would add nothing measurable.
+
+**The actionable result is a conditional routing rule, both halves measured:**
+
+| condition | k | evidence |
+| --- | --- | --- |
+| cards resolve | **0** | 21.144: +0.25 with no CR text (p = 0.078) |
+| no cards resolve | **3** | this section: +0.65 with it (p = 0.039) |
+
+The live service currently uses `k=3` unconditionally, so it is already right
+for the card-free majority and is leaving 21.144's gain unclaimed on the rest.
+
+**Limits**: n=20, one judge, machine-drafted questions and rubrics, and the
+32B arm is not significant. The 7B arm is the solid one, which is convenient
+given the 7B is what ships.
