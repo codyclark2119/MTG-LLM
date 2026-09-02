@@ -27,6 +27,7 @@ their own directory is already on `sys.path`:
     from common import SYSTEM_PROMPT, CR_VERSION, RULE_ID_RE
 """
 
+import argparse
 import hashlib
 import json
 import os
@@ -269,6 +270,50 @@ CARDS_RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
     " Use ONLY the provided card text and rules text to answer; do not rely on "
     "outside knowledge. The card text is authoritative for what each named card does."
 )
+
+# --- Retrieval routing ------------------------------------------------------
+#
+# Conditional routing (Section 21.156). Rules retrieval is not good or bad in
+# general -- it is good or bad DEPENDING ON whether card text is already in the
+# context, and the two halves were measured separately, in opposite directions:
+#
+#   cards resolve    -> k=0   21.144: +0.25 WITHOUT the CR section (p = 0.078),
+#                             n=53 card/ruling benchmark, 32B, 17 wins to 9
+#   no cards resolve -> k=3   21.155: +0.65 WITH it (p = 0.039), n=20 card-free
+#                             benchmark, 7B, 10 wins to 2 -- and it takes
+#                             fabricated rule citations from 4/20 to 0/20
+#
+# Section 21.141 read the first half as a fact about retrieval ("rules-only RAG
+# scores below no-retrieval") when it was a fact about the PAIRING: every
+# question in that benchmark named a card, so the condition was never varied.
+#
+# Here rather than in `retrieve_hybrid` because four CLIs parse this flag and
+# `retrieve_hybrid` pulls in `rag`, which imports mlx_embeddings at module
+# scope -- `chat_server` builds its parser without ever loading a model, and
+# `common` stays pure stdlib (see CLAUDE.md).
+K_RULES_CARDS_RESOLVED = 0
+K_RULES_NO_CARDS = 3
+AUTO_K_RULES = "auto"
+
+
+def route_k_rules(n_cards: int) -> int:
+    """How many CR chunks to retrieve, given how many cards already resolved."""
+    return K_RULES_CARDS_RESOLVED if n_cards else K_RULES_NO_CARDS
+
+
+def k_rules_arg(value: str) -> int | str:
+    """argparse type for `--k-rules`: a non-negative int, or "auto"."""
+    if value == AUTO_K_RULES:
+        return AUTO_K_RULES
+    try:
+        k = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f'expected an integer or "{AUTO_K_RULES}", got {value!r}')
+    if k < 0:
+        raise argparse.ArgumentTypeError(f"k must be >= 0, got {k}")
+    return k
+
 
 # --- Canonical data paths ---------------------------------------------------
 

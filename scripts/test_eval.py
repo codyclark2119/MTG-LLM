@@ -786,6 +786,108 @@ def test_card_names_override() -> int:
     return failed
 
 
+def test_k_rules_routing() -> int:
+    """`--k-rules auto` must route the right way and reach every CLI (21.156).
+
+    Routing is one line of arithmetic sitting under a decision that took two
+    benchmarks to make, and inverting it is the failure that looks fine: k=0
+    on a card-free question is the no-retrieval arm, which 21.155 measured at
+    -0.65, and nothing downstream would say so — the run would simply score
+    lower and read as a bad day. So the DIRECTION is asserted, not just that a
+    number comes out.
+
+    The rest of this guards the shape CLAUDE.md calls "a hardening landing on a
+    subset of the writers", which has happened five times here. Five CLIs take
+    `--k-rules`; one left at `type=int` accepts `auto` nowhere and fails with an
+    argparse error naming the wrong problem. And two silent-consumer traps in
+    opposite directions: `k_rules_used` written and read by nothing (a field
+    that changes no number), or read and never written (a grouping that
+    silently collapses).
+    """
+    import argparse
+    import inspect
+
+    from common import (AUTO_K_RULES, K_RULES_NO_CARDS, REPO_ROOT, k_rules_arg,
+                        route_k_rules)
+
+    scripts = REPO_ROOT / "scripts"   # never cwd-relative; this suite runs from anywhere
+
+    failed = 0
+    # Direction. Zero cards resolved is the card-FREE branch (21.155, k=3);
+    # any card resolved is the card branch (21.144, k=0).
+    if not check("route_k_rules(0 cards) is the card-free k", route_k_rules(0),
+                 K_RULES_NO_CARDS):
+        failed += 1
+    for n in (1, 2, 3):
+        if not check(f"route_k_rules({n} cards) drops the CR section",
+                     route_k_rules(n), 0):
+            failed += 1
+
+    if not check('k_rules_arg("auto")', k_rules_arg("auto"), AUTO_K_RULES):
+        failed += 1
+    if not check('k_rules_arg("5")', k_rules_arg("5"), 5):
+        failed += 1
+    for bad in ("-1", "three", ""):
+        try:
+            k_rules_arg(bad)
+            print(f"  FAIL k_rules_arg({bad!r}) was accepted")
+            failed += 1
+        except argparse.ArgumentTypeError:
+            pass
+        check(f"k_rules_arg({bad!r}) refused", True, True)
+
+    # Every CLI that takes the flag must take the same values for it.
+    for name in ("eval", "infer", "chat_server", "measure_throughput"):
+        src = (scripts / f"{name}.py").read_text()
+        if '"--k-rules"' not in src:
+            print(f"  FAIL {name}.py no longer defines --k-rules")
+            failed += 1
+            continue
+        decl = src[src.index('"--k-rules"'):][:200]
+        if "k_rules_arg" not in decl:
+            print(f"  FAIL {name}.py --k-rules is not type=k_rules_arg, so "
+                  f"`--k-rules auto` is rejected there")
+            failed += 1
+        check(f"{name}.py --k-rules typed", True, True)
+    # retrieve_hybrid names the flag --k, not --k-rules.
+    if "k_rules_arg" not in (scripts / "retrieve_hybrid.py").read_text():
+        print("  FAIL retrieve_hybrid.py --k does not accept auto")
+        failed += 1
+
+    # build_context must resolve AUTO before `k_rules > 0`, which TypeErrors on
+    # a str, and must return what it decided.
+    from retrieve_hybrid import build_context
+    src = inspect.getsource(build_context)
+    body = src[src.index("rulings = "):]
+    if "route_k_rules" not in body.split("rules_hits")[0]:
+        print("  FAIL build_context does not resolve AUTO before retrieving")
+        failed += 1
+    for field in ('"k_rules_used"', '"k_rules_routed"'):
+        if field not in src:
+            print(f"  FAIL build_context does not return {field}")
+            failed += 1
+
+    # The rules-only `_rag` arm resolves no cards by construction, so it must
+    # NOT be handed "auto" — `retrieve_context(k="auto")` fails inside numpy,
+    # after a model load, in a run that has already paid for generation.
+    from eval import generate_all_answers
+    gen_src = inspect.getsource(generate_all_answers)
+    if "plain_k" not in gen_src or "retrieve_context(q[\"question\"], embed_model, k=plain_k)" not in gen_src:
+        print("  FAIL generate_all_answers passes k_rules straight to the rules-only arm")
+        failed += 1
+
+    # Written by the server, read by triage. Both directions, because either
+    # half alone is silent.
+    if '"k_rules_used": result' not in (scripts / "chat_server.py").read_text():
+        print("  FAIL chat_server does not stamp k_rules_used on the answer row")
+        failed += 1
+    triage_src = (scripts / "triage_ratings.py").read_text()
+    if "k_rules_used" not in triage_src or "effective_k" not in triage_src:
+        print("  FAIL triage_ratings groups on the policy, not the k each answer got")
+        failed += 1
+    return failed
+
+
 def test_base_only_arms() -> int:
     """`--base-only` must drop the adapter arms and keep the base ones (21.138).
 
@@ -2847,6 +2949,7 @@ def main() -> None:
                      ("unseen_arms", test_unseen_arms),
                      ("base_only_arms", test_base_only_arms),
                      ("card_names_override", test_card_names_override),
+                     ("k_rules_routing", test_k_rules_routing),
                      ("no_plain_rag_arm", test_no_plain_rag_arm),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),

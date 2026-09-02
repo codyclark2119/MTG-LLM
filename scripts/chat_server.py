@@ -26,11 +26,18 @@ Configuration is not a free choice — it is what Phase 1 measured:
   * **The model is loaded ONCE at startup.** `infer.py` reloads per
     invocation, which is right for a CLI and fatal for a chat surface.
 
-`--k-rules` defaults to 3, the established configuration. Section 21.144
-measured k=0 (no CR text at all) at +0.25 with p = 0.078 — the strongest
-retrieval lead this project has, and short of significance. Every answer
-records the k it was generated under, so real user ratings accumulate into
-the A/B test the benchmark could not settle on its own.
+`--k-rules` defaults to `auto`, which decides PER QUESTION (Section 21.156).
+The two halves were measured separately and point in opposite directions: with
+card text already in the context, dropping the CR section is worth +0.25
+(21.144, p = 0.078); with no card resolved, keeping it is worth +0.65 (21.155,
+p = 0.039) and takes fabricated rule citations from 4/20 to 0/20. Live traffic
+contains both, so a fixed k is wrong for one of them either way — and both live
+questions rated so far were the second kind, which the card/ruling benchmark
+could not measure at all.
+
+Every answer records `k_rules_used`, not just the policy, so ratings still
+accumulate into an A/B test — now a within-policy one, split by which branch
+each question took.
 
 **Ratings store the retrieved context that was actually used.** Without it a
 low rating cannot be diagnosed: a retrieval miss and a reasoning miss look
@@ -41,7 +48,7 @@ Phase 1. Appended one JSON object per line, fsynced, mirroring
 Usage:
     python scripts/chat_server.py                      # loopback only
     python scripts/chat_server.py --lan                # LAN, prints a token
-    python scripts/chat_server.py --k-rules 0          # serve the 21.144 lead
+    python scripts/chat_server.py --k-rules 3          # pin it, ignoring the router
 """
 
 import argparse
@@ -61,7 +68,8 @@ import chat_auth
 from chat_common import (INDEX_HTML, LOGIN_HTML, MAX_QUESTION_CHARS,  # noqa: F401
                          append_rating, read_ratings, validate_ask,
                          validate_rating)
-from common import BASE_MODEL_ID, REPO_ROOT, build_rag_messages
+from common import (AUTO_K_RULES, BASE_MODEL_ID, REPO_ROOT, build_rag_messages,
+                    k_rules_arg)
 
 RATINGS_PATH = REPO_ROOT / "data" / "chat" / "ratings.jsonl"
 MAX_QUESTION_CHARS = 2000
@@ -78,7 +86,7 @@ class Engine:
     load a public surface is exactly where you meet.
     """
 
-    def __init__(self, base_model_id: str, k_rules: int, max_tokens: int,
+    def __init__(self, base_model_id: str, k_rules: int | str, max_tokens: int,
                  adapter_path: str | None = None):
         self.base_model_id = base_model_id
         self.k_rules = k_rules
@@ -128,6 +136,10 @@ class Engine:
             "cards": result["card_names"],
             "rulings": result["ruling_card_names"],
             "rules_chunks": result["rules_chunk_ids"],
+            # Under `--k-rules auto` the config is no longer a run-level
+            # constant, so the value that actually applied to THIS answer has
+            # to travel with it — see config() below.
+            "k_rules_used": result["k_rules_used"],
             "elapsed_s": round(time.perf_counter() - t0, 2),
         }
 
@@ -139,6 +151,13 @@ class Engine:
         changes bug in four separate sections (21.13, 21.62, 21.65, 21.78);
         stamping the config onto the row is the cheap version of not repeating
         it a fifth time.
+
+        Under `--k-rules auto` this returns the POLICY, not the treatment: it
+        is one string for the process while the k actually applied varies per
+        question (Section 21.156). `/api/ask` therefore stamps `k_rules_used`
+        alongside it, and `triage_ratings` reads that. A rating stamped only
+        `k_rules: "auto"` names which switch was on, not which branch it took —
+        the same distinction that made `_cards` runs unreadable in 21.136.
         """
         return {
             "base_model": self.base_model_id,
@@ -246,7 +265,7 @@ def build_app(engine, ratings_path: Path, auth=None, secure_cookies: bool = Fals
             "rulings": result["rulings"],
             "rules_chunks": result["rules_chunks"],
             "elapsed_s": result["elapsed_s"],
-            "config": engine.config(),
+            "config": {**engine.config(), "k_rules_used": result.get("k_rules_used")},
         })
         return {
             "answer_id": answer_id,
@@ -296,9 +315,12 @@ def main() -> None:
     ap.add_argument("--adapter-path", default=None,
                     help="not recommended: six fine-tunes all scored BELOW the "
                          "base model on the card/ruling benchmark (21.139)")
-    ap.add_argument("--k-rules", type=int, default=3,
-                    help="3 is the established config; 0 serves Section 21.144's "
-                         "lead (+0.25, p=0.078). Recorded on every answer.")
+    ap.add_argument("--k-rules", type=k_rules_arg, default=AUTO_K_RULES,
+                    help="default `auto`: 0 CR chunks when the question resolved a "
+                         "card (21.144, +0.25), 3 when it did not (21.155, +0.65 and "
+                         "no fabricated citations). Neither fixed value is right for "
+                         "both halves of live traffic (Section 21.156). Pass an integer "
+                         "to pin it. Recorded on every answer, per question.")
     ap.add_argument("--max-tokens", type=int, default=800)
     ap.add_argument("--ratings", type=Path, default=RATINGS_PATH)
     args = ap.parse_args()

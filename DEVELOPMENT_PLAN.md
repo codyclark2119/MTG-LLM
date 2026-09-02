@@ -13437,3 +13437,82 @@ for the card-free majority and is leaving 21.144's gain unclaimed on the rest.
 **Limits**: n=20, one judge, machine-drafted questions and rubrics, and the
 32B arm is not significant. The 7B arm is the solid one, which is convenient
 given the 7B is what ships.
+
+### 21.156 Conditional routing: the policy 21.144 and 21.155 jointly imply, and the four places a per-question k stops being a config
+
+21.155 ended with a routing table and no router. This section builds it.
+
+`common.route_k_rules(n_cards)` is the whole decision — 0 CR chunks when the
+question resolved a card, 3 when it did not — and `--k-rules auto` turns it on
+in `eval.py`, `infer.py`, `chat_server.py` and `measure_throughput.py`.
+`chat_server` **defaults to it**; the other three default to 3, because a
+benchmark run should keep changing only when someone says so.
+
+**Why the constants live in `common.py` rather than `retrieve_hybrid.py`.**
+Four CLIs parse this flag, and `retrieve_hybrid` imports `rag`, which imports
+`mlx_embeddings` at module scope. `chat_server` builds its parser without
+loading a model and `test_chat_server` stands the app up behind a fake engine;
+routing the flag through `retrieve_hybrid` would have made both pay for MLX to
+read a `--help`. The routing constants are pure stdlib, so they go where
+CLAUDE.md says shared values go.
+
+**The measured thing this changes.** On "Does Lightning Bolt kill a Grizzly
+Bears?" the CR section is 10,073 of 10,272 context characters — **98%**. Routing
+deletes it on card questions. That is not a side benefit to the +0.25: prompt
+length is what 21.145's latency gate was decided on, so the same change that
+raises the score also shortens the prompt on the half of traffic where the score
+went up.
+
+**Routing removes a degenerate case a fixed k cannot.** At a pinned `k=0` a
+card-free question gets a **0-character** context (verified). `build_rag_messages`
+falls back to the plain no-context `SYSTEM_PROMPT` for an empty string, so this
+is not a broken prompt — it is worse-behaved than that, because it silently
+becomes the *no-retrieval* arm, which 21.155 measured at **−0.65**. It is the
+serving-path form of 21.143's byte-identical arms, and `auto` cannot produce it:
+no cards implies k=3 by construction.
+
+**A per-question k is not a config, and four consumers assumed it was.** This
+is the "a hardening landed on a subset of the writers" shape (21.51, 21.53,
+21.54, 21.74) reached through a flag instead of a report writer:
+
+- **The rules-only `_rag` arm cannot be routed.** It resolves no cards by
+  construction, so it takes the card-free branch directly. Passing `"auto"`
+  through would have reached `retrieve_context(k="auto")` and failed inside
+  numpy — *after* the model load, in a run that had already paid for
+  generation. The consistency rerun needed the same treatment for a different
+  reason: it exists to measure whether that arm is **stable**, so a different
+  context makes it report stability for a configuration nothing ran (21.61).
+- **The report header stops being true.** `- k: 3` is a fact about the run;
+  `- k: auto` is a fact about the switch. `routing_out` counts the split and
+  the header prints `k=0 on N questions, k=3 on M`, because a report naming the
+  policy without the split cannot be read against a fixed-k run at all.
+- **A rating stamped `k_rules: "auto"` is uninterpretable.** 21.146 stamps the
+  config on every answer precisely so a rating can be read later; under routing
+  that stamp names the switch, not the treatment. `k_rules_used` rides on each
+  answer, and `triage_ratings.effective_k` groups on it — falling back to
+  `k_rules` for the four ratings collected before routing existed, for which the
+  fixed config **is** the treatment. Both halves are asserted, in both
+  directions: a field written and read by nothing changes no number (21.55), and
+  one read but never written collapses a breakdown silently.
+
+**The by-k breakdown is not an A/B, and the tool now says so.** The router
+splits on *question type*, so k=0 rows are card questions and k=3 rows are
+card-free ones. A gap between the buckets is confounded with what was asked. The
+two halves were each measured against a fixed control on their own benchmark;
+comparing the buckets to each other measures neither.
+
+**Not claimed here**: that routing beats a fixed k end to end. Each half is
+measured against its own control (+0.25 at p=0.078, +0.65 at p=0.039), the
+policy is what those two jointly imply, and the combined effect on mixed traffic
+has not been run as a single experiment. `--k-rules auto` exists on `eval.py` so
+it can be, and the honest reading until then is *two measured halves and an
+untested join*.
+
+**Verification.** `test_eval.test_k_rules_routing` (13 assertions, suite now
+521) asserts the routing DIRECTION — inverting it is the failure that looks
+like a bad day rather than a bug, since k=0 on a card-free question is just the
+−0.65 arm — plus that all five CLIs accept the same values, that `build_context`
+resolves `AUTO` before the `k > 0` comparison that raises `TypeError` on a str,
+and that the plain arm is not handed it. `test_chat_server` asserts
+`k_rules_used` on the **persisted** row. All four were confirmed to fail against
+deliberately broken code before being kept.

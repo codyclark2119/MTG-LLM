@@ -129,8 +129,23 @@ def classify(row: dict, valid_rule_ids: set[str]) -> dict:
         "ungrounded": ungrounded,
         "context_chars": len(context),
         "cards": row.get("cards", []),
-        "k_rules": (row.get("config") or {}).get("k_rules"),
+        "k_rules": effective_k(row),
     }
+
+
+def effective_k(row: dict) -> int | None:
+    """The k this ANSWER was generated under, not the policy the server ran.
+
+    Under `--k-rules auto` every row's `config.k_rules` is the string "auto"
+    (Section 21.156), so grouping on it collapses both branches into one bucket
+    and the by-k breakdown — the whole point of which is to compare them —
+    silently reports a single row. `k_rules_used` is the per-question value and
+    is what to group on; rows written before routing existed do not carry it and
+    fall back to the fixed config, which for them IS the treatment.
+    """
+    config = row.get("config") or {}
+    used = config.get("k_rules_used")
+    return config.get("k_rules") if used is None else used
 
 
 def main() -> None:
@@ -160,14 +175,26 @@ def main() -> None:
         for obs, n in Counter(d["observation"] for _, d in diagnosed).most_common():
             print(f"  {n:3d}  {obs:21s} {action_for(obs, 'down')}")
 
-    by_k = Counter((r.get("config") or {}).get("k_rules") for r in rows)
+    by_k = Counter(effective_k(r) for r in rows)
+    routed = sum(1 for r in rows
+                 if (r.get("config") or {}).get("k_rules_used") is not None)
     if len(by_k) > 1:
-        print("\nby k_rules (each answer records the config it was generated under):")
+        print("\nby k_rules (the k each ANSWER got, not the policy the server ran):")
         for k, n in sorted(by_k.items(), key=lambda kv: (kv[0] is None, kv[0])):
             d = sum(1 for r in rows
-                    if (r.get("config") or {}).get("k_rules") == k
-                    and r.get("rating") == "down")
+                    if effective_k(r) == k and r.get("rating") == "down")
             print(f"  k={k}: {n} rated, {d} down ({d / n:.0%})")
+        if routed:
+            pinned = len(rows) - routed
+            print(f"  ({routed} of {len(rows)} were routed per question"
+                  + (f"; {pinned} ran at a pinned k" if pinned else "")
+                  + ". Section 21.156)")
+        # Both arms of the router were chosen on separate benchmarks, so this
+        # is not a randomised A/B: k=0 rows are card questions and k=3 rows are
+        # card-free ones. A difference between the buckets is confounded with
+        # question type and is a prompt to look, not a result.
+        print("  NOTE: not an A/B — the router splits on question type, so the "
+              "buckets differ in what they were asked, not only in k.")
 
     if args.show:
         want = {"down": ["down"], "up": ["up"], "all": ["up", "down"]}[args.show]

@@ -37,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from common import build_rag_messages, read_jsonl
+from common import build_rag_messages, k_rules_arg, read_jsonl
 
 CARD_RULING_PATH = Path(__file__).parent.parent / "data" / "gold" / "card_ruling_candidates.jsonl"
 DEFAULT_MODELS = [
@@ -57,7 +57,7 @@ def peak_rss_gb() -> float:
     return raw / (1024 ** 3) if sys.platform == "darwin" else raw / (1024 ** 2)
 
 
-def build_prompts(n: int, k_rules: int) -> list[tuple[str, str]]:
+def build_prompts(n: int, k_rules: int | str) -> list[tuple[str, str]]:
     """(question, context) pairs with REAL retrieved context attached."""
     from card_lookup import CardIndex
     from retrieve_hybrid import RulingIndex, build_context
@@ -148,7 +148,10 @@ def main() -> None:
                         help="questions to time per model (default 5)")
     parser.add_argument("--max-tokens", type=int, default=800,
                         help="must match the eval runs being compared (default 800)")
-    parser.add_argument("--k-rules", type=int, default=3)
+    parser.add_argument("--k-rules", type=k_rules_arg, default=3,
+                        help='CR chunks per question, or "auto" (Section 21.156). '
+                             'Routing changes PROMPT LENGTH, so a throughput number '
+                             'is only comparable to another at the same setting.')
     args = parser.parse_args()
 
     print(f"building {args.n} prompts with real retrieved context ...")

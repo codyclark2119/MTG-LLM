@@ -58,6 +58,7 @@ from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
     read_jsonl,
 )
 from common import RULE_ID_RE as CROSS_REF_RE
+from common import AUTO_K_RULES, K_RULES_NO_CARDS, k_rules_arg
 from stamp_adapter import check as prompt_stamp_check
 from stamp_adapter import unseen_arms
 from rag import MODEL_ID as EMBED_MODEL_ID
@@ -799,14 +800,21 @@ def generate_all_answers(
     with_cards: bool = False, with_rulings: bool = False,
     base_model_id: str = BASE_MODEL_ID, base_only: bool = False,
     truncation_out: dict[str, int] | None = None,
-    exemplars: list[tuple[str, str]] | None = None, k_rules: int = 3,
-    no_plain_rag: bool = False,
+    exemplars: list[tuple[str, str]] | None = None, k_rules: int | str = 3,
+    no_plain_rag: bool = False, routing_out: dict[str, int] | None = None,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
 
     answers: dict[str, list[str]] = {}
-    contexts = [retrieve_context(q["question"], embed_model, k=k_rules) for q in questions]
+    # The rules-only `_rag` arm is NOT routed, and cannot be: routing keys off
+    # whether a card resolved, and this arm resolves none by construction. It
+    # is the card-free branch of the policy, so under AUTO it takes that
+    # branch's k -- routing it on its own (empty) card list would give the same
+    # answer through a confusing path, and passing "auto" straight through
+    # would make its context depend on a lookup it never performs.
+    plain_k = K_RULES_NO_CARDS if k_rules == AUTO_K_RULES else k_rules
+    contexts = [retrieve_context(q["question"], embed_model, k=plain_k) for q in questions]
 
     card_contexts = None
     if with_cards:
@@ -824,12 +832,22 @@ def generate_all_answers(
         # (Section 21.136: find_in_text resolves 0/99 on the real gold set).
         # Falls back to text-scanning when a record carries no `cards`, so a
         # corpus that DOES use bracket syntax keeps working unchanged.
-        card_contexts = [
+        built = [
             build_context(q["question"], card_index, embed_model=embed_model,
                           ruling_index=ruling_index, k_rules=k_rules,
-                          card_names=q.get("cards") or None)["context"]
+                          card_names=q.get("cards") or None)
             for q in questions
         ]
+        card_contexts = [b["context"] for b in built]
+        # Under AUTO the header's "k: 3" line becomes a lie by omission -- k is
+        # no longer one number for the run, and a report that names the POLICY
+        # without the SPLIT cannot be read against a fixed-k run at all. This
+        # is the same discipline as recording an overridable default in the
+        # output; routing just makes the default per-question.
+        if routing_out is not None and k_rules == AUTO_K_RULES:
+            for b in built:
+                routing_out[f"k{b['k_rules_used']}"] = \
+                    routing_out.get(f"k{b['k_rules_used']}", 0) + 1
         named = sum(1 for c in card_contexts if c.startswith("Cards referenced:"))
         from_field = sum(1 for q in questions if q.get("cards"))
         print(f"  {named}/{len(questions)} questions had at least one card resolved"
@@ -1419,11 +1437,14 @@ def main() -> None:
                              "(53/53 questions, vs 0/53 at k=3), which hands the batched\n"
                              "judge a duplicate candidate. CHANGES THE ARM COUNT -- see\n"
                              "Section 21.5 and 21.143.")
-    parser.add_argument("--k-rules", type=int, default=3, metavar="K",
-                        help="how many CR rules chunks to retrieve per question. The default of 3\n"
-                             "was never varied against ANSWER quality — Section 21.68 measured\n"
-                             "cited-rule recall rising 17%%/23%%/34%% at k=3/5/10 but nobody ever\n"
-                             "checked whether the answers improved (Section 21.141).")
+    parser.add_argument("--k-rules", type=k_rules_arg, default=3, metavar="K",
+                        help="how many CR rules chunks to retrieve per question, or `auto` to\n"
+                             "choose PER QUESTION: 0 when the question resolved a card, 3 when\n"
+                             "it did not. The two halves were measured separately and disagree\n"
+                             "in sign — +0.25 for k=0 with cards (21.144), +0.65 for k=3 without\n"
+                             "them (21.155) — so no single k is right for both (Section 21.156).\n"
+                             "`auto` changes the CARD arm only; the rules-only `_rag` arm resolves\n"
+                             "no cards and always takes the card-free k.")
     parser.add_argument("--few-shot", type=int, default=0, metavar="N",
                         help="prepend N worked (question, answer) examples as completed "
                              "prior turns before the real question — in-context learning, "
@@ -1528,11 +1549,12 @@ def main() -> None:
         exemplars = load_exemplars(args.few_shot_source, args.few_shot, questions)
 
     truncation: dict[str, int] = {}
+    routing: dict[str, int] = {}
     answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path,
                                    args.with_cards, args.with_rulings,
                                    base_model_id=args.base_model, base_only=args.base_only,
                                    truncation_out=truncation, exemplars=exemplars,
-                                   k_rules=args.k_rules,
+                                   k_rules=args.k_rules, routing_out=routing,
                                    no_plain_rag=args.no_plain_rag)
     arm_names = list(answers.keys())
 
@@ -1561,8 +1583,12 @@ def main() -> None:
     consistency_idx = list(range(min(args.consistency_sample, len(questions))))
     consistency_reruns = []
     for i in consistency_idx:
+        # Same k the `_rag` arm was generated under, including under AUTO --
+        # this rerun exists to measure whether that arm is STABLE, so a
+        # different context makes it measure a configuration nothing ran.
+        rerun_k = K_RULES_NO_CARDS if args.k_rules == AUTO_K_RULES else args.k_rules
         ctx = (None if args.no_plain_rag
-               else retrieve_context(questions[i]["question"], embed_model, k=args.k_rules))
+               else retrieve_context(questions[i]["question"], embed_model, k=rerun_k))
         prompt = build_prompt(ft_tokenizer, questions[i]["question"], ctx,
                               exemplars=exemplars)
         consistency_reruns.append(lm_generate(ft_model, ft_tokenizer, prompt=prompt, max_tokens=args.max_tokens, verbose=False))
@@ -1676,6 +1702,12 @@ def main() -> None:
            "to another `--base-only` run (Section 21.5: arm count changes scores)\n")
         + f"- max tokens: `{args.max_tokens}`\n"
         + f"- k (rules chunks retrieved): `{args.k_rules}`\n"
+        + (f"  - **routed per question** (Section 21.156): "
+           + ", ".join(f"`k={k[1:]}` on {n} question{'s' if n != 1 else ''}"
+                       for k, n in sorted(routing.items()))
+           + ". The rules-only `_rag` arm is not routed — it resolves no cards, "
+             f"so it ran at `k={K_RULES_NO_CARDS}` throughout.\n"
+           if routing else "")
         + ("- **plain `_rag` arm dropped** (`--no-plain-rag`), so this run's arm "
            "count differs from a default run and the two are not comparable "
            "(Section 21.5)\n" if args.no_plain_rag else "")

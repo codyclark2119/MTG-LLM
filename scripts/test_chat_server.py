@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import chat_server
 import chat_auth
+from triage_ratings import effective_k
 from chat_server import (append_rating, build_app, read_ratings,
                          validate_ask, validate_rating)
 
@@ -40,10 +41,12 @@ class FakeEngine:
         self.calls.append(question)
         return {"answer": f"answer to {question}", "context": "Cards referenced:\nX",
                 "cards": ["Grizzly Bears"], "rulings": ["Grizzly Bears"],
-                "rules_chunks": ["c1"], "elapsed_s": 0.1}
+                "rules_chunks": ["c1"], "k_rules_used": 0, "elapsed_s": 0.1}
 
     def config(self) -> dict:
-        return {"base_model": "fake", "adapter_path": None, "k_rules": 3,
+        # `auto` is the shipped default (Section 21.156), and it is the POLICY:
+        # the k a given answer actually got is `k_rules_used`, per question.
+        return {"base_model": "fake", "adapter_path": None, "k_rules": "auto",
                 "max_tokens": 800}
 
 
@@ -79,7 +82,7 @@ def test_roundtrip() -> None:
         ratings = Path(tmp) / "ratings.jsonl"
         client = TestClient(build_app(FakeEngine(), ratings))
 
-        check("health reports config", client.get("/api/health").json()["k_rules"], 3)
+        check("health reports config", client.get("/api/health").json()["k_rules"], "auto")
 
         r = client.post("/api/ask", json={"question": "does trample work?"})
         check("ask returns 200", r.status_code, 200)
@@ -109,7 +112,15 @@ def test_roundtrip() -> None:
         # a retrieval miss and a reasoning miss are indistinguishable later.
         check("the retrieved context actually used persisted",
               row["context"], "Cards referenced:\nX")
-        check("config stamped on the row", row["config"]["k_rules"], 3)
+        check("config stamped on the row", row["config"]["k_rules"], "auto")
+        # The policy alone is not the treatment. A row stamped `k_rules: "auto"`
+        # and nothing else says which switch was on, not which branch this
+        # answer took — and the branches were chosen on two different
+        # benchmarks pointing in opposite directions (Section 21.156). Asserted
+        # on the PERSISTED row, because that is what triage reads months later.
+        check("the k this answer actually got rides on the row",
+              row["config"]["k_rules_used"], 0)
+        check("triage groups on it", effective_k(row), 0)
         check("timestamp recorded", bool(row.get("rated_at")), True)
 
 

@@ -50,7 +50,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from common import CARD_PIN, CR_PIN, CR_VERSION, build_rag_messages, prompt_fingerprint  # noqa: E402
+from common import (CARD_PIN, CR_PIN, CR_VERSION, build_rag_messages,  # noqa: E402
+                    k_rules_arg, prompt_fingerprint)
 from eval import BASE_MODEL_ID  # noqa: E402
 
 
@@ -83,7 +84,11 @@ def main() -> None:
                     help="resolve [[Card Name]] references and add card text")
     ap.add_argument("--with-rulings", action="store_true",
                     help="with --with-cards, also add pinned official WotC rulings")
-    ap.add_argument("--k-rules", type=int, default=3)
+    ap.add_argument("--k-rules", type=k_rules_arg, default=3,
+                    help='CR chunks per question, or "auto" to route on whether a '
+                         'card resolved (Section 21.156). Only meaningful with '
+                         '--with-cards: without it nothing resolves and `auto` is '
+                         'always the card-free branch.')
     ap.add_argument("--max-tokens", type=int, default=600)
     args = ap.parse_args()
 
