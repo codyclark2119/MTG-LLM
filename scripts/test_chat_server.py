@@ -228,29 +228,48 @@ def test_triage_classification() -> None:
     ctx = "702.2c. Any nonzero amount of combat damage assigned to a creature ..."
 
     cases = [
-        ("had the rules, reasoned wrong",
-         {"answer": "By 702.2c it is lethal.", "context": ctx}, "reasoning_miss"),
+        ("everything cited was in context",
+         {"answer": "By 702.2c it is lethal.", "context": ctx}, "grounded"),
         ("invented a rule id",
-         {"answer": "See 999.9z.", "context": ctx}, "nonexistent_citation"),
+         {"answer": "See 999.9z.", "context": ctx}, "invented_citation"),
         ("cited a real rule never shown to it",
-         {"answer": "See 702.19b.", "context": ctx}, "unretrieved_citation"),
+         {"answer": "See 702.19b.", "context": ctx}, "ungrounded_citation"),
         ("nothing retrieved at all",
          {"answer": "See 702.7a.", "context": ""}, "no_context"),
         ("cited nothing",
          {"answer": "It just dies.", "context": ctx}, "no_citation"),
     ]
     for label, row, want in cases:
-        check(f"triage: {label}", classify(row, valid)["category"], want)
+        check(f"triage: {label}", classify(row, valid)["observation"], want)
+
+    # The observation is neutral; the RATING decides what it means. This was a
+    # real bug: `grounded` was named `reasoning_miss`, so the second rating ever
+    # collected — an answer the user LIKED — was reported as a reasoning
+    # failure. One name, two meanings (CROSS_REF_RE, JUDGE_SYSTEM_PROMPT, PASS).
+    liked = dict(row_grounded := {"answer": "By 702.2c it is lethal.", "context": ctx},
+                 rating="up")
+    disliked = dict(row_grounded, rating="down")
+    check("same observation under both ratings",
+          classify(liked, valid)["observation"], classify(disliked, valid)["observation"])
+    check("an up-rated grounded answer is not called a failure",
+          "reasoned wrong" in classify(liked, valid)["action"], False)
+    check("a down-rated grounded answer IS a reasoning failure",
+          "reasoned wrong" in classify(disliked, valid)["action"], True)
+    check("an up-rated INVENTED citation still warns",
+          "WARNING" in classify(dict(row := {"answer": "See 999.9z.", "context": ctx},
+                                     rating="up"), valid)["action"], True)
 
     # The evidence must survive even when a coarser category wins, or the
     # diagnosis is a label with nothing behind it.
     d = classify({"answer": "See 702.7a and 702.13a.", "context": ""}, valid)
-    check("triage keeps unretrieved ids under no_context",
-          d["unretrieved"], ["702.13a", "702.7a"])
-    # Every category must map to an action, or triage sorts without directing.
-    from triage_ratings import CATEGORY_ACTION
-    for _, row, want in cases:
-        check(f"category {want} has an action", want in CATEGORY_ACTION, True)
+    check("triage keeps ungrounded ids under no_context",
+          d["ungrounded"], ["702.13a", "702.7a"])
+    # Every observation must map to an action under BOTH ratings, or triage
+    # sorts an answer into a bucket it then cannot direct.
+    from triage_ratings import OBSERVATIONS, RATING_ACTIONS
+    for obs in OBSERVATIONS:
+        for rating in ("up", "down"):
+            check(f"({obs}, {rating}) has an action", (obs, rating) in RATING_ACTIONS, True)
 
 
 def main() -> None:

@@ -9,12 +9,18 @@ the retrieved context precisely so it can be drawn after the fact.
 The classification uses the context that was actually used:
 
   no_context            nothing was retrieved at all
-  nonexistent_citation  cited a rule id that is not in the CR
-  unretrieved_citation  cited a REAL rule that was NOT in the context
-  reasoning_miss        every cited rule WAS in the context
+  invented_citation     cited a rule id that is not in the CR
+  ungrounded_citation   cited a REAL rule that was NOT in the context
+  grounded              every cited rule WAS in the context
   no_citation           made no rule citation at all
 
-`unretrieved_citation` is the category `eval.score_citations` cannot express,
+Those are OBSERVATIONS, not verdicts. The same observation means opposite
+things depending on the rating — `grounded` on a down-rated answer is a
+reasoning failure, and on an up-rated one it is the system working exactly as
+designed. `ACTIONS` maps (observation, rating) to what to do, so the category
+never has to carry a judgement it cannot support.
+
+`ungrounded_citation` is the category `eval.score_citations` cannot express,
 and it is not academic. A real user question ("5/5 deathtouch trample into a
 4/4") produced an answer citing **702.7a (Deathtouch)** and **702.13a
 (Trample)** with quoted text for both. Both ids are real — they are FIRST
@@ -22,7 +28,8 @@ STRIKE and INTIMIDATE — so a fabrication check keyed on existence reports
 nothing wrong. A citation that points at a real rule and misstates it is
 worse than an invented number, because it survives a spot check.
 
-`reasoning_miss` is the one that must NOT be answered with a fine-tune. Six
+A down-rated `grounded` answer is the one that must NOT be answered with a
+fine-tune. Six
 attempts scored below the base model (21.139-21.140), and few-shot failed too
 (21.143), so the standing response to a reasoning miss is to record it as a
 benchmark candidate, not to queue training. Retrieval misses are the ones
@@ -46,13 +53,42 @@ from common import RULE_ID_RE, REPO_ROOT, load_rule_ids, write_jsonl_atomic
 
 RATINGS_PATH = REPO_ROOT / "data" / "chat" / "ratings.jsonl"
 
-CATEGORY_ACTION = {
-    "no_context": "retrieval — nothing was retrieved; check the question type",
-    "nonexistent_citation": "corpus/prompt — the model invented a rule id",
-    "unretrieved_citation": "retrieval — cited a real rule that was never shown to it",
-    "reasoning_miss": "benchmark — it HAD the rules and reasoned wrong; do NOT fine-tune",
-    "no_citation": "prompt — the answer cited nothing at all",
+# What the parser OBSERVED about an answer. Deliberately neutral names: the
+# same observation means opposite things depending on the rating, and naming
+# the observation after one of them is this repo's "one name, two meanings"
+# trap (CROSS_REF_RE, JUDGE_SYSTEM_PROMPT, PASS). `grounded` was originally
+# called `reasoning_miss`, which read as a defect — and then labelled an
+# UP-rated answer a reasoning miss on the second rating ever collected.
+OBSERVATIONS = {
+    "no_context": "nothing was retrieved",
+    "invented_citation": "cited a rule id that is not in the CR",
+    "ungrounded_citation": "cited a real rule that was never shown to it",
+    "grounded": "every cited rule was in the retrieved context",
+    "no_citation": "cited no rule at all",
 }
+
+# The interpretation is (observation, rating) -> action. Only the down-rated
+# half names a defect; an up-rated `grounded` answer is the system working.
+# Named RATING_ACTIONS, not ACTIONS: `webui.py` already owns that name for
+# its script-runner allowlist, and test_imports refuses a vocabulary with
+# two homes — the same guard that exists because CROSS_REF_RE and
+# JUDGE_SYSTEM_PROMPT each meant two things.
+RATING_ACTIONS = {
+    ("no_context", "down"): "retrieval — nothing was retrieved; check the question type",
+    ("invented_citation", "down"): "corpus/prompt — the model invented a rule id",
+    ("ungrounded_citation", "down"): "retrieval — cited a real rule never shown to it",
+    ("grounded", "down"): "benchmark — it HAD the rules and reasoned wrong; do NOT fine-tune",
+    ("no_citation", "down"): "prompt — the answer cited nothing at all",
+    ("grounded", "up"): "working as intended — grounded and useful",
+    ("no_context", "up"): "answered correctly from parametric knowledge, unverifiable",
+    ("invented_citation", "up"): "WARNING: liked, but the citation is fabricated",
+    ("ungrounded_citation", "up"): "liked, but the citation was not shown to it — unverified",
+    ("no_citation", "up"): "liked, but uncited — nothing to check it against",
+}
+
+
+def action_for(observation: str, rating: str) -> str:
+    return RATING_ACTIONS.get((observation, rating), OBSERVATIONS.get(observation, "?"))
 
 
 def read_ratings(path: Path) -> list[dict]:
@@ -63,37 +99,37 @@ def read_ratings(path: Path) -> list[dict]:
 
 
 def classify(row: dict, valid_rule_ids: set[str]) -> dict:
-    """Which half failed, decided from the answer and the stored context.
+    """What the parser can OBSERVE, plus the action its rating implies.
 
-    Ordered most-diagnostic first: a nonexistent citation is a stronger signal
-    than an unretrieved one, and both are stronger than "it had everything and
-    still got it wrong".
+    Ordered most-diagnostic first: an invented citation is a stronger signal
+    than an ungrounded one, and both are stronger than "everything it cited was
+    in front of it".
     """
     answer = row.get("answer", "")
     context = row.get("context", "") or ""
     cited = sorted(set(RULE_ID_RE.findall(answer)))
-    nonexistent = [r for r in cited if r not in valid_rule_ids]
+    invented = [r for r in cited if r not in valid_rule_ids]
     # A rule counts as retrieved only if its id appears in the text the model
     # was actually handed — the same string comparison the live diagnosis used.
-    unretrieved = [r for r in cited if r in valid_rule_ids and r not in context]
+    ungrounded = [r for r in cited if r in valid_rule_ids and r not in context]
 
     if not context:
-        category = "no_context"
-    elif nonexistent:
-        category = "nonexistent_citation"
-    elif unretrieved:
-        category = "unretrieved_citation"
+        observation = "no_context"
+    elif invented:
+        observation = "invented_citation"
+    elif ungrounded:
+        observation = "ungrounded_citation"
     elif cited:
-        category = "reasoning_miss"
+        observation = "grounded"
     else:
-        category = "no_citation"
+        observation = "no_citation"
 
     return {
-        "category": category,
-        "action": CATEGORY_ACTION[category],
+        "observation": observation,
+        "action": action_for(observation, row.get("rating", "down")),
         "cited": cited,
-        "nonexistent": nonexistent,
-        "unretrieved": unretrieved,
+        "invented": invented,
+        "ungrounded": ungrounded,
         "context_chars": len(context),
         "cards": row.get("cards", []),
         "k_rules": (row.get("config") or {}).get("k_rules"),
@@ -124,8 +160,8 @@ def main() -> None:
     diagnosed = [(r, classify(r, valid)) for r in down]
     if diagnosed:
         print("\ndown-rated by failure type:")
-        for cat, n in Counter(d["category"] for _, d in diagnosed).most_common():
-            print(f"  {n:3d}  {cat:22s} {CATEGORY_ACTION[cat]}")
+        for obs, n in Counter(d["observation"] for _, d in diagnosed).most_common():
+            print(f"  {n:3d}  {obs:21s} {action_for(obs, 'down')}")
 
     by_k = Counter((r.get("config") or {}).get("k_rules") for r in rows)
     if len(by_k) > 1:
@@ -140,14 +176,14 @@ def main() -> None:
         want = {"down": ["down"], "up": ["up"], "all": ["up", "down"]}[args.show]
         for row in [r for r in rows if r.get("rating") in want]:
             d = classify(row, valid)
-            print(f"\n{'=' * 72}\n[{row.get('rating')}] {d['category']}  "
+            print(f"\n{'=' * 72}\n[{row.get('rating')}] {d['observation']}  "
                   f"k={d['k_rules']}  context={d['context_chars']}ch  cards={d['cards']}")
             print(f"  -> {d['action']}")
             print(f"Q: {row.get('question', '')[:300]}")
-            if d["nonexistent"]:
-                print(f"  INVENTED rule ids: {d['nonexistent']}")
-            if d["unretrieved"]:
-                print(f"  cited but NEVER SHOWN to it: {d['unretrieved']}")
+            if d["invented"]:
+                print(f"  INVENTED rule ids: {d['invented']}")
+            if d["ungrounded"]:
+                print(f"  cited but NEVER SHOWN to it: {d['ungrounded']}")
             if row.get("note"):
                 print(f"  user note: {row['note']}")
 

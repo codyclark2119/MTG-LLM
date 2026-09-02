@@ -13150,3 +13150,44 @@ for anything durable — a named tunnel needs a Cloudflare account and a domain.
 The Mac must be awake. Traffic crosses a home connection. And generation is
 serialized behind a lock (21.146), so concurrent users queue at ~5-8s each;
 that is a study instrument, not a service.
+
+### 21.151 The first two real ratings: a naming bug in the triage tool, and 2 of 2 questions the benchmark cannot see
+
+Two ratings from the live surface, one up and one down. Both were worth more
+than their count suggests.
+
+**The tool called an UP-rated answer a `reasoning_miss`.** `classify()`
+assigned failure categories to every row regardless of rating, and its best
+case — every cited rule was present in the retrieved context — was named
+`reasoning_miss`. On a down-rated answer that reading is right: the model had
+the rules and reasoned wrong. On an **up-rated** answer the identical
+observation means the system worked exactly as designed. One name, two
+meanings, and the name carried a judgement the observation cannot support —
+the same defect as `CROSS_REF_RE`, `JUDGE_SYSTEM_PROMPT` and `PASS`, arriving
+on the second rating ever collected.
+
+Split into `OBSERVATIONS` (neutral: `no_context`, `invented_citation`,
+`ungrounded_citation`, `grounded`, `no_citation`) and `RATING_ACTIONS`, keyed
+`(observation, rating)`. The parser reports what it can see; the rating decides
+what it means. `test_chat_server` now asserts the observation is identical
+under both ratings while the action differs, and that every observation has an
+action under both — a bucket with no direction is a sort, not a triage.
+
+The rename also collided: `ACTIONS` is already `webui.py`'s script-runner
+allowlist, and `test_imports` refuses a vocabulary with two homes. Caught
+before the commit, by the guard that exists for exactly this.
+
+**2 of 2 real questions named no card.** Both were pure keyword-interaction
+questions — deathtouch + trample, first strike + deathtouch — and both
+therefore took the rules-only retrieval path, the arm measured at **2.91–3.41
+and BELOW no-retrieval at both model sizes** (21.141). The card/ruling
+benchmark is card-grounded by construction, so **it structurally cannot
+measure the path real users are landing on.** n=2 is an anecdote, not a rate,
+and the direction is not surprising in hindsight: a person asks about the rule
+they are confused by, not about a card they are holding.
+
+That is a gap in the benchmark, not only in the model, and it is the first
+thing the live surface has produced that no amount of further benchmark work
+would have found. The candidate fix is a card-free question set — which also
+happens to be the slice where 21.144's k=0 lead is known NOT to hold (21.147),
+so the two open threads meet here.
