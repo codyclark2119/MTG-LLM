@@ -161,14 +161,27 @@ function bindRate(answerId){
     };
   });
 }
+var askTimer=null;
+function stopTimer(){ if(askTimer){clearInterval(askTimer);askTimer=null;} }
 function ask(){
   var q=el('q').value.trim();
   if(!q)return;
   el('askBtn').disabled=true;
-  el('out').innerHTML='<div class="meta">thinking&hellip;</div>';
+  // A static "thinking..." reads as HUNG once an answer takes tens of seconds,
+  // which is exactly why Section 21.145's latency gate chose the smaller model:
+  // "14.8s of blank screen reads as broken, 3.0s reads as thinking". A running
+  // counter does not make it faster, it makes the wait legible -- the model is
+  // held behind a lock, so a queued question waits the full time of the one
+  // ahead of it and silence is the worst possible signal.
+  var t0=Date.now();
+  var draw=function(){
+    var s=((Date.now()-t0)/1000).toFixed(1);
+    el('out').innerHTML='<div class="meta">thinking&hellip; '+s+'s</div>';
+  };
+  draw(); stopTimer(); askTimer=setInterval(draw,100);
   api('/api/ask',{question:q})
-    .then(function(res){renderAnswer(res);})
-    .catch(function(e){el('out').innerHTML='<div class="err">'+esc(e.message)+'</div>';})
+    .then(function(res){stopTimer();renderAnswer(res);})
+    .catch(function(e){stopTimer();el('out').innerHTML='<div class="err">'+esc(e.message)+'</div>';})
     .then(function(){el('askBtn').disabled=false;});
 }
 el('askBtn').onclick=ask;

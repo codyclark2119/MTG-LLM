@@ -16,10 +16,18 @@ the ratings log.
 
 Configuration is not a free choice — it is what Phase 1 measured:
 
-  * **The 7B, not the 32B** (Section 21.145). The 32B is worth +0.50
-    correctness and costs 4.0x the wall-clock and 4.9x the time to first
-    token — 14.8s of blank screen against 3.0s. The gate's pre-committed
-    rule put 30.8s in the "ship the 7B" band.
+  * **The 32B, not the 7B** (Section 21.163, reversing 21.145). The latency
+    gate had chosen the 7B on time to first token — 14.8s of blank screen
+    against 3.0s — and it chose it against the 32B's +0.50, which had been
+    measured only on the 53-question XMage-mined benchmark. Run at last on the
+    99-question gold set, the 32B is worth **+0.30** (p = 0.085), but **+1.13
+    on turn-structure walkthroughs**, the category the 7B was worst at by a
+    wide margin, with complete misses falling 44/98 to 34/98. Reversed on an
+    explicit quality-over-speed decision. The costs are unchanged and real:
+    ~30.8s per answer, ~14.8s before the first token, 21.6 GB resident. The
+    surface answers with a running elapsed counter because a silent 30s reads
+    as a hang, and generation is serialized, so a second questioner waits out
+    the first.
   * **Cards + official rulings attached** (Section 21.139). Best arm at both
     model sizes, and the arm that does NOT fabricate citations: 3/53 against
     17/53 for the no-retrieval arm.
@@ -76,7 +84,7 @@ import chat_auth
 from chat_common import (INDEX_HTML, LOGIN_HTML, MAX_QUESTION_CHARS,  # noqa: F401
                          append_rating, read_ratings, validate_ask,
                          validate_rating)
-from common import (BASE_MODEL_ID, K_RULES_NO_CARDS, REPO_ROOT,
+from common import (CHAT_MODEL_ID, K_RULES_NO_CARDS, REPO_ROOT,
                     build_rag_messages, k_rules_arg)
 
 RATINGS_PATH = REPO_ROOT / "data" / "chat" / "ratings.jsonl"
@@ -88,10 +96,15 @@ class Engine:
     """Model and indexes, loaded once and held.
 
     Generation is serialized behind a lock. MLX shares one Metal device and
-    two concurrent generations on a 4.4 GB model do not make either faster —
-    they make both slower and the memory ceiling closer. A queue is honest;
-    interleaved generation would be a latency bug that only appears under the
-    load a public surface is exactly where you meet.
+    two concurrent generations do not make either faster — they make both
+    slower and the memory ceiling closer. A queue is honest; interleaved
+    generation would be a latency bug that only appears under the load a
+    public surface is exactly where you meet.
+
+    That queue costs more since 21.163: the 32B is 21.6 GB resident and takes
+    ~30.8s an answer, so a second questioner waits ~60s and a third ~90s. Two
+    of these models do not fit beside each other on a 64 GB machine, so the
+    lock is a hard serialization, not a tuning choice.
     """
 
     def __init__(self, base_model_id: str, k_rules: int | str, max_tokens: int,
@@ -325,10 +338,14 @@ def main() -> None:
     ap.add_argument("--secure-cookies", action="store_true",
                     help="mark the session cookie Secure; set this whenever the "
                          "service is reached over HTTPS")
-    ap.add_argument("--base-model", default=BASE_MODEL_ID,
-                    help="default is the 7B, which is what Section 21.145's "
-                         "latency gate selected — the 32B is 4x slower to a "
-                         "complete answer and 4.9x to the first token")
+    ap.add_argument("--base-model", default=CHAT_MODEL_ID,
+                    help="default is the 32B (Section 21.163). 21.145's latency gate had "
+                         "chosen the 7B on time-to-first-token; that was reversed on an "
+                         "explicit quality-over-speed call once the 32B was finally measured "
+                         "on the MAIN benchmark: +0.30 overall (p=0.085) but +1.13 on "
+                         "turn-structure walkthroughs, the 7B's worst category, and complete "
+                         "misses down 44/98 to 34/98. Costs ~4x answer time, ~5x time to "
+                         "first token and ~5x memory. Pass the 7B id for the fast path.")
     ap.add_argument("--adapter-path", default=None,
                     help="not recommended: six fine-tunes all scored BELOW the "
                          "base model on the card/ruling benchmark (21.139)")

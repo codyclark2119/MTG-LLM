@@ -13938,3 +13938,77 @@ So the honest position is that 7B quality is at its ceiling on everything except
 model size, and the next real decision is 21.145's: accept ~2.75 for the
 interactive surface, or add a slower "deep answer" path on the 32B. That is a
 product call, not a measurement one.
+
+### 21.163 The 32B on the main benchmark at last: +0.30 overall, +1.13 where the 7B was worst — and 21.145's gate reversed on an explicit quality-over-speed call
+
+21.145 shipped the 7B on time to first token, weighing it against the 32B's
+**+0.50**. That +0.50 came from the 53-question XMage-mined benchmark — the set
+21.160 showed every non-generalising result in this project traces back to. **The
+32B had never answered a question on the 99-question gold set.** Deciding a
+serving model on a benchmark that does not represent the traffic is 21.158's
+mistake exactly, so it was measured before anything was switched.
+
+Arm-matched to `kwrules_baseline_gold99` (two arms, `--k-rules 3`, no keyword
+injection), Mistral as judge — **not** the 32B, which would be grading its own
+answers (21.139, 21.157). n=98 paired:
+
+| arm | 7B | 32B | delta | W/L/tie | p |
+| --- | --- | --- | --- | --- | --- |
+| `base` | 1.31 | 1.55 | +0.25 | 15/9/74 | 0.307 |
+| `base_rag_cards_rulings` | 2.59 | 2.89 | **+0.30** | 31/18/49 | 0.085 |
+
+**The headline is +0.30, not +0.50, and it is not significant.** Three
+benchmarks now give three different answers for the same model change — +0.50
+card-grounded (21.139), **+0.30 gold set**, +0.05 card-free (21.155) — which is
+the same lesson as everywhere else in this section: a model-size effect is a
+statement about the questions it was measured on.
+
+**But the aggregate hides the finding.** Broken out by category, against 21.162's
+diagnosis that failure tracks question *kind* rather than rated difficulty:
+
+| category | n | 7B | 32B | delta |
+| --- | --- | --- | --- | --- |
+| turn-structure walkthrough | 13 | 1.56 | 2.69 | **+1.13** |
+| templating/keyword meaning | 13 | 3.18 | 3.82 | +0.64 |
+| definition recall | 9 | 3.11 | 3.41 | +0.30 |
+| interaction puzzle | 13 | 2.44 | 2.69 | +0.26 |
+| state-based actions | 13 | 2.26 | 2.46 | +0.21 |
+| priority reasoning | 13 | 2.41 | 2.54 | +0.13 |
+| zone transition | 12 | 2.92 | 2.83 | −0.08 |
+| layer-system question | 12 | 3.04 | 2.83 | **−0.21** |
+
+The gain lands almost entirely on the category the 7B was worst at by a wide
+margin, and **two categories get worse**. Complete misses fall **44/98 → 34/98**
+and full-credit answers rise 19 → 24, though the extremes churn nearly evenly
+(5 zero→full against 4 full→zero), so the shift is mostly zero→partial and
+partial→full rather than wholesale conversion. Fabricated citations improve on
+the ungrounded arm (45 → 29) and barely move on the served one (5 → 4).
+
+**The decision, and why it is not gate-shopping.** 21.145's pre-committed rule
+put 30.8s in the "ship the 7B for interactivity and revisit" band and named the
+revisit trigger explicitly. This is that revisit: the quality side has now been
+measured on the right benchmark, and the answer — a smaller aggregate but a
++1.13 on the worst category — was put to a product judgement, which came back
+**quality over speed**. `chat_server` now defaults to the 32B.
+
+The costs are unchanged and real, and were re-confirmed on the live surface:
+**28.4s** for one served answer at **17.6 GB** resident. Generation is
+serialized behind a lock, so a second questioner waits ~60s and a third ~90s,
+and two of these models do not fit beside each other on a 64 GB machine — the
+lock is now a hard serialization, not a tuning choice. The chat page answers
+with a **running elapsed counter**, because 21.145's actual finding was that
+silence reads as a hang; a counter does not make it faster, it makes the wait
+legible.
+
+**`CHAT_MODEL_ID` is a separate constant from `BASE_MODEL_ID`**, and
+deliberately not `CALIBRATED_JUDGE_ID` even though it names the same weights.
+Moving `BASE_MODEL_ID` would silently re-baseline every future eval run and
+break comparability with every stored one; and pointing the judge at the serving
+model is the self-preference confound this project has measured twice. A serving
+default, a measurement default and a judge are three objects, and one name for
+two meanings is this repo's most-repeated bug.
+
+**Open**: the 32B has never been run on the card-free benchmark under two
+judges, layer-system questions got *worse*, and p = 0.085 means the aggregate
+gain is a lead rather than a finding. The concentration is the real argument,
+and it rests on n=13 in one category.

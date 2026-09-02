@@ -257,6 +257,24 @@ REFUSAL_RE = re.compile(
 # against.
 BASE_MODEL_ID = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 
+# The model the CHAT SURFACE serves, deliberately a separate constant from
+# BASE_MODEL_ID (Section 21.163). Two reasons, both learned here:
+#
+#   * a serving default and a measurement default are different objects. Moving
+#     BASE_MODEL_ID would silently re-baseline every future eval run against a
+#     different model and break comparability with every stored one -- the
+#     "stale default silently evaluating the wrong thing" trap;
+#   * it is NOT `CALIBRATED_JUDGE_ID`, which happens to name the same weights.
+#     One name for two meanings is this repo's most-repeated bug, and a judge
+#     that is also the answering model is 21.139/21.157's self-preference
+#     confound -- pointing the eval judge at this constant would make the
+#     service's own model grade itself.
+#
+# 21.145's latency gate chose the 7B on time-to-first-token. 21.163 reverses it
+# on an explicit quality-over-speed decision: +0.30 on the gold set overall, but
+# +1.13 on turn-structure walkthroughs, the category the 7B was worst at.
+CHAT_MODEL_ID = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+
 SYSTEM_PROMPT = (
     "You are a Magic: The Gathering rules expert. Answer precisely and "
     "cite comprehensive rule numbers."
