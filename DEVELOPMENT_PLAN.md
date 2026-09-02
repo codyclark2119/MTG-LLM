@@ -13516,3 +13516,85 @@ resolves `AUTO` before the `k > 0` comparison that raises `TypeError` on a str,
 and that the plain arm is not handed it. `test_chat_server` asserts
 `k_rules_used` on the **persisted** row. All four were confirmed to fail against
 deliberately broken code before being kept.
+
+### 21.157 The second judge on the card-free benchmark: the router's k=3 branch holds, the 32B row reverses, and self-preference turns out not to be a constant
+
+21.155 shipped four numbers and every one of them was Mistral's. CLAUDE.md's
+rule is that a number from one judge is a statement about the judge, and one of
+those four is now load-bearing: it is the k=3 branch of the router 21.156
+deployed, and it covers what real users actually ask (4 of 4 rated questions so
+far resolved no card). Both card-free runs were re-judged with
+`CALIBRATED_JUDGE_ID`, varying the judge and nothing else.
+
+**The load-bearing half replicates and strengthens.**
+
+| model | judge | `base` | `base_rag` | delta | W/L | p |
+| --- | --- | --- | --- | --- | --- | --- |
+| 7B | Mistral-24B | 3.04 | 3.69 | **+0.65** | 10/2 | **0.039** |
+| 7B | Qwen2.5-32B | 2.17 | 3.47 | **+1.30** | 11/2 | **0.022** |
+| 32B | Mistral-24B | 3.34 | 3.74 | +0.40 | 6/3 | 0.508 |
+| 32B | Qwen2.5-32B | 3.95 | 3.89 | **−0.07** | 5/6 | 1.000 |
+
+Two judges, same answers, significant in the same direction on the 7B — the
+arm that ships. Per-question agreement is only moderate (r **+0.46**, exact
+52%, mean gap 0.96, all rubrics machine-drafted, so squarely in 14.6's
+machine-rubric range): **the ranking is stable where the scores are not**,
+which is the property the two-judge rule exists to test.
+
+**The 32B row reverses sign and stays null.** +0.40 becomes −0.07. Neither is
+close to significant, so nothing is claimed either way — but this is 9.9's
+shape in miniature and it is recorded as a reversal, not smoothed into "both
+null". Note the Qwen judge is grading its own model on that row.
+
+**Why the judges differ: they price fabricated citations differently.** The
+shift from Mistral to Qwen2.5-32B on the 7B run, by arm and by whether the
+answer invented a rule id:
+
+| arm | fabricating | mean shift |
+| --- | --- | --- |
+| `base`, fabricated id present | 4/20 | **−1.50** |
+| `base`, none | 16/20 | −0.71 |
+| `base_rag` | **0/20** | −0.22 |
+
+Retrieval takes fabrication from 4/20 to 0/20 (21.155), so a judge that
+punishes invention harder necessarily measures a larger retrieval benefit.
++0.65 and +1.30 are the same effect priced two ways, not two effects.
+
+**Self-preference is not a constant, and 21.139's +0.73 should not be used as
+one.** Same comparison — 7B → 32B, same questions, same arms — under an
+independent judge and under the judge that IS the 32B:
+
+| subset | Mistral | Qwen2.5-32B | judge gap |
+| --- | --- | --- | --- |
+| `base`, all (n=20) | +0.30 | +1.78 | **+1.48** |
+| `base`, neither model fabricated (n=15) | +0.44 | +1.65 | +1.20 |
+| `base`, one or both did (n=5) | −0.15 | +2.19 | +2.33 |
+| `base_rag`, no fabrication anywhere | +0.05 | +0.41 | **+0.37** |
+
+Fabrication amplifies the gap (+2.33 against +1.20) but does not explain it:
++1.20 survives on questions where neither model invented anything. The clean
+contrast is the last row — `base_rag` also has zero fabrications, and its gap
+is **+0.37, four times smaller**. The difference between those two rows is
+*grounding*: on `base` the judge has only its own knowledge to check an answer
+against, and on `base_rag` it has the retrieved rules text in the prompt.
+
+So the working hypothesis is that self-preference is largest exactly where the
+judge has no external standard — which would make it worst in precisely the
+configuration a no-retrieval baseline arm occupies. **Not established**: n=20,
+sliced, with no test on the difference of differences, and 21.139's +0.73 was
+measured on a different benchmark. What IS established is the practical part —
+the same self-preference measurement ranges from +0.37 to +1.48 across arms of
+one run, so it is a per-configuration quantity and quoting a single number as
+*the* correction is wrong.
+
+**Net effect on 21.155.** The retrieval result on the 7B is confirmed by a
+second judge and is the strongest retrieval finding in this project. The
+model-size null on card-free `base_rag` survives too (+0.05 Mistral, +0.41
+Qwen, both p = 0.55 or worse), which keeps 21.145's decision to ship the 7B
+intact. The 32B retrieval row is downgraded from "positive but not
+significant" to "null, and the judges disagree on its sign".
+
+**Still standing**: n=20, machine-drafted questions and rubrics (21.98's
+caveat applies to this benchmark as much as to the gameplay track), and both
+passing judges are Qwens, so cross-vendor self-preference remains untested —
+Mistral is the independent judge here precisely because of that.

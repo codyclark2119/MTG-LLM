@@ -326,9 +326,18 @@ and **45/72** at 4,000 — a reasoning model pays a fixed `<think>` cost *before
 output that then scales with arm count, so what works at one arm does not
 survive three. The 32B is the default at both.
 
-Not a size result: a 7.8 GB judge matches a 17.6 GB one. Every judge that passes
-is a Qwen and every `base` arm is a Qwen, so **self-preference is still
-untested** — that needs a different vendor, not a different generation.
+Not a size result: a 7.8 GB judge matches a 17.6 GB one. Every judge in this
+table is a Qwen and every `base` arm is a Qwen, so the CALIBRATION ranking is
+not self-preference-controlled — closing that needs a different vendor, not a
+different generation.
+
+**Self-preference itself IS measured, against Mistral-24B, and it is not a
+constant.** +0.73 on the card benchmark (21.139) and **+0.37 to +1.48 across
+arms of a single card-free run** (21.157) — largest on `base`, where the judge
+has only its own knowledge to check an answer against, and 4x smaller on
+`base_rag`, where the retrieved rules text is in the prompt. So it is a
+per-configuration quantity: do not quote one number as *the* correction, and
+expect it to be worst on an ungrounded baseline arm.
 
 **These are single-arm rates and roughly 17 points pessimistic** (Section
 21.45). Holding the record set fixed, Llama fires at 0/41 clean answers on the
