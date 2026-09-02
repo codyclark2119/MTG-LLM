@@ -796,6 +796,7 @@ def generate_all_answers(
     base_model_id: str = BASE_MODEL_ID, base_only: bool = False,
     truncation_out: dict[str, int] | None = None,
     exemplars: list[tuple[str, str]] | None = None, k_rules: int = 3,
+    no_plain_rag: bool = False,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
@@ -848,7 +849,9 @@ def generate_all_answers(
         # The fingerprint asks whether the prompts were EDITED since training.
         # This asks whether the adapter ever saw the one an arm is about to use,
         # which a matching fingerprint cannot tell you (Section 8.7, 21.50).
-        planned = ["finetuned", "finetuned_rag"]
+        # Must list the arms this run will ACTUALLY generate. Warning about
+        # `finetuned_rag` under --no-plain-rag would name an arm that never runs.
+        planned = ["finetuned"] if no_plain_rag else ["finetuned", "finetuned_rag"]
         if with_cards:
             planned.append("finetuned_rag_cards_rulings" if with_rulings
                            else "finetuned_rag_cards")
@@ -874,7 +877,19 @@ def generate_all_answers(
         model, tokenizer = load_lm(base_model_id, adapter_path=adapter_path)
 
         # (contexts, arm name, whether that context is already section-labeled)
-        variants = [(contexts, f"{arm_name}_rag", False), (None, arm_name, False)]
+        #
+        # `no_plain_rag` drops the rules-only variant. It exists because at
+        # `k_rules=0` that arm receives an EMPTY context, falls back to the
+        # no-context prompt, and becomes byte-identical to the bare `base`
+        # arm -- measured at 53/53 questions, against 0/53 at k=3 (Section
+        # 21.143). `judge_batch_rubric` grades every candidate for a question
+        # in ONE batched call, so that hands the judge a duplicate and makes
+        # a k=0 run non-comparable to a k=3 one even though both have three
+        # arms. Dropping it lets both configurations run as the same two
+        # DISTINCT arms. Section 21.5 is about arm COUNT; this is the same
+        # failure reached through composition instead.
+        variants = [] if no_plain_rag else [(contexts, f"{arm_name}_rag", False)]
+        variants.append((None, arm_name, False))
         if with_cards:
             suffix = "_rag_cards_rulings" if with_rulings else "_rag_cards"
             variants.append((card_contexts, f"{arm_name}{suffix}", True))
@@ -1393,6 +1408,13 @@ def main() -> None:
     parser.add_argument("--judge-max-tokens", type=int, default=500)
     parser.add_argument("--consistency-sample", type=int, default=15)
     parser.add_argument("--adapter-path", default=ADAPTER_PATH, help="adapter under test for the finetuned arms")
+    parser.add_argument("--no-plain-rag", action="store_true",
+                        help="drop the rules-only `_rag` arm. Required for an honest\n"
+                             "--k-rules 0 comparison: with k=0 that arm gets an empty\n"
+                             "context and becomes byte-identical to the bare base arm\n"
+                             "(53/53 questions, vs 0/53 at k=3), which hands the batched\n"
+                             "judge a duplicate candidate. CHANGES THE ARM COUNT -- see\n"
+                             "Section 21.5 and 21.143.")
     parser.add_argument("--k-rules", type=int, default=3, metavar="K",
                         help="how many CR rules chunks to retrieve per question. The default of 3\n"
                              "was never varied against ANSWER quality — Section 21.68 measured\n"
@@ -1506,7 +1528,8 @@ def main() -> None:
                                    args.with_cards, args.with_rulings,
                                    base_model_id=args.base_model, base_only=args.base_only,
                                    truncation_out=truncation, exemplars=exemplars,
-                                   k_rules=args.k_rules)
+                                   k_rules=args.k_rules,
+                                   no_plain_rag=args.no_plain_rag)
     arm_names = list(answers.keys())
 
     # Consistency check: rerun a subset of finetuned_rag questions and see
@@ -1515,7 +1538,18 @@ def main() -> None:
     # adapter to load (and loading one trained on a different base model
     # would fail outright), so the rerun uses the plain base model and
     # measures the same thing for the arm that actually exists: `base_rag`.
-    consistency_arm = "base_rag" if args.base_only else "finetuned_rag"
+    #
+    # The rerun must reproduce the arm it NAMES, or it reports stability for a
+    # configuration nothing was generated under. Two things can move that arm
+    # out from under it: `--no-plain-rag` deletes `*_rag` entirely (so the arm
+    # becomes the bare one, generated with NO context), and `--few-shot`
+    # changes every arm's prompt (so the rerun must carry the same exemplars).
+    # Both are checked here rather than assumed — a rerun that silently used a
+    # different prompt would report a stability number for a prompt shape that
+    # never ran, which is Section 21.61's shape: a flag that changes generation
+    # and a consumer of that output nobody audited.
+    consistency_base = "base" if args.base_only else "finetuned"
+    consistency_arm = consistency_base if args.no_plain_rag else f"{consistency_base}_rag"
     print(f"loading {args.base_model} "
           f"({'no adapter' if args.base_only else 'adapter'}) for consistency rerun ...")
     ft_model, ft_tokenizer = load_lm(
@@ -1523,8 +1557,10 @@ def main() -> None:
     consistency_idx = list(range(min(args.consistency_sample, len(questions))))
     consistency_reruns = []
     for i in consistency_idx:
-        ctx = retrieve_context(questions[i]["question"], embed_model, k=args.k_rules)
-        prompt = build_prompt(ft_tokenizer, questions[i]["question"], ctx)
+        ctx = (None if args.no_plain_rag
+               else retrieve_context(questions[i]["question"], embed_model, k=args.k_rules))
+        prompt = build_prompt(ft_tokenizer, questions[i]["question"], ctx,
+                              exemplars=exemplars)
         consistency_reruns.append(lm_generate(ft_model, ft_tokenizer, prompt=prompt, max_tokens=args.max_tokens, verbose=False))
     del ft_model, ft_tokenizer
 
@@ -1636,6 +1672,9 @@ def main() -> None:
            "to another `--base-only` run (Section 21.5: arm count changes scores)\n")
         + f"- max tokens: `{args.max_tokens}`\n"
         + f"- k (rules chunks retrieved): `{args.k_rules}`\n"
+        + ("- **plain `_rag` arm dropped** (`--no-plain-rag`), so this run's arm "
+           "count differs from a default run and the two are not comparable "
+           "(Section 21.5)\n" if args.no_plain_rag else "")
         + (f"- few-shot: **{args.few_shot} exemplars** from "
            f"`{args.few_shot_source.name}`\n" if args.few_shot else "")
         + f"- judge: `{args.judge_model}`"

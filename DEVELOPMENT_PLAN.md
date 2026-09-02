@@ -12741,3 +12741,113 @@ acting on the most promising configuration this project has found.
 | 7B + terse 3-shot | 3.33 | no gain |
 | 7B + verbose 3-shot | 2.96 | worse |
 | v6 fine-tuned 7B | 1.86 | negative (and under a favourable judge) |
+
+### 21.144 The k=0 retrieval result, de-confounded: +0.25 not +0.35, with a clean control
+
+Section 21.143 measured "CR retrieval off" at 4.54 against 4.19 and refused
+to claim it, because at `k_rules=0` the rules-only arm receives an empty
+context, falls back to the no-context prompt, and becomes byte-identical to
+the bare `base` arm on **53 of 53** questions — handing `judge_batch_rubric`
+a duplicate candidate inside the one batched call it grades a question in.
+
+`--no-plain-rag` drops that arm, so both configurations run as the same two
+DISTINCT arms and the batch composition is identical on both sides:
+
+| Arm | k=3 | k=0 | delta | W/L/T | sign p |
+| --- | --- | --- | --- | --- | --- |
+| `base` (control — never sees retrieved rules) | 3.62 | 3.58 | **−0.04** | 6/7/40 | **1.000** |
+| `base_rag_cards_rulings` | 4.05 | **4.30** | **+0.25** | 15/6/32 | 0.078 |
+
+**The confound was real and worth 0.10 of the 0.35.** Confounded the gap read
++0.35 (4.19 → 4.54); clean it is **+0.25** (4.05 → 4.30). Roughly 29% of the
+apparent effect came from the degenerate batch, which is the size of error
+that gets quoted for years once it reaches a summary table.
+
+**The `base` arm is the positive control and it behaves exactly as required.**
+It consumes no retrieved rules text, so `k` cannot legitimately affect it, and
+it moved −0.04 at a sign test of exactly p = 1.000 (6 wins, 7 losses). That is
+the same role Gate 1 plays for the gameplay gates and `protocol_truth` plays
+for judge comparison (21.76): a quantity that MUST NOT move, measured on the
+same run, confirming the quantity that did move is not drift. Without it,
++0.25 on an unseeded generator would be uninterpretable.
+
+**Still not significant (p = 0.078) and not claimed as established.** It is
+the strongest of the retrieval results and it is directionally consistent
+with everything in 21.141 — recall stuck near 25%, rules-only RAG scoring
+below no-retrieval at both model sizes, five fixes all failing — but a
+p = 0.078 on n=53 is a lead, not a finding. What would settle it: the same
+comparison on the 99-question gold set, now that 21.142 makes `--with-cards`
+actually resolve cards there (91/99).
+
+**Arm-count discipline**: these are TWO-arm runs. 4.30 is comparable to the
+4.05 beside it and to nothing else — in particular not to 21.143's 4.19/4.54,
+which are three-arm numbers (Section 21.5).
+
+**Adding the flag was the smaller half of the work.** Auditing its consumers
+found two live breakages, both Section 21.61's shape — a flag that changes
+generation, and code downstream that nobody re-read:
+
+- `consistency_arm` hardcoded a `_rag` suffix, so with `--no-plain-rag` it
+  indexed an arm that does not exist and would have raised `KeyError` **while
+  writing the report**, i.e. after the entire generation cost had been paid.
+- the consistency rerun never passed `exemplars`, so since 21.140 added
+  `--few-shot` it had been reporting stability for a prompt shape no arm
+  was generated under. Introduced by that section and caught here.
+
+A third consumer (the fine-tuned-vs-base verdict block) reads through
+`.get()` and degrades correctly, and the `unseen_arms` warning was corrected
+so it cannot name an arm the run will not generate. `test_no_plain_rag_arm`
+asserts all three properties, because none of them are visible to a test over
+inputs and outputs — the generation path was correct in every case, and the
+bug lived entirely in what read its output afterwards.
+
+### 21.145 The Phase 2 hosting gate, resolved: ship the 7B — the 32B's +0.50 costs 4x the latency
+
+Section 21.139 established the 32B as worth **+0.50 correctness (p = 0.014)**,
+and deliberately declined to act on it, because whether that is worth paying
+for is a product question resting on numbers nobody had measured. The plan
+therefore committed a decision rule **before** the measurement existed: under
+~15s end-to-end use the 32B, over ~45s ship the 7B, in between ship the 7B and
+revisit. `scripts/measure_throughput.py` reports the three quantities and
+applies that rule itself, so the verdict cannot be rationalised after the fact.
+
+Measured on this machine, idle GPU, n=5, `--max-tokens 800`, real benchmark
+questions with real retrieved context (median prompt **2,628 tokens** — prefill
+scales with context, and a short synthetic prompt would flatter the big model
+exactly where it is weakest):
+
+| | 7B | 32B | ratio |
+| --- | --- | --- | --- |
+| throughput | **51.5 tok/s** | 9.7 tok/s | 5.3x |
+| time to FIRST token | **3.0s** | 14.8s | 4.9x |
+| complete answer | **7.7s** | 30.8s | 4.0x |
+| peak RSS | **4.4 GB** | 21.6 GB | 4.9x |
+| gate verdict | **USE IT** | BORDERLINE | |
+
+**Verdict: ship the 7B.** 30.8s lands in the borderline band, and the rule for
+that band was written in advance: ship the 7B for interactivity and revisit if
+the remaining levers close the gap.
+
+**The deciding number is time to first token, not throughput.** 14.8s of
+nothing on screen before the first word is the difference between a bot that
+reads as thinking and one that reads as broken; the 7B starts in 3.0s. Peak RSS
+compounds it — 21.6 GB allows roughly **two** concurrent 32B instances on this
+64 GB box against about a dozen 7Bs, so the 32B is a concurrency ceiling as
+well as a latency one. The honest summary is that 21.139's accuracy gain is
+real and **does not buy enough to justify 4x the wait** for an interactive
+surface. The 32B's place is an offline or batch "deep answer" path.
+
+**Measuring on a busy GPU would have produced the opposite decision.** A smoke
+test run while a 32B eval held the GPU read the 7B at **12.4 tok/s** against
+51.5 idle — a 4x error, in the direction that would have failed the 7B against
+its own 45s bar and pushed the project toward the wrong model. Same family as
+the buffered-log and `pgrep -f` traps: a measurement that reads as a property
+of the thing being measured and is actually a property of the conditions.
+Throughput is measured on an idle machine or not at all.
+
+One instrument note: `ru_maxrss` is a process-wide high-water mark, so a
+smaller model measured after a larger one in the same process silently
+inherits the larger one's peak. `measure_throughput.py` records the peak before
+each load and reports **`n/a`** when a model did not set it, rather than a
+confidently wrong figure. Here the order is ascending, so both numbers are
+attributable.

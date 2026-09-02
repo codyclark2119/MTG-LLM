@@ -707,6 +707,45 @@ def test_carry_diagnostics() -> int:
     return failed
 
 
+def test_no_plain_rag_arm() -> int:
+    """`--no-plain-rag` must drop the _rag arm AND everything that reads it.
+
+    The flag exists to de-confound a --k-rules 0 run, where the rules-only arm
+    receives an empty context and becomes byte-identical to the bare base arm
+    on 53/53 questions (Section 21.143). Dropping an arm is the easy half; the
+    half this repo keeps getting wrong is the CONSUMERS of that arm (Section
+    21.61 — a prompt started asking for new output and `legality` scored every
+    line of it illegal). Three are asserted here:
+
+      * the variants list is conditional on the flag;
+      * `consistency_arm` does not hardcode a `_rag` suffix, since under the
+        flag that arm is absent and indexing it raises KeyError while writing
+        the report — after generation has already been paid for;
+      * the consistency RERUN passes exemplars, so it reproduces the prompt the
+        arms actually used rather than reporting stability for a shape that
+        never ran.
+    """
+    import inspect
+
+    from eval import generate_all_answers, main
+
+    failed = 0
+    gen_src = inspect.getsource(generate_all_answers)
+    if "no_plain_rag" not in gen_src:
+        print("  FAIL generate_all_answers does not accept no_plain_rag")
+        failed += 1
+
+    main_src = inspect.getsource(main)
+    for needle, why in (
+        ("consistency_base", "consistency_arm still hardcodes a _rag suffix"),
+        ("exemplars=exemplars", "consistency rerun does not pass exemplars"),
+    ):
+        if needle not in main_src:
+            print(f"  FAIL {why}")
+            failed += 1
+    return failed
+
+
 def test_card_names_override() -> int:
     """`build_context(card_names=...)` must resolve without bracket syntax (21.136).
 
@@ -2808,6 +2847,7 @@ def main() -> None:
                      ("unseen_arms", test_unseen_arms),
                      ("base_only_arms", test_base_only_arms),
                      ("card_names_override", test_card_names_override),
+                     ("no_plain_rag_arm", test_no_plain_rag_arm),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),
                      ("judge_identity", test_judge_identity),
