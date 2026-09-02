@@ -802,6 +802,7 @@ def generate_all_answers(
     truncation_out: dict[str, int] | None = None,
     exemplars: list[tuple[str, str]] | None = None, k_rules: int | str = 3,
     no_plain_rag: bool = False, routing_out: dict[str, int] | None = None,
+    keyword_rules: bool = False,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
@@ -822,11 +823,16 @@ def generate_all_answers(
         # question actually names, resolved by lookup rather than embedding
         # (see scripts/retrieve_hybrid.py for why they aren't merged).
         from card_lookup import CardIndex
-        from retrieve_hybrid import RulingIndex, build_context
+        from retrieve_hybrid import KeywordRuleIndex, RulingIndex, build_context
 
         print("loading card index for card-augmented arms ...")
         card_index = CardIndex()
         ruling_index = RulingIndex() if with_rulings else None
+        # A third retrieval source, and deliberately not a similarity one. See
+        # KeywordRuleIndex's docstring and Section 21.159 for why that matters:
+        # BM25's union with dense added ZERO questions because two similarity
+        # methods find the same things; this adds 12 of 99 on the gold set.
+        keyword_index = KeywordRuleIndex() if keyword_rules else None
         # Prefer the record's own hand-verified `cards` field over scanning the
         # question for `[[brackets]]` it almost certainly does not contain
         # (Section 21.136: find_in_text resolves 0/99 on the real gold set).
@@ -835,6 +841,7 @@ def generate_all_answers(
         built = [
             build_context(q["question"], card_index, embed_model=embed_model,
                           ruling_index=ruling_index, k_rules=k_rules,
+                          keyword_rule_index=keyword_index,
                           card_names=q.get("cards") or None)
             for q in questions
         ]
@@ -856,6 +863,11 @@ def generate_all_answers(
         if with_rulings:
             with_official = sum(1 for c in card_contexts if "Official rulings:" in c)
             print(f"  {with_official}/{len(questions)} questions had official rulings")
+        if keyword_index:
+            n_inj = sum(1 for b in built if b["keyword_rules_injected"])
+            tot = sum(len(b["keyword_rules_injected"]) for b in built)
+            print(f"  {n_inj}/{len(questions)} questions had keyword rules injected "
+                  f"({tot} rules total, {tot / max(n_inj, 1):.1f} per question that got any)")
 
     # An adapter is only valid for the prompt format it saw. Checked HERE,
     # before generating hundreds of answers, because the failure it guards
@@ -1445,6 +1457,14 @@ def main() -> None:
                              "them (21.155) — so no single k is right for both (Section 21.156).\n"
                              "`auto` changes the CARD arm only; the rules-only `_rag` arm resolves\n"
                              "no cards and always takes the card-free k.")
+    parser.add_argument("--keyword-rules", action="store_true",
+                        help="inject the CR text for the keyword rules a resolved card's own\n"
+                             "chunk already names (trample -> 702.19 and its subrules), on top\n"
+                             "of dense retrieval. NOT a similarity method, which is the point:\n"
+                             "Section 21.141 killed five similarity variants and BM25's union\n"
+                             "with dense added ZERO questions, while this adds 12 of 99 on the\n"
+                             "gold set (17%% -> 29%% cited-rule recall). Card arms only — with\n"
+                             "no card resolved it is a byte-identical no-op (Section 21.159).")
     parser.add_argument("--few-shot", type=int, default=0, metavar="N",
                         help="prepend N worked (question, answer) examples as completed "
                              "prior turns before the real question — in-context learning, "
@@ -1571,7 +1591,8 @@ def main() -> None:
                                    base_model_id=args.base_model, base_only=args.base_only,
                                    truncation_out=truncation, exemplars=exemplars,
                                    k_rules=args.k_rules, routing_out=routing,
-                                   no_plain_rag=args.no_plain_rag)
+                                   no_plain_rag=args.no_plain_rag,
+                                   keyword_rules=args.keyword_rules)
     arm_names = list(answers.keys())
 
     # Consistency check: rerun a subset of finetuned_rag questions and see
@@ -1726,6 +1747,9 @@ def main() -> None:
            "run with the SAME arms (Section 21.5: arm count changes scores)\n")
         + f"- max tokens: `{args.max_tokens}`\n"
         + f"- k (rules chunks retrieved): `{args.k_rules}`\n"
+        + ("- **keyword rules injected** (`--keyword-rules`, Section 21.159): the CR "
+           "text for rules a resolved card's own keywords name, deduped against the "
+           "dense hits. Card arms only.\n" if args.keyword_rules else "")
         + (f"  - **routed per question** (Section 21.156): "
            + ", ".join(f"`k={k[1:]}` on {n} question{'s' if n != 1 else ''}"
                        for k, n in sorted(routing.items()))

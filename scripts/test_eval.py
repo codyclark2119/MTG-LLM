@@ -888,6 +888,74 @@ def test_k_rules_routing() -> int:
     return failed
 
 
+def test_keyword_rule_injection() -> int:
+    """Keyword-rule injection: subrule matching, dedupe, and the no-op (21.159).
+
+    The failure that would look right: expanding a keyword parent with
+    `startswith`. "702.19" prefixes 702.190 through 702.195, which are DIFFERENT
+    KEYWORDS -- so trample would arrive carrying Boast's rules, and the context
+    would look fuller while being wrong. Third appearance of this repo's
+    substring trap, and the one that measured as harmless (over-counting 0 on
+    both benchmarks) purely by luck of which citations co-occur.
+
+    The parent's own text is a LABEL -- rule 702.19 is the single word
+    "Trample" -- so injecting a parent without its lettered subrules injects
+    nothing of substance and would read as the lever simply not working.
+    """
+    from retrieve_hybrid import KeywordRuleIndex
+
+    failed = 0
+    idx = KeywordRuleIndex()
+
+    # A parent's subrules are letters only. 702.190 is Boast, not Trample.
+    subs = idx.subrules.get("702.19", [])
+    if not check("702.19 expands to its lettered subrules", subs[:3],
+                 ["702.19a", "702.19b", "702.19c"]):
+        failed += 1
+    bad = [r for r in subs if not r[len("702.19"):].isalpha()]
+    if bad:
+        print(f"  FAIL 702.19 swept in digit-suffixed rules (different keywords): {bad}")
+        failed += 1
+    if not check("702.190 is a separate keyword, not a 702.19 subrule",
+                 "702.190" in subs, False):
+        failed += 1
+
+    # The parent alone is a label; the substance is in the subrules.
+    if not check("702.19's own text is just the keyword name",
+                 idx.text.get("702.19"), "Trample"):
+        failed += 1
+    got = idx.expand(["702.19"])
+    if not check("expand returns parent + subrules, not the parent alone",
+                 len(got) > 1, True):
+        failed += 1
+    if not check("expand leads with the parent", got[0][0], "702.19"):
+        failed += 1
+
+    # Dedupe against what dense retrieval already placed.
+    kept = [r for r, _ in idx.expand(["702.19"], exclude={"702.19a", "702.19b"})]
+    if "702.19a" in kept or "702.19b" in kept:
+        print("  FAIL expand restates rules the dense retriever already returned")
+        failed += 1
+
+    # The cap bounds the worst case (24 rules / 5,597 chars on the gold set).
+    if not check("max_rules caps the injection",
+                 len(idx.expand(["702.19", "702.2", "702.9"], max_rules=4)), 4):
+        failed += 1
+
+    # eval must actually pass the index through, and only for card arms.
+    import inspect
+
+    from eval import generate_all_answers
+    src = inspect.getsource(generate_all_answers)
+    if "keyword_rule_index=keyword_index" not in src:
+        print("  FAIL generate_all_answers builds the index but never passes it")
+        failed += 1
+    if "KeywordRuleIndex() if keyword_rules else None" not in src:
+        print("  FAIL the index is built unconditionally, so the flag does nothing")
+        failed += 1
+    return failed
+
+
 def test_base_only_arms() -> int:
     """`--base-only` must drop the adapter arms and keep the base ones (21.138).
 
@@ -2950,6 +3018,7 @@ def main() -> None:
                      ("base_only_arms", test_base_only_arms),
                      ("card_names_override", test_card_names_override),
                      ("k_rules_routing", test_k_rules_routing),
+                     ("keyword_rule_injection", test_keyword_rule_injection),
                      ("no_plain_rag_arm", test_no_plain_rag_arm),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),

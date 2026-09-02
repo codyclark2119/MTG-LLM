@@ -13669,3 +13669,78 @@ pinned CR with no model — which makes it the rules track's version of
 disagree. That is exactly how 21.157 explained a +0.65/+1.30 spread between two
 judges. It is also why the rescore report omits the column and should keep
 omitting it: re-judging cannot change it.
+
+### 21.159 Keyword-rule injection: the first retrieval mechanism that isn't a search, +12 recall, a null on correctness, and four fabrications it removes
+
+`card_keyword_rule_ids` has been computed on every card retrieval since the
+cards arm existed and read by exactly one debug print. A code comment called
+injecting those rules' text "a genuine retrieval improvement to try ... but it
+changes what every card arm sees, so it must be run as a measured change". This
+is that measurement.
+
+**Why it is not another 21.141.** That section killed five ways to make
+retrieval find the governing rule — higher k, BM25, finer chunks, query
+rewriting, a second embedding model — and BM25's failure is the instructive one:
+its **union with dense added ZERO questions**, because two similarity methods
+find the same things. A card's own chunk already names the rules for its
+keywords, so this is a dictionary lookup, not a search. Cited-rule recall,
+measured offline before spending any GPU (21.141's discipline):
+
+| benchmark | dense k=3 | keyword | union | adds over dense |
+| --- | --- | --- | --- | --- |
+| gold set, n=99 | 17% | 15% | **29%** | **+12** |
+| card/ruling, n=21 | 24% | 14% | 29% | +1 |
+
+Both dense figures reproduce the published ones (21.68's 17% at k=3, 21.141's
+~24%), which is the positive control on the harness. The benchmark split is
+itself the finding: the card/ruling set is mined from XMage tests and cites
+layers, zone changes and copying (608.10, 400.7, 706.10); the gold set is what
+people actually ask and is full of 702.x. **A lever can be real and still be
+invisible on the benchmark you happen to run it against.**
+
+**Correctness: null.** 7B, gold set n=99 (98 paired, 1 unscored both sides),
+`base_rag_cards_rulings`, Mistral judge, two runs differing only in the flag:
+
+| subset | baseline → injected | W/L/tie | p |
+| --- | --- | --- | --- |
+| all paired (n=98) | 2.59 → 2.70, +0.11 | 11/9/78 | 0.824 |
+| where injection fired (n=58) | 2.55 → 2.73, +0.18 | 11/9/38 | 0.824 |
+| where it did not (n=40) | 2.65 → 2.65, **+0.00** | **0/0/40** | 1.000 |
+
+Recall went 17% → 29% and answer quality did not move. That is 21.68's lesson
+reached by a second road: **retrieval recall is not the bottleneck.** The 40-row
+subset is a clean specificity control — byte-identical answers scoring
+identically — and the context-free `base` arm is byte-identical on **99/99**,
+so every difference above is the flag and nothing else. The card arm differs on
+exactly 58/99, matching the 58 the run reported injecting into.
+
+**Fabricated citations: 5/99 → 1/99, four fixed and none broken** (p = 0.125 at
+n=4 — one-sided, underpowered, and precisely targeted). All four changes fall
+inside the 58 fired questions, and **three of the four were 702.x rules** — the
+exact class this lever supplies. The largest was an answer that invented
+nineteen consecutive subrules, `702.101c` through `702.101u`. Handing the model
+the real subrules stopped it manufacturing a ladder of fake ones, which is
+21.158's mechanism (no rules text → cite from memory → invent) running in
+reverse.
+
+**Not shipped as a default.** Same discipline 21.158 applied to the k=0 branch:
+a correctness null plus a 4-of-4 fabrication result at p = 0.125 is not enough
+to change what every card arm sees. `--keyword-rules` is opt-in. What would
+settle it is more *headroom*, not more questions — the gold set's baseline
+fabrication is 5/99, so five is the entire ceiling this lever can reach on it.
+The profile is nonetheless benign: median injection is 4 rules / 317 chars
+against an ~8,600-char context, answer length is unchanged (1,563 → 1,516
+chars, so 21.140's dilution is not biting), and `prompt_fingerprint` is still
+`30badae98696` because the injected text goes into the existing "Rules text:"
+section rather than a new one — no prompt change, no adapter invalidation.
+
+**Two implementation traps, both of which would have read as "the lever does
+not work".** A keyword parent's own text is a **label** — rule 702.19 is the
+single word "Trample" — so injecting parents alone injects nothing of
+substance; the content is in 702.19a-g. And expanding a parent by `startswith`
+sweeps in **702.190 through 702.195**, which are different keywords entirely, so
+trample would arrive carrying Boast's rules and the context would look fuller
+while being wrong. A subrule is the parent followed by letters only. Third
+appearance of this repo's substring trap, and the one that happened to
+over-count **0** on both benchmarks — luck, not safety, so it is asserted in
+`test_eval`.
