@@ -956,6 +956,124 @@ def test_keyword_rule_injection() -> int:
     return failed
 
 
+def test_verification_pass() -> int:
+    """The second-pass prompt, its marker, and its fingerprint (21.164).
+
+    Three failures this guards, all of which would read as a result about
+    verification rather than as a bug in it:
+
+      * `prompt_fingerprint` changing. It hashes three named system prompts and
+        three message shapes; a fourth prompt must not touch it, or adding a
+        verifier would invalidate every adapter on disk and present as the model
+        having got worse (Section 8.7).
+      * the marker being lost. `extract_final_answer` falls back to the WHOLE
+        second-pass text, which hands the judge the model's critique instead of
+        its answer. Silent, and its rate would correlate with the treatment —
+        21.39's shape exactly.
+      * the verifier prompt having no fingerprint at all, which is what
+        `gameplay_fingerprint` exists to prevent on the other track (21.60).
+    """
+    from common import (FINAL_ANSWER_MARKER, build_verify_messages,
+                        extract_final_answer, prompt_fingerprint, verify_fingerprint)
+
+    failed = 0
+    if not check("prompt_fingerprint is untouched by the verifier",
+                 prompt_fingerprint()["prompt_fingerprint"][:12], "30badae98696"):
+        failed += 1
+    if not check("the verifier has its own fingerprint",
+                 len(verify_fingerprint()["verify_fingerprint"]), 12):
+        failed += 1
+
+    ans, found = extract_final_answer(f"checking...\n{FINAL_ANSWER_MARKER} the answer")
+    if not check("marker splits off the final answer", (ans, found), ("the answer", True)):
+        failed += 1
+    # The LAST marker wins: a verifier that quotes the instruction back would
+    # otherwise return its own preamble as the answer.
+    ans, _ = extract_final_answer(
+        f"I must end with {FINAL_ANSWER_MARKER}\ncheck\n{FINAL_ANSWER_MARKER} real")
+    if not check("the last marker wins", ans, "real"):
+        failed += 1
+    ans, found = extract_final_answer("no marker here")
+    if not check("a missing marker is REPORTED, not silent", found, False):
+        failed += 1
+    if not check("a missing marker falls back to the whole text", ans, "no marker here"):
+        failed += 1
+
+    m = build_verify_messages("Q?", "CTX", "DRAFT")
+    if not check("verify messages are system+user", [x["role"] for x in m], ["system", "user"]):
+        failed += 1
+    for needle, why in (("CTX", "context"), ("Q?", "question"), ("DRAFT", "draft"),
+                        (FINAL_ANSWER_MARKER, "the marker it must emit")):
+        if needle not in m[1]["content"]:
+            print(f"  FAIL verify prompt omits {why}")
+            failed += 1
+
+    # eval must add the verified arm rather than replacing the draft one, and
+    # must count marker misses.
+    import inspect
+
+    from eval import generate_all_answers
+    src = inspect.getsource(generate_all_answers)
+    for needle, why in (('f"{out_key}_verified"', "verification replaces the arm instead of adding one"),
+                        ("verify_out", "marker misses are not counted"),
+                        ("and preformatted", "verification is not scoped to the card arm")):
+        if needle not in src:
+            print(f"  FAIL {why}")
+            failed += 1
+    return failed
+
+
+def test_answer_checkpoint() -> int:
+    """Generation must reach disk before the judge is loaded (21.164).
+
+    Generation is the expensive half — an hour of 7B, four of 32B — and it lived
+    only in a dict until a run finished. A verification run judged 60 of 99
+    questions, slowed to a crawl, and killing it destroyed every answer. The two
+    halves fail for unrelated reasons (a model loop; a second model plus JSON
+    parsing), so coupling their lifetimes buys nothing.
+
+    The join is the part that can fail silently. A gold record carries
+    `gold_id` and a prose one carries `id`; writing `q.get("id")` alone put
+    **null** in every row of the first checkpoint, measured 3/3. Joining on
+    position instead would be worse — `--gold-limit` stratifies, so a resumed
+    run could score every answer against the wrong rubric and never say so.
+    Fifth appearance of "did the identifier survive the trip" after 21.13,
+    21.62, 21.65 and 21.78.
+    """
+    import inspect
+
+    from eval import main
+    src = inspect.getsource(main)
+    failed = 0
+
+    for needle, why in (
+        ('ckpt = args.out.with_suffix(".answers.jsonl")',
+         "no checkpoint is written before judging"),
+        ('q.get("gold_id") or q.get("id")',
+         "the checkpoint join key drops gold records or prose records"),
+        ("if args.answers_from:", "--answers-from is accepted and ignored"),
+        ("skipping the consistency rerun",
+         "the consistency rerun would generate on a judge-only pass"),
+    ):
+        if needle not in src:
+            print(f"  FAIL {why}")
+            failed += 1
+
+    # The checkpoint must be written BEFORE the judge is loaded, or it protects
+    # nothing — that ordering is the entire point.
+    i_ckpt = src.find('with ckpt.open("w"')
+    i_judge = src.find("as judge ...")
+    if not check("checkpoint precedes the judge load", 0 <= i_ckpt < i_judge, True):
+        failed += 1
+
+    # And the resume must compare id SETS, not lengths: two runs of the same
+    # size over different questions would join cleanly and score nonsense.
+    if "want != got" not in src:
+        print("  FAIL --answers-from does not verify the checkpoint's ids match")
+        failed += 1
+    return failed
+
+
 def test_base_only_arms() -> int:
     """`--base-only` must drop the adapter arms and keep the base ones (21.138).
 
@@ -3019,6 +3137,8 @@ def main() -> None:
                      ("card_names_override", test_card_names_override),
                      ("k_rules_routing", test_k_rules_routing),
                      ("keyword_rule_injection", test_keyword_rule_injection),
+                     ("verification_pass", test_verification_pass),
+                     ("answer_checkpoint", test_answer_checkpoint),
                      ("no_plain_rag_arm", test_no_plain_rag_arm),
                      ("rescore_stamps_judge", test_rescore_stamps_judge),
                      ("coverage_lines", test_coverage_lines),

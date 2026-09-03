@@ -59,6 +59,8 @@ from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
 )
 from common import RULE_ID_RE as CROSS_REF_RE
 from common import AUTO_K_RULES, K_RULES_NO_CARDS, k_rules_arg
+from common import (FINAL_ANSWER_MARKER, build_verify_messages,
+                    extract_final_answer, verify_fingerprint)
 from stamp_adapter import check as prompt_stamp_check
 from stamp_adapter import unseen_arms
 from rag import MODEL_ID as EMBED_MODEL_ID
@@ -802,7 +804,8 @@ def generate_all_answers(
     truncation_out: dict[str, int] | None = None,
     exemplars: list[tuple[str, str]] | None = None, k_rules: int | str = 3,
     no_plain_rag: bool = False, routing_out: dict[str, int] | None = None,
-    keyword_rules: bool = False,
+    keyword_rules: bool = False, verify: bool = False,
+    verify_out: dict[str, int] | None = None,
 ) -> dict[str, list[str]]:
     from mlx_lm import generate as lm_generate
     from mlx_lm import load as load_lm
@@ -956,6 +959,43 @@ def generate_all_answers(
                 flag = "  <-- HIGH, scores for this arm are truncation-limited" if pct >= 0.25 else ""
                 print(f"  {out_key}: {capped}/{len(out)} answers hit the "
                       f"{max_tokens}-token ceiling ({pct:.0%}){flag}")
+
+            # The verification pass (Section 21.164). A SECOND greedy generation
+            # over the arm's own draft, added as its own arm rather than
+            # replacing one — the comparison that matters is draft vs verified
+            # on the same question, and 21.5 means it has to happen inside one
+            # batched judge call, not across two runs.
+            #
+            # Only the card arm is verified. It is the served configuration, and
+            # verifying every arm would triple a 32B run for arms nobody ships.
+            if verify and preformatted:
+                vkey = f"{out_key}_verified"
+                print(f"generating arm: {vkey}  (second pass over {out_key})")
+                vout, no_marker = [], 0
+                for i, q in enumerate(questions, 1):
+                    ctx = ctxs[i - 1] if ctxs is not None else None
+                    vmsgs = build_verify_messages(q["question"], ctx, out[i - 1])
+                    vprompt = tokenizer.apply_chat_template(vmsgs, add_generation_prompt=True)
+                    raw = lm_generate(model, tokenizer, prompt=vprompt,
+                                      max_tokens=max_tokens, verbose=False)
+                    final, found = extract_final_answer(raw)
+                    no_marker += not found
+                    vout.append(final)
+                    if i % 25 == 0 or i == len(questions):
+                        print(f"  {vkey}: {i}/{len(questions)}")
+                answers[vkey] = vout
+                # Reported, never silent. A fallback whose RATE depends on the
+                # condition under test is indistinguishable from a finding about
+                # that condition (Section 21.39), and here the fallback hands the
+                # judge the model's critique instead of its answer.
+                if verify_out is not None:
+                    verify_out[vkey] = no_marker
+                print(f"  {vkey}: {no_marker}/{len(vout)} answers had NO "
+                      f"`{FINAL_ANSWER_MARKER}` marker and fell back to the whole "
+                      f"second-pass text" + ("  <-- the judge is grading critiques"
+                                             if no_marker else ""))
+                unchanged = sum(1 for a, b in zip(out, vout) if a.strip() == b.strip())
+                print(f"  {vkey}: {unchanged}/{len(vout)} byte-identical to the draft")
 
     return answers
 
@@ -1457,6 +1497,15 @@ def main() -> None:
                              "them (21.155) — so no single k is right for both (Section 21.156).\n"
                              "`auto` changes the CARD arm only; the rules-only `_rag` arm resolves\n"
                              "no cards and always takes the card-free k.")
+    parser.add_argument("--verify", action="store_true",
+                        help="add a `<arm>_verified` arm: a SECOND greedy pass in which the\n"
+                             "model checks its own draft against the provided text, then\n"
+                             "writes a final answer. Targets Section 21.162's diagnosis —\n"
+                             "the model reasons step-by-step and gets the step CONTENT\n"
+                             "wrong, so nothing that teaches format can help. Greedy, never\n"
+                             "sampled: self-consistency would need temperature and forfeit\n"
+                             "the determinism this project's comparisons rest on. Card arm\n"
+                             "only, and it ADDS an arm (Section 21.5).")
     parser.add_argument("--keyword-rules", action="store_true",
                         help="inject the CR text for the keyword rules a resolved card's own\n"
                              "chunk already names (trample -> 702.19 and its subrules), on top\n"
@@ -1514,6 +1563,13 @@ def main() -> None:
                         help="v4 requires a verbatim quote behind every claimed point "
                              "or error and discards claims it cannot verify (Section 21.7). "
                              "v3 is the default so published numbers reproduce.")
+    parser.add_argument("--answers-from", type=Path, default=None,
+                        help="skip generation and judge the answers in this checkpoint file\n"
+                             "(written automatically before judging, as <out>.answers.jsonl).\n"
+                             "Generation is the expensive half and used to live only in memory\n"
+                             "until a run finished, so a judging failure destroyed it all --\n"
+                             "which happened (Section 21.164). Resuming in a fresh process also\n"
+                             "isolates a slowdown to the run or to the process.")
     parser.add_argument("--rescore-from", type=Path, default=None,
                         help="re-judge stored answers from a previous results file instead of regenerating")
     args = parser.parse_args()
@@ -1577,8 +1633,13 @@ def main() -> None:
     print(f"{len(questions)} eval questions total ({n_rubric} with a rubric -> V3 judge)")
 
     valid_rule_ids = load_rule_ids(args.rules)
-    print(f"loading {EMBED_MODEL_ID} for retrieval ...")
-    embed_model = load_embedder(EMBED_MODEL_ID)
+    # The embedder only exists to BUILD contexts. Resuming from a checkpoint
+    # skips generation entirely, so loading it would pay for a model this path
+    # never calls.
+    embed_model = None
+    if not args.answers_from:
+        print(f"loading {EMBED_MODEL_ID} for retrieval ...")
+        embed_model = load_embedder(EMBED_MODEL_ID)
 
     exemplars = None
     if args.few_shot:
@@ -1586,14 +1647,66 @@ def main() -> None:
 
     truncation: dict[str, int] = {}
     routing: dict[str, int] = {}
-    answers = generate_all_answers(questions, embed_model, args.max_tokens, args.adapter_path,
-                                   args.with_cards, args.with_rulings,
-                                   base_model_id=args.base_model, base_only=args.base_only,
-                                   truncation_out=truncation, exemplars=exemplars,
-                                   k_rules=args.k_rules, routing_out=routing,
-                                   no_plain_rag=args.no_plain_rag,
-                                   keyword_rules=args.keyword_rules)
-    arm_names = list(answers.keys())
+    verify_marker_misses: dict[str, int] = {}
+    if args.answers_from:
+        # Joined on gold_id, never on position: a checkpoint and a fresh question
+        # load can disagree about order (--gold-limit stratifies), and a
+        # positional join would silently score every answer against the wrong
+        # rubric. This repo has paid for an id join four times (21.13, 21.62,
+        # 21.65, 21.78), so the id SETS are compared before anything is scored.
+        ckpt = {r["gold_id"]: r for r in read_jsonl(args.answers_from)}
+        want = {q.get("gold_id") or q.get("id") for q in questions}
+        got = set(ckpt)
+        if want != got:
+            raise SystemExit(
+                f"--answers-from does not match the loaded questions: "
+                f"{len(want - got)} missing from the checkpoint, {len(got - want)} "
+                f"extra. Load the same --gold set the checkpoint came from.")
+        arm_names = list(next(iter(ckpt.values()))["answers"])
+        answers = {a: [ckpt[q.get("gold_id") or q.get("id")]["answers"][a]
+                       for q in questions] for a in arm_names}
+        print(f"resumed {len(questions)} questions x {len(arm_names)} arms from "
+              f"{args.answers_from} (no generation)")
+    else:
+        answers = generate_all_answers(
+            questions, embed_model, args.max_tokens, args.adapter_path,
+            args.with_cards, args.with_rulings,
+            base_model_id=args.base_model, base_only=args.base_only,
+            truncation_out=truncation, exemplars=exemplars,
+            k_rules=args.k_rules, routing_out=routing,
+            no_plain_rag=args.no_plain_rag,
+            keyword_rules=args.keyword_rules,
+            verify=args.verify, verify_out=verify_marker_misses)
+        arm_names = list(answers.keys())
+
+    # CHECKPOINT: answers to disk BEFORE the judge is loaded (Section 21.164).
+    # Generation is the expensive half — an hour of 7B, four of 32B — and it
+    # lived only in this dict until the run finished, so anything that went
+    # wrong during judging destroyed all of it. That is not hypothetical: a
+    # verification run judged 60 of 99 questions and then slowed to a halt
+    # (MLX still in QuantizedMatmul on the GPU, so grinding rather than
+    # deadlocked), and killing it cost every answer.
+    #
+    # The two halves fail for unrelated reasons — generation is a model loop,
+    # judging is a second model plus JSON parsing — so coupling their lifetimes
+    # buys nothing and risks everything. `--answers-from` resumes judging from
+    # this file in a FRESH process, which also isolates whether a slowdown is
+    # the run or the process.
+    if not args.answers_from:
+        ckpt = args.out.with_suffix(".answers.jsonl")
+        with ckpt.open("w", encoding="utf-8") as f:
+            for i, q in enumerate(questions):
+                # `gold_id` or `id`, the same idiom the results writer uses:
+                # a gold record carries `gold_id` and a prose one carries `id`,
+                # and picking one silently writes nulls for the other half
+                # (measured: 3/3 null before this). Anything joining two files
+                # on an identifier must first ask whether it survived the trip.
+                f.write(json.dumps({"gold_id": q.get("gold_id") or q.get("id"),
+                                    "question": q["question"],
+                                    "answers": {a: answers[a][i] for a in arm_names}},
+                                   ensure_ascii=False) + "\n")
+        print(f"checkpoint -> {ckpt}  ({len(questions)} questions x {len(arm_names)} "
+              f"arms, resume judging with --answers-from)")
 
     # Consistency check: rerun a subset of finetuned_rag questions and see
     # how often the judge would even need to know — same generation config,
@@ -1611,25 +1724,35 @@ def main() -> None:
     # different prompt would report a stability number for a prompt shape that
     # never ran, which is Section 21.61's shape: a flag that changes generation
     # and a consumer of that output nobody audited.
+    # The consistency rerun GENERATES, so it cannot run on a resumed judge-only
+    # pass: there is no embedder to build its context and no reason to load a
+    # model a resume exists to avoid. Skipped explicitly rather than left to
+    # crash, and the report says so instead of printing a stale 15/15.
+    consistency_idx: list[int] = []
+    consistency_reruns: list[str] = []
+    consistency_agree = 0
     consistency_base = "base" if args.base_only else "finetuned"
     consistency_arm = consistency_base if args.no_plain_rag else f"{consistency_base}_rag"
-    print(f"loading {args.base_model} "
-          f"({'no adapter' if args.base_only else 'adapter'}) for consistency rerun ...")
-    ft_model, ft_tokenizer = load_lm(
-        args.base_model, adapter_path=None if args.base_only else args.adapter_path)
-    consistency_idx = list(range(min(args.consistency_sample, len(questions))))
-    consistency_reruns = []
-    for i in consistency_idx:
-        # Same k the `_rag` arm was generated under, including under AUTO --
-        # this rerun exists to measure whether that arm is STABLE, so a
-        # different context makes it measure a configuration nothing ran.
-        rerun_k = K_RULES_NO_CARDS if args.k_rules == AUTO_K_RULES else args.k_rules
-        ctx = (None if args.no_plain_rag
-               else retrieve_context(questions[i]["question"], embed_model, k=rerun_k))
-        prompt = build_prompt(ft_tokenizer, questions[i]["question"], ctx,
-                              exemplars=exemplars)
-        consistency_reruns.append(lm_generate(ft_model, ft_tokenizer, prompt=prompt, max_tokens=args.max_tokens, verbose=False))
-    del ft_model, ft_tokenizer
+    if args.answers_from:
+        print("skipping the consistency rerun (--answers-from judges stored answers)")
+    else:
+        print(f"loading {args.base_model} "
+              f"({'no adapter' if args.base_only else 'adapter'}) for consistency rerun ...")
+        ft_model, ft_tokenizer = load_lm(
+            args.base_model, adapter_path=None if args.base_only else args.adapter_path)
+        consistency_idx = list(range(min(args.consistency_sample, len(questions))))
+        consistency_reruns = []
+        for i in consistency_idx:
+            # Same k the `_rag` arm was generated under, including under AUTO --
+            # this rerun exists to measure whether that arm is STABLE, so a
+            # different context makes it measure a configuration nothing ran.
+            rerun_k = K_RULES_NO_CARDS if args.k_rules == AUTO_K_RULES else args.k_rules
+            ctx = (None if args.no_plain_rag
+                   else retrieve_context(questions[i]["question"], embed_model, k=rerun_k))
+            prompt = build_prompt(ft_tokenizer, questions[i]["question"], ctx,
+                                  exemplars=exemplars)
+            consistency_reruns.append(lm_generate(ft_model, ft_tokenizer, prompt=prompt, max_tokens=args.max_tokens, verbose=False))
+        del ft_model, ft_tokenizer
 
     # This previously loaded BASE_MODEL_ID and ignored --judge-model entirely,
     # so `eval.py --judge-model <other>` produced a run judged by the base model
@@ -1747,6 +1870,14 @@ def main() -> None:
            "run with the SAME arms (Section 21.5: arm count changes scores)\n")
         + f"- max tokens: `{args.max_tokens}`\n"
         + f"- k (rules chunks retrieved): `{args.k_rules}`\n"
+        + (f"- **verification pass** (`--verify`, Section 21.164): second greedy pass "
+           f"over the card arm's own draft; prompt digest "
+           f"`{verify_fingerprint()['verify_fingerprint']}`"
+           + (f". **{sum(verify_marker_misses.values())} answers lacked the "
+              f"`{FINAL_ANSWER_MARKER}` marker** and fell back to the whole second-pass "
+              f"text, so the judge graded a critique on those"
+              if sum(verify_marker_misses.values()) else "")
+           + "\n" if args.verify else "")
         + ("- **keyword rules injected** (`--keyword-rules`, Section 21.159): the CR "
            "text for rules a resolved card's own keywords name, deduped against the "
            "dense hits. Card arms only.\n" if args.keyword_rules else "")

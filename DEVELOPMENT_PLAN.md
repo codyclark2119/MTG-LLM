@@ -14012,3 +14012,129 @@ two meanings is this repo's most-repeated bug.
 judges, layer-system questions got *worse*, and p = 0.085 means the aggregate
 gain is a lead rather than a finding. The concentration is the real argument,
 and it rests on n=13 in one category.
+
+### 21.164 The verification pass makes the model worse, significantly — and a checkpoint, because losing an hour of generation to a stalled judge is not acceptable
+
+21.162 pinned the failure — the model is handed the rules, reasons in
+well-formed steps, and gets the step CONTENT wrong — and named test-time compute
+as the one untried category. This is that experiment, and it is a clean
+negative.
+
+**Design.** A second GREEDY pass in which the model checks its own draft against
+the provided text and then writes a final answer, added as its own arm so the
+comparison happens inside one batched judge call (21.5). Self-consistency
+(sample N, take the majority) was rejected deliberately: it needs temperature,
+and determinism is load-bearing here — "a number that moved means something real
+changed" stops being true the moment generation has variance. The final answer
+is bounded by a `FINAL ANSWER:` marker, because free text later parsed is
+21.61's trap; **3 of 99** answers omitted it and fell back to the whole
+second-pass text, reported rather than silent.
+
+7B, gold set, n=98 paired, three arms, Mistral judge:
+
+| arm | score |
+| --- | --- |
+| `base` | 1.48 |
+| `base_rag_cards_rulings` | **2.53** |
+| `base_rag_cards_rulings_verified` | **2.03** |
+
+**−0.50, 5 wins to 22 losses, p = 0.002.** That is more significant than any
+positive result in this project. Complete misses rise 50 → 58, full-credit
+answers fall 23 → 11, and verification destroys a full-credit answer **6** times
+for every **1** it rescues.
+
+**The mechanism is compression, not confusion.** Verified answers are **36% of
+the draft's length** (1,474 → 529 chars, median 1,385 → 363) and shorter on
+**92 of 99**. A full-credit answer that became a zero reads, in its entirety:
+*"The total number of tokens created is **1**."* — correct on the first key
+point and silent on the second, which was the Leyline of the Void replacement
+interaction the question was actually about. **Verification turns an explanation
+into a conclusion.**
+
+That is the third independent appearance of brevity costing rubric coverage,
+after five fine-tunes (277-char targets → 250-320 char outputs) and few-shot
+(21.140, 1,551 → 1,271). Here it is caused by a prompt rather than by training,
+and unlike 21.140's p = 0.20 it is significant.
+
+**The fabrication "improvement" is the silence artifact, and the instrument
+caught it.** Fabricated citations fall 5 → 0 — which looks like the best
+grounding result yet and is worthless: citations collapse from **51/98 to
+7/98**. The arm stopped citing at all. 21.158 replaced the "Grounded" column
+precisely because *an arm that stays silent cannot fabricate*, and this is that
+column doing its job one section later.
+
+**Scoped honestly**: this measures THIS verification prompt, which asked for
+"the final answer for the user" and got one. A prompt demanding the corrected
+reasoning in full might not compress, and that is a fair retest. What is
+established is narrower and still useful — asking a 7B to check its own work
+makes it terser, and terser is worse on every metric this project has.
+
+**A checkpoint, forced by an incident.** The first attempt at this run judged 60
+of 99 questions and then slowed to a crawl — MLX still inside
+`QuantizedMatmul::eval_gpu`, so grinding rather than deadlocked — and killing it
+destroyed **every answer**, an hour of generation, because they lived only in a
+dict until the run finished. Generation and judging fail for unrelated reasons
+(a model loop; a second model plus JSON parsing), so coupling their lifetimes
+buys nothing. `eval.py` now writes `<out>.answers.jsonl` **before the judge is
+loaded**, and `--answers-from` resumes judging in a fresh process — which also
+isolates whether a slowdown is the run or the process. It was: the identical
+re-run completed judging normally and reproduced generation exactly (3/99
+no-marker, 3/99 byte-identical, both runs).
+
+The join is the part that could have failed silently: a gold record carries
+`gold_id` and a prose one carries `id`, and `q.get("id")` alone wrote **null on
+3 of 3** rows in the first checkpoint. Joining on position would have been
+worse — `--gold-limit` stratifies, so a resumed run could score every answer
+against the wrong rubric and never say so. The id SETS are compared before
+anything is scored. Fifth appearance of "did the identifier survive the trip"
+after 21.13, 21.62, 21.65 and 21.78.
+
+### 21.165 Audit: what the 53-question benchmark actually established, and the one claim still resting on it alone
+
+21.160 noticed that this project's negative results all trace to one benchmark.
+This is the audit that observation demands — no GPU, just reading every
+conclusion drawn from `card_ruling_candidates.jsonl` (n=53, mined from XMage's
+test suite, 21.135) against what has since been measured elsewhere.
+
+| Section | Claim, as stated | Status now |
+| --- | --- | --- |
+| 21.139 | model size is worth **+0.50** | **Overstated.** +0.30 on the gold set (21.163), +0.05 card-free (21.155) |
+| 21.140 | few-shot prompting fails | **Never replicated.** p = 0.20 (7B) and 0.41 (32B) — it was never significant |
+| 21.141 | rules retrieval "cannot be fixed" | **Reversed.** +0.52 on the gold set (21.160), +0.65 card-free (21.155) |
+| 21.143–21.144 | k=0 beats k=3 by +0.25 | **Reversed on the shipping model.** −0.02 and 0→5 fabrications (21.158) |
+| 21.145 | ship the 7B | **Reversed** (21.163), because it weighed 21.139's +0.50 |
+
+**Three reversed, one overstated, one never re-tested.** That is every
+behavioural conclusion the benchmark produced.
+
+**The benchmark is not defective — the generalisation was.** These are 53 hard
+interaction puzzles deliberately mined for difficulty, and they cite layers,
+zone changes and copying (608.10, 400.7, 706.10) where the gold set cites 702.x
+keyword rules. It is a good adversarial set and a bad proxy for what people ask.
+Every failure above is a claim measured on it and then stated without its
+condition, which is the same error as 21.40's "40% is a fact about the 7B, not
+about `errors_made`", one level up: **a rate measured on one benchmark is a
+statement about that benchmark.**
+
+**What DID survive from it, and why.** 21.138 (the base arms running into
+`--max-tokens 300`) and 21.142 (`--with-cards` resolving zero cards) both hold
+everywhere, because they are *mechanical* facts — a token ceiling and a broken
+lookup — not comparisons between models or configurations. The rule that falls
+out is worth keeping: **a mechanical finding from the narrow benchmark
+generalises; a behavioural comparison on it does not, until replicated.**
+
+**The one live claim still resting on it alone is few-shot** (21.140). It was
+closed as "a lever" on −0.36 at **p = 0.20** and −0.03 at **p = 0.41** — neither
+significant — from the benchmark that has since reversed three of its other four
+conclusions. The dilution mechanism proposed there (21.143's verbose exemplars
+scored worse still, ordering zero 3.69 > terse 3.33 > verbose 2.96) is real
+evidence and is why this is not simply reopened: a mechanism plus a consistent
+ordering is worth more than two non-significant deltas. But it is recorded here
+as **provisional, not closed**, and the gold set is where it would be settled.
+
+**Standing rule from this audit**: a conclusion measured only on
+`card_ruling_candidates.jsonl` is provisional until it is replicated on
+`gold_questions.jsonl`. The gold set is 99 human-labelled questions through
+`label_store`; the card/ruling set is machine-mined. 14.6 already measured
+hand-authored rubrics beating machine drafts (r +0.30 → +0.62) — the same
+asymmetry, applied to the questions instead of the rubrics.

@@ -767,6 +767,85 @@ CALIBRATED_JUDGE_ID = "mlx-community/Qwen2.5-32B-Instruct-4bit"
 PROMPT_STAMP_FILE = "prompt_fingerprint.json"
 
 
+# --- The verification pass (Section 21.164) --------------------------------
+#
+# 21.162 pinned the failure: the model is handed the rules, produces
+# well-formed step-by-step reasoning, and gets the CONTENT of the steps wrong.
+# Wrong answers are structured step-by-step MORE often than right ones (34/44
+# against 17/25), so the shape is not the problem and nothing that teaches
+# format can help. This asks the model to check each claim against the text it
+# was given.
+#
+# A second GREEDY generation, never sampling. Self-consistency (sample N, take
+# the majority) is the obvious alternative and is rejected on purpose: it needs
+# temperature, and this project's determinism is load-bearing — "the judge is
+# deterministic, so a number that moved means something real changed" stops
+# being true the moment generation has variance (see the table at 7807).
+VERIFY_SYSTEM_PROMPT = (
+    "You are checking a draft answer to a Magic: The Gathering rules question. "
+    "Work through the draft's claims one at a time and decide, for each, whether "
+    "the provided text SUPPORTS it, CONTRADICTS it, or DOES NOT ADDRESS it. Do "
+    "not introduce rules or card text that is not provided. Then write the final "
+    "answer for the user. If the draft was already correct, say so and repeat it; "
+    "do not change an answer merely because you were asked to check it."
+)
+
+# The final answer is bounded by a marker for the reason Section 21.61 gives:
+# free text in a field that is later parsed. Everything the model writes while
+# checking is reasoning ABOUT an answer, and scoring it as the answer would
+# grade the critique instead — the same failure as prose parsing as a play.
+FINAL_ANSWER_MARKER = "FINAL ANSWER:"
+
+
+def build_verify_messages(question: str, context: str | None, draft: str) -> list[dict]:
+    """Second-pass messages: check `draft` against `context`, then answer."""
+    parts = []
+    if context:
+        parts.append(context)
+    parts.append(f"Question: {question}")
+    parts.append(f"Draft answer:\n{draft}")
+    parts.append(
+        f"Check the draft against the text above, then write the final answer "
+        f"for the user on a new line beginning exactly with {FINAL_ANSWER_MARKER}"
+    )
+    return [{"role": "system", "content": VERIFY_SYSTEM_PROMPT},
+            {"role": "user", "content": "\n\n".join(parts)}]
+
+
+def extract_final_answer(text: str) -> tuple[str, bool]:
+    """Split the verified output at the marker. Returns (answer, marker_found).
+
+    A missing marker falls back to the WHOLE text, which is the right output but
+    the wrong thing to do silently: a fallback whose rate depends on the
+    condition under test is indistinguishable from a finding about that
+    condition (the unwrapped-JSON bug, Section 21.39). Callers must report the
+    count.
+    """
+    idx = text.rfind(FINAL_ANSWER_MARKER)
+    if idx == -1:
+        return text.strip(), False
+    return text[idx + len(FINAL_ANSWER_MARKER):].strip(), True
+
+
+def verify_fingerprint() -> dict:
+    """Identify the prompt shape a VERIFIED run was generated under.
+
+    Separate from `prompt_fingerprint` for the reason `gameplay_fingerprint` is
+    separate: the three prompts that one hashes are the ones an adapter trains
+    under, and folding a second-pass prompt into them would make editing the
+    verifier invalidate an adapter that never saw it — trading a missing guard
+    for a false one. Without this, an edit to VERIFY_SYSTEM_PROMPT would leave
+    no trace in any run file, which is 8.7's mechanism with no guard on it.
+    """
+    shape = "|".join(m["role"] + ":" + m["content"]
+                     for m in build_verify_messages("<Q>", "<CTX>", "<DRAFT>"))
+    parts = {"VERIFY_SYSTEM_PROMPT": VERIFY_SYSTEM_PROMPT, "message_shape": shape}
+    digests = {k: hashlib.sha256(v.encode()).hexdigest()[:16] for k, v in parts.items()}
+    combined = hashlib.sha256(
+        "\n".join(f"{k}={digests[k]}" for k in sorted(digests)).encode()).hexdigest()
+    return {"verify_fingerprint": combined[:12], "parts": digests}
+
+
 def gameplay_fingerprint() -> dict:
     """Identify the prompt shape a POSITION run was generated under.
 
