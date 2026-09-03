@@ -132,6 +132,19 @@ def separation(clean: list[dict], planted: list[dict]) -> dict:
     perfectly on the clean half alone, and one that always fires scores
     perfectly on the planted half alone -- neither rate means anything by
     itself, so there is deliberately no way to compute only one side.
+
+    `r["fired"]` only needs to be truthy-or-not -- a plain bool is enough for
+    the three core keys below. Two richer, OPTIONAL stats are included only
+    when the input rows actually support them, rather than crashing or
+    silently coercing a caller's simpler shape into something it isn't:
+
+      - `mean_fired_*` needs `r["n_fired"]` (a count, not just whether
+        anything fired) on every row of that half.
+      - `hit_planted` needs `r["hit"]` on every planted row -- whether the
+        judge caught the SPECIFIC error planted, not just whether it fired
+        at all. A caller that never plants a specific, checkable error index
+        (and so never has an honest way to say `hit`) correctly gets no
+        `hit_planted` key rather than a misleading 0%.
     """
     if not clean or not planted:
         raise ValueError(
@@ -140,8 +153,16 @@ def separation(clean: list[dict], planted: list[dict]) -> dict:
             "half. Neither rate means anything alone.")
     p_clean = sum(1 for r in clean if r["fired"]) / len(clean)
     p_error = sum(1 for r in planted if r["fired"]) / len(planted)
-    return {
+    result = {
         "p_fire_clean": p_clean,
         "p_fire_error": p_error,
         "separation": p_error - p_clean,
+        "n_clean": len(clean),
+        "n_planted": len(planted),
     }
+    if all("n_fired" in r for r in clean) and all("n_fired" in r for r in planted):
+        result["mean_fired_clean"] = sum(r["n_fired"] for r in clean) / len(clean)
+        result["mean_fired_error"] = sum(r["n_fired"] for r in planted) / len(planted)
+    if all("hit" in r for r in planted):
+        result["hit_planted"] = sum(1 for r in planted if r["hit"]) / len(planted)
+    return result
