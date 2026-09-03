@@ -28,14 +28,13 @@ side by side in the plan rather than one silently replacing the other. Pass
 """
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from common import read_jsonl, write_jsonl_atomic  # noqa: E402
-from eval import SCORING, rubric_correctness  # noqa: E402
+from harness.core.io import read_jsonl, write_jsonl_atomic  # noqa: E402
+from harness.core.eval.judge import SCORING, rubric_correctness  # noqa: E402
 
 
 def recompute(rows: list[dict], halve: bool = False,
