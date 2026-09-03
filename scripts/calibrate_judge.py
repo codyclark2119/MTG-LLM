@@ -145,6 +145,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from common import (  # noqa: E402
     REPO_ROOT,
@@ -157,6 +158,12 @@ from eval import (  # noqa: E402
     judge_batch_rubric,
     load_gold_questions,
     score_one_question,
+)
+from harness.core.calibration.controls import (  # noqa: E402
+    half_answer,
+    build_candidates,
+    build_error_assertions,
+    separation,
 )
 
 GOLD_EVAL_PATH = REPO_ROOT / "eval/sets/gold_questions_eval.jsonl"
@@ -171,83 +178,6 @@ REFUSAL = "The rules provided do not cover this, so I cannot answer the question
 # attention to itself, which is the thing being avoided.
 ASSERTION_TAIL = ". That is the play here."
 ASSERTION_TAIL_RULES = ". That is the ruling."
-
-# Sentence boundaries that survive rule ids. "601.2h" and "3." both contain a
-# period, so a naive split truncates mid-citation and would understate `partial`
-# for reasons that have nothing to do with the judge: the boundary requires
-# whitespace then a capital or an opening bracket.
-_SENT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
-
-
-def half_answer(text: str) -> str:
-    """Roughly the first half of an answer, cut at a sentence boundary.
-
-    Not the first SENTENCE. These answers open with a one-word verdict — "Yes."
-    or "3." — so first-sentence truncation produces a four-character candidate
-    and measures how the judge treats a bare verdict, not how it treats a
-    half-complete answer. Half is the control that is actually wanted: it should
-    state some of the key points and miss the rest, and a rubric judge scoring
-    points-hit should land it in the middle.
-
-    That also makes `partial` a length-neutrality check. V2 had a measured
-    length bias (r = +0.21, Section 9.6) and V3 exists partly to remove it; a
-    half-length answer stating half the points should score about half, not
-    less.
-
-    TWO INVARIANTS, both violated by the first version (Section 21.33)
-    -----------------------------------------------------------------
-    It appended a sentence and *then* tested whether half had been reached, so
-    it always overshot by a whole sentence. On these answers — short, few
-    sentences — that produced **79% of the text on average, not 50%**, and on a
-    two-sentence answer it returned the entire thing, making `partial`
-    byte-identical to `oracle`. The mid-scale control was measuring a nearly
-    complete answer, which is why it scored 91–94% of the oracle and looked like
-    a judge that cannot tell half from whole.
-
-    So: pick the prefix whose length is *closest* to half, and never return
-    every sentence. At least one sentence and at most n−1, which guarantees
-    `partial` is genuinely a proper prefix of `oracle`.
-    """
-    text = (text or "").strip()
-    parts = _SENT_RE.split(text)
-    if len(parts) < 2:
-        return text
-    target = len(text) / 2
-    best_i, best_gap, acc = 0, None, 0
-    for i, part in enumerate(parts[:-1]):     # never the whole answer
-        acc += len(part) + 1
-        gap = abs(acc - target)
-        if best_gap is None or gap < best_gap:
-            best_i, best_gap = i, gap
-    return " ".join(parts[:best_i + 1]).strip()
-
-
-def build_candidates(questions: list[dict], rng: random.Random) -> list[dict]:
-    """Four known-quality candidates per question."""
-    by_cat: dict[str, list[dict]] = {}
-    for q in questions:
-        by_cat.setdefault(q.get("category") or "?", []).append(q)
-
-    out = []
-    for q in questions:
-        pool = [o for o in by_cat.get(q.get("category") or "?", []) if o is not q]
-        # Same category keeps `wrong` topically plausible. Falling back to the
-        # whole set only matters for a category with one member.
-        if not pool:
-            pool = [o for o in questions if o is not q]
-        if not pool:
-            continue
-        other = rng.choice(pool)
-        out.append({
-            "q": q,
-            "candidates": {
-                "oracle": q["reference"],
-                "partial": half_answer(q["reference"]),
-                "wrong": other["reference"],
-                "refusal": REFUSAL,
-            },
-        })
-    return out
 
 
 def question_text(rec: dict) -> str:
@@ -285,68 +215,6 @@ def reference_answer(rec: dict) -> str:
         if m.get("role") == "assistant" and (m.get("content") or "").strip():
             return m["content"]
     return ""
-
-
-def build_error_assertions(records: list[dict]) -> tuple[list[dict], int, int]:
-    """One candidate per record that asserts a listed `common_error` verbatim.
-
-    Rotates which error is planted (record i takes error i % len) so the result
-    describes the error list rather than the habits of first entries.
-
-    Behaviour-shaped entries are skipped, not rewritten — see the module
-    docstring. Returns the cases plus BOTH drop counts: entries skipped, and
-    whole records left with nothing plantable. The second is the one that biases
-    a result, because the records that survive are the ones authored in claim
-    form, and a rate over them is a rate over a writing style.
-    """
-    cases, skipped_entries, skipped_records = [], 0, 0
-    for i, rec in enumerate(records):
-        errs = rec.get("common_errors") or []
-        usable = [(n, e) for n, e in enumerate(errs, 1) if not looks_like_behaviour(e)]
-        skipped_entries += len(errs) - len(usable)
-        if not usable:
-            skipped_records += 1
-            continue
-        n, claim = usable[i % len(usable)]
-        tail = ASSERTION_TAIL if "battlefield" in rec else ASSERTION_TAIL_RULES
-        cases.append({
-            "rec": rec,
-            "id": rec.get("id") or rec.get("gold_id"),
-            "n": n,
-            "claim": claim,
-            "answer": claim + tail,
-        })
-    return cases, skipped_entries, skipped_records
-
-
-def separation(clean: list[dict], planted: list[dict]) -> dict:
-    """The one number a judge report is allowed to lead with.
-
-    `P(fire | error) − P(fire | clean)`. It cannot be computed from one half,
-    which is the entire point — see `run_judge_report` and Section 21.43.
-
-    Raises on a one-sided call rather than returning a partial result. Three
-    published conclusions came from reading one column of this pair, and every
-    one of them looked confident: all four judges tested score 24/24 on the
-    planted error, and one of those fires at 58% of clean answers.
-    """
-    if not clean or not planted:
-        raise ValueError(
-            "separation needs BOTH halves. A judge that never fires scores perfectly "
-            "on the clean half; one that always fires scores perfectly on the planted "
-            "half. Neither rate means anything alone (Section 21.43).")
-    p_clean = sum(1 for r in clean if r["fired"]) / len(clean)
-    p_error = sum(1 for r in planted if r["fired"]) / len(planted)
-    return {
-        "p_fire_clean": p_clean,
-        "p_fire_error": p_error,
-        "separation": p_error - p_clean,
-        "mean_fired_clean": sum(r["n_fired"] for r in clean) / len(clean),
-        "mean_fired_error": sum(r["n_fired"] for r in planted) / len(planted),
-        "hit_planted": sum(1 for r in planted if r.get("hit")) / len(planted),
-        "n_clean": len(clean),
-        "n_planted": len(planted),
-    }
 
 
 def pad_clean(rec: dict, answer: str, rule_text: dict) -> str:
@@ -406,7 +274,20 @@ def run_judge_report(args) -> None:
                if r.get("key_points") and r.get("common_errors")]
     if args.limit:
         records = records[:args.limit]
-    cases, skipped_entries, skipped_records = build_error_assertions(records)
+    # A single run reads records of ONE shape (positions XOR rules questions --
+    # args.gold is one file), so the tail is decided once here rather than
+    # per-record inside build_error_assertions, which only knows a caller's
+    # generic assertion_tail, not this project's two-tail split.
+    assertion_tail = (ASSERTION_TAIL if records and "battlefield" in records[0]
+                      else ASSERTION_TAIL_RULES)
+    # harness.core's is_usable_error(e) must return True for a USABLE (claim-
+    # shaped) entry; looks_like_behaviour(e) returns True for the opposite
+    # (a behaviour-shaped entry) -- passing it directly inverted the filter
+    # (caught by comparing old-vs-new dry-run output: 4/5 usable, 8 skipped
+    # became 5/5 usable, 5 skipped, on records this run never actually
+    # changed).
+    cases, skipped_entries, skipped_records = build_error_assertions(
+        records, assertion_tail, is_usable_error=lambda e: not looks_like_behaviour(e))
     if not cases:
         raise SystemExit(
             f"{args.gold}: no claim-form common_errors to plant. Every entry reads as a "
@@ -569,7 +450,7 @@ def main() -> None:
     if not questions:
         raise SystemExit(f"no rubric-bearing questions in {args.gold}")
     rng = random.Random(args.seed)
-    cases = build_candidates(questions, rng)
+    cases = build_candidates(questions, rng, refusal=REFUSAL)
     print(f"{len(cases)} questions x 4 known-quality candidates")
 
     if args.dry_run:

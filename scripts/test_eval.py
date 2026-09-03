@@ -560,6 +560,13 @@ def test_error_assertions() -> int:
     """
     from calibrate_judge import (ASSERTION_TAIL, build_error_assertions,
                                  question_text, reference_answer, separation)
+    from common import looks_like_behaviour
+    # harness.core's build_error_assertions takes assertion_tail explicitly
+    # and an injectable is_usable_error predicate (calibrate_judge.py's own
+    # call site does the same wrapping -- see its "not looks_like_behaviour"
+    # comment). All the fixtures below are position-shaped (battlefield
+    # present), so ASSERTION_TAIL is the right tail throughout this test.
+    is_usable = lambda e: not looks_like_behaviour(e)  # noqa: E731
     failed = 0
 
     # --- the pair is mandatory (Section 21.43) -----------------------------
@@ -626,7 +633,7 @@ def test_error_assertions() -> int:
     recs = [{"id": f"p{i}", "battlefield": ["Mountain"], "key_points": ["k"],
              "common_errors": [claim, "Second claim about blocking", "Third claim here"]}
             for i in range(3)]
-    cases, skipped_e, skipped_r = build_error_assertions(recs)
+    cases, skipped_e, skipped_r = build_error_assertions(recs, ASSERTION_TAIL, is_usable_error=is_usable)
     failed += not check("all three usable", len(cases), 3)
     failed += not check("nothing skipped", (skipped_e, skipped_r), (0, 0))
     failed += not check("claim appears verbatim", claim in cases[0]["answer"], True)
@@ -639,7 +646,7 @@ def test_error_assertions() -> int:
     # rewritten — a rewrite is the prose that made this control undefensible.
     beh = {"id": "b", "battlefield": [], "key_points": ["k"],
            "common_errors": ["Adds Centaur Courser to the block, spending a 3/3"]}
-    cases, skipped_e, skipped_r = build_error_assertions([beh])
+    cases, skipped_e, skipped_r = build_error_assertions([beh], ASSERTION_TAIL, is_usable_error=is_usable)
     failed += not check("behaviour entry yields no case", cases, [])
     failed += not check("counted as a dropped record", skipped_r, 1)
     failed += not check("counted as a skipped entry", skipped_e, 1)
@@ -647,7 +654,7 @@ def test_error_assertions() -> int:
     # Mixed: keep the claim, drop the behaviour, still usable.
     mixed = {"id": "m", "battlefield": [], "key_points": ["k"],
              "common_errors": ["Adds Centaur Courser to the block", claim]}
-    cases, skipped_e, skipped_r = build_error_assertions([mixed])
+    cases, skipped_e, skipped_r = build_error_assertions([mixed], ASSERTION_TAIL, is_usable_error=is_usable)
     failed += not check("mixed record is usable", len(cases), 1)
     failed += not check("picks the claim, not the behaviour", cases[0]["n"], 2)
     failed += not check("mixed: entry skipped but record kept", (skipped_e, skipped_r), (1, 0))
