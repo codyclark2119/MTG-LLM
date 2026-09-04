@@ -427,15 +427,31 @@ returns the text unchanged. Sharing it needs a parameterized pattern upstream,
 or a migration of this repo's slot vocabulary, and the latter rewrites gold
 data.
 
-**3 functions differ for a reason, and are the larger job**:
-`generate_all_answers`, `compare_judges`, `judge_batch_rubric`. The template's
-versions are the *generalized* ones, not stale ones — `generate_all_answers` is
-26 lines there against 88 here because MTG retrieval was lifted out into an
-injected `build_prompt`/`arm_specs`; `compare_judges` parameterizes `id_key`
-instead of hardcoding `gold_id` and dropping `rubric_provenance`;
-`judge_batch_rubric` takes `judge_system_prompt` as an argument instead of
-selecting from a local dict of MTG prompt versions. Adopting them means
-changing the callers here, not the template.
+**`judge_batch_rubric` is adopted**, as a thin wrapper rather than a direct
+import. `judge_version` -> (prompt, `quote_required`) is MTG's business and
+stays here in `_JUDGE_VERSIONS`; the label mapping, JSON-shape tolerance,
+quote verification and score arithmetic are upstream. The wrapper keeps the
+old signature exactly, `judge_version="v3"` default included — every call site
+passes positionally, and a default that silently became something else would
+reprice every stored number without touching a call site.
+
+That adoption had to go the other way first. The shared version was **missing
+this repo's system-role fallback**, so importing it would have regressed a
+working capability: `gemma-2-27b-it` raises `TemplateError: System role not
+supported` rather than ignoring a system message, and every judge prompt opens
+with one. `apply_judge_template` now lives upstream and both shared judge
+functions route through it — which also fixed a live latent bug in
+`one_piece_llm`, which calls the shared `judge_batch_rubric` directly and
+would have died before grading anything under such a judge.
+
+**2 functions still differ, and are the larger job**: `generate_all_answers`
+and `compare_judges`. The template's versions are the *generalized* ones, not
+stale ones — `generate_all_answers` is 26 lines there against 88 here because
+MTG retrieval was lifted out into an injected `build_prompt`/`arm_specs`;
+`compare_judges` parameterizes `id_key` instead of hardcoding `gold_id` and
+drops `rubric_provenance`. Adopting them means changing the callers here, not
+the template, and `generate_all_answers` in particular means the caller
+pre-computing per-arm context.
 
 `prompt_fingerprint` has no counterpart upstream at all and is a candidate to
 push rather than pull.

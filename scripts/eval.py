@@ -99,8 +99,11 @@ from rag import retrieve
 # copy here would quietly undo.
 from harness.core.eval.harness import stratified_sample  # noqa: E402,F401
 from harness.core.eval.judge import (  # noqa: E402,F401
-    RUBRIC_DIAGNOSTICS, SCORING, carry_diagnostics, rubric_correctness,
-    verify_quoted_claims,
+    RUBRIC_DIAGNOSTICS, SCORING, apply_judge_template, carry_diagnostics,
+    rubric_correctness, verify_quoted_claims,
+)
+from harness.core.eval.judge import (  # noqa: E402
+    judge_batch_rubric as _core_judge_batch_rubric,
 )
 
 # DEFAULTS, not constants. Both of these are overridable per run (--base-model,
@@ -343,42 +346,17 @@ def judge_prompt_for(base: str, labels: list[str]) -> str:
     return base.replace(_FOUR_LABEL_PHRASE, named)
 
 
-def apply_judge_template(judge_tokenizer, messages: list[dict]) -> str:
-    """Render a JUDGE prompt, folding `system` into the first user turn when the
-    model's chat template refuses a system role.
-
-    `gemma-2-27b-it` raises `TemplateError: System role not supported` and dies
-    before grading anything — a whole model family unusable as a judge over a
-    formatting convention. All three judge prompts open with a system message.
-
-    **Judge paths only, deliberately.** `build_prompt()` renders the prompt for
-    the model UNDER TEST from `common.build_rag_messages`, and an adapter is
-    only valid for the format it was trained on (Section 8.7) — silently
-    reshaping that would invalidate the adapter and present as a capability
-    result. Evaluating a Gemma-family model as a subject needs a deliberate
-    decision and a re-stamp, not a fallback. So this is not called there.
-
-    Judges are stateless graders with no adapter, so the same reshaping is free.
-    It does change the judge prompt for such a model, which is a reason to
-    compare its numbers only against other runs of itself.
-    """
-    try:
-        return judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
-    except Exception as exc:                      # jinja2.TemplateError, and kin
-        if "system" not in str(exc).lower():
-            raise
-        folded, carried = [], ""
-        for m in messages:
-            if m["role"] == "system":
-                carried += m["content"].rstrip() + "\n\n"
-            elif m["role"] == "user" and carried:
-                folded.append({"role": "user", "content": carried + m["content"]})
-                carried = ""
-            else:
-                folded.append(m)
-        if carried:                               # system with no user turn after it
-            folded.append({"role": "user", "content": carried.rstrip()})
-        return judge_tokenizer.apply_chat_template(folded, add_generation_prompt=True)
+# judge_version -> (system prompt, the shared function's quote_required mode).
+#
+# This mapping is the whole reason a wrapper exists rather than a direct import:
+# which prompt a version means, and what it asks the judge for, is MTG's
+# business and lives here. The scoring machinery underneath is not, and lives
+# in harness/core.
+_JUDGE_VERSIONS = {
+    "v3": (JUDGE_SYSTEM_PROMPT_V3, "none"),
+    "v4": (JUDGE_SYSTEM_PROMPT_V4, "all"),
+    "v5": (JUDGE_SYSTEM_PROMPT_V5, "errors"),
+}
 
 
 def judge_batch_rubric(
@@ -389,108 +367,27 @@ def judge_batch_rubric(
 ) -> dict:
     """Score against an enumerated rubric behind randomized A/B/C/D labels.
 
-    `judge_version` selects the prompt. "v3" is the default and is unchanged, so
-    every published number reproduces. "v4" additionally requires a verbatim
+    A thin adapter over `harness.core.eval.judge.judge_batch_rubric`, which
+    holds the label mapping, JSON-shape tolerance, quote verification and score
+    arithmetic. Only the version->prompt mapping is MTG's.
+
+    `judge_version` selects the prompt. "v3" is the default and is unchanged,
+    so every published number reproduces. "v4" additionally requires a verbatim
     quote behind each claimed point or error and discards claims whose quote is
-    not in the candidate's text (Section 21.7).
+    not in the candidate's text (Section 21.7); "v5" applies that to errors
+    only.
+
+    The signature is deliberately UNCHANGED from the local version this
+    replaced, including the `judge_version="v3"` default. Every call site here
+    passes positionally, and a default that silently became something else
+    would reprice every stored number without touching a call site.
     """
-    arms = list(candidates)
-    rng.shuffle(arms)
-    label_to_arm = dict(zip((chr(ord("A") + i) for i in range(len(arms))), arms))
-
-    points_block = "\n".join(f"{i}. {p}" for i, p in enumerate(key_points, 1))
-    user = f"QUESTION:\n{question}\n\nKEY POINTS:\n{points_block}\n"
-    if common_errors:
-        errors_block = "\n".join(f"{i}. {e}" for i, e in enumerate(common_errors, 1))
-        user += f"\nCOMMON ERRORS:\n{errors_block}\n"
-    user += "\n" + "\n\n".join(f"CANDIDATE {label}:\n{candidates[arm]}" for label, arm in label_to_arm.items())
-
-    messages = [
-        {"role": "system", "content": judge_prompt_for(
-            {"v4": JUDGE_SYSTEM_PROMPT_V4,
-             "v5": JUDGE_SYSTEM_PROMPT_V5}.get(judge_version, JUDGE_SYSTEM_PROMPT_V3),
-            list(label_to_arm))},
-        {"role": "user", "content": user},
-    ]
-    prompt = apply_judge_template(judge_tokenizer, messages)
-    raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
-
-    start, end = raw.find("{"), raw.rfind("}")
-    if start == -1 or end == -1:
-        return {}
-    try:
-        scored = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
-        return {}
-
-    # A single candidate is often returned UNWRAPPED (Section 21.39). Asked to
-    # grade one answer "labeled A", the judge emits
-    #   {"points_hit": [...], "errors_made": [...], "citation": 3}
-    # rather than {"A": {...}} — which is reasonable, and which `scored.get("A")`
-    # silently reads as "the judge said nothing about A".
-    #
-    # Only when there is exactly one label, and only when the object looks like
-    # an entry rather than a label map. With several arms an unwrapped object
-    # cannot be attributed and must still fail.
-    if (len(label_to_arm) == 1 and not any(k in scored for k in label_to_arm)
-            and any(k in scored for k in ("points_hit", "errors_made", "citation"))):
-        scored = {next(iter(label_to_arm)): scored}
-
-    out = {}
-    for label, arm in label_to_arm.items():
-        entry = scored.get(label)
-        if not isinstance(entry, dict):
-            continue
-        raw_points = entry.get("points_hit") or []
-        raw_errors = entry.get("errors_made") or []
-        drops = 0
-        if judge_version == "v5":
-            # Errors only. V5 leaves points_hit in the V3 shape on purpose —
-            # that half of the instrument works (the judge credits the reference
-            # answer with 90% of its own key points), and V4 showed that asking
-            # for quotes on everything costs most of the coverage.
-            raw_errors, drops = verify_quoted_claims(
-                raw_errors, candidates[arm], len(common_errors))
-        elif judge_version == "v4":
-            # The receipt check. A claim the judge cannot quote from THIS
-            # candidate is discarded, and the count is carried so fabrication
-            # is a reported number rather than an impression.
-            answer_text = candidates[arm]
-            raw_points, d1 = verify_quoted_claims(raw_points, answer_text, len(key_points))
-            raw_errors, d2 = verify_quoted_claims(raw_errors, answer_text, len(common_errors))
-            drops = d1 + d2
-        computed = rubric_correctness(
-            raw_points, raw_errors, len(key_points), len(common_errors),
-        )
-        computed["quote_drops"] = drops
-        # The "every error at once" signature (Section 21.26).
-        #
-        # A rubric's common_errors are alternative wrong answers, so committing
-        # all of them is usually not a thing an answer can do. Firing them all
-        # is the judge using the error list as a "this answer is bad" flag —
-        # and blunder rate is defined on `errors_made` being non-empty, so it
-        # lands directly on the gate metric.
-        #
-        # Reported, never corrected. Sometimes an answer really is wrong on
-        # every axis, and silently dropping errors would change a published
-        # metric on a heuristic. The contradiction flag is the sharper one:
-        # stating half the key points while committing every listed
-        # misconception is not a judgement, it is two claims that cannot both
-        # hold.
-        n_err = len(common_errors)
-        fired_all = n_err >= 3 and len(computed["errors_made"]) == n_err
-        computed["all_errors_fired"] = fired_all
-        computed["error_contradiction"] = bool(
-            fired_all and key_points
-            and len(computed["points_hit"]) >= len(key_points) / 2)
-        citation = entry.get("citation")
-        out[arm] = {
-            **computed,
-            "citation": citation if isinstance(citation, (int, float)) else 3,
-            "note": entry.get("note", ""),
-            "scored_by": "rubric",
-        }
-    return out
+    prompt, quote_required = _JUDGE_VERSIONS.get(judge_version, _JUDGE_VERSIONS["v3"])
+    return _core_judge_batch_rubric(
+        lm_generate, judge_model, judge_tokenizer, prompt, question,
+        key_points, common_errors, candidates, max_tokens, rng,
+        quote_required=quote_required,
+    )
 
 
 def load_questions(synthetic_path: Path, reddit_path: Path, synthetic_limit: int, reddit_limit: int) -> list[dict]:
