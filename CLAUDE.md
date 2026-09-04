@@ -91,7 +91,7 @@ the stored runs, so a gate change that contradicts the documentation fails.
 
 ## Architecture
 
-```
+```text
 Comprehensive Rules ──ingest.py──> rules.jsonl ──chunk.py──> chunks.jsonl
                                                                   │
 Scryfall Oracle ──fetch_cards.py──> chunk_cards.py ──> card_chunks.jsonl
@@ -356,6 +356,72 @@ Four plan sections investigated the 40% as a property of the field while the
 calibration table already recorded the 32B at 0%. A rate measured on one judge
 is a statement about that judge, and that applies to diagnosing a metric exactly
 as it applies to ranking arms.
+
+## `harness/core` is a shared subtree, not this repo's code
+
+`harness/core/` is linked by `git subtree` to `base-training-repo`, the
+game-agnostic template this repo was the source for. `one_piece_llm` has the
+same link. **A change you make under `harness/core/` is a change to code two
+other repos run**, so it does not get reviewed the way the rest of this repo
+does.
+
+Three rules:
+
+- **Never run `git subtree` here by hand.** Use
+  `tcg_ai_training/scripts/sync-harness-core.sh`, which regenerates a fresh
+  split branch before every pull and never pulls from `master`. Pulling from
+  `master` against a split-branch-bootstrapped link once merged the template's
+  ENTIRE tree into `one_piece_llm`'s root and deleted almost the whole repo.
+- **Nothing under `harness/` may import from anything in `scripts/`.** The
+  dependency is one-directional; the game layer is reached only through
+  callables and strings passed as arguments. That is what makes the tree
+  extractable at all.
+- **Verify an upstream-bound change by running old and new against real data
+  and diffing the output**, not by reading the diff. That is how the
+  `is_usable_error` polarity inversion was caught in the second extraction —
+  a clean-looking source diff that inverted a filter.
+
+### Extraction status, re-derived
+
+Two scripts import the shared module today: `rescore_stored.py` and
+`calibrate_judge.py`. Everything else still uses this repo's local copies.
+
+**12 functions are pure duplication** — same body, only the docstring differs
+(the template rewrote MTG-specific prose into game-neutral prose). Swapping the
+local definition for an import is mechanical:
+
+| where | functions |
+| --- | --- |
+| `common.py` | `read_jsonl`, `iter_jsonl`, `write_jsonl_atomic`, `file_sha256`, `guard_shrink`, `pearson_r`, `templatize`, `untemplatize` |
+| `eval.py` | `stratified_sample`, `verify_quoted_claims`, `rubric_correctness`, `carry_diagnostics` |
+
+**3 functions differ for a reason, and are the larger job**:
+`generate_all_answers`, `compare_judges`, `judge_batch_rubric`. The template's
+versions are the *generalized* ones, not stale ones — `generate_all_answers` is
+26 lines there against 88 here because MTG retrieval was lifted out into an
+injected `build_prompt`/`arm_specs`; `compare_judges` parameterizes `id_key`
+instead of hardcoding `gold_id` and dropping `rubric_provenance`;
+`judge_batch_rubric` takes `judge_system_prompt` as an argument instead of
+selecting from a local dict of MTG prompt versions. Adopting them means
+changing the callers here, not the template.
+
+`prompt_fingerprint` has no counterpart upstream at all and is a candidate to
+push rather than pull.
+
+Re-derive this before acting on it (compare function bodies with docstrings
+stripped — comparing them *with* docstrings reports all 15 as divergent and is
+how this table was first got wrong).
+
+### On `MODULARIZATION_PLAN.md`
+
+The branch `agents/one-piece-tcg-ai-modular-harness` holds the analysis that
+produced `base-training-repo` — committed thirteen minutes before that repo's
+first commit, and the `harness/core` layout matches its proposal almost
+exactly. It is **kept for provenance, not as a plan**: it analyses this repo as
+of `842228f` (Aug 20, ~150 commits back — `common.py` was 1238 lines then and
+is over 2000 now), and its central proposal, a single repo with `games/mtg/`,
+`games/one_piece/` and a `GAME` selector, was deliberately rejected in favour
+of separate repos sharing one subtree. The live part of it is the table above.
 
 ## Evaluation — read this before trusting any number
 
@@ -883,7 +949,7 @@ Each cost real time. They recur in new code, so they are worth knowing.
   the obvious reading was that generation had hung. Launch with `python -u`, or
   monitor something the job cannot buffer — the artifact it writes, or its RSS
   (a 4 GB process is generating on the 7B; a 20 GB one has loaded the 32B judge
-  and is scoring). Same family as the `pgrep` trap below: a monitoring signal
+  and is scoring). Same family as the pgrep trap below: a monitoring signal
   that reads as one thing and means another.
 - **`pgrep -f` matching the shell that mentions the job.** A background shell
   whose command line contains `... --judge-model mlx-community/Qwen2.5-32B ...`
