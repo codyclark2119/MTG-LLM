@@ -63,7 +63,7 @@ a GPU:
 python scripts/test_imports.py                    # every script resolves every name it uses
 python scripts/test_eval.py                       # the scoring arithmetic (535)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
-python scripts/test_webui.py                      # every served page's JavaScript parses (176)
+python scripts/test_webui.py                      # every served page's JavaScript parses (183)
 python scripts/test_deploy.py                     # what may leave the machine (136)
 python scripts/test_chat_server.py                # the chat surface's auth and rating durability
 python scripts/test_server_validation.py          # the rubric server's input validation
@@ -759,15 +759,33 @@ verdict with no coverage.
 python scripts/webui.py --lan --author "judge:CC"
 ```
 
-Four views: `#/label`, `#/new`, `#/position`, `#/scripts`. Off loopback it
-generates a token.
+Views: `#/label`, `#/new`, `#/position`, `#/adjudicate`, and `#/scripts`,
+which is now a doorway to `/console`. Off loopback it generates a token.
 
-**The script runner is an allowlist.** The client sends an action id and values
-for that action's declared args; the command line is assembled server-side and
-never accepted from the client. This server binds to the LAN, so a generic
-"run a command" endpoint would be remote code execution. Adding a runnable
-script means adding an entry to `ACTIONS` — never a passthrough. Jobs run one
-at a time because several write the same files.
+**The script runner is the SHARED console**, `harness/core/webui/monitor.py`,
+mounted at `/console`. This file used to carry ~130 lines of `Runner` and
+`lan_ip` duplicated from `harness/core/webui/runner.py` — a *pre*-extraction
+copy wired to module globals rather than constructor arguments. The extraction
+had happened and the adoption had not, and nothing guarded the drift:
+`test_imports.py`'s `SUBTREE_DUPLICATES` check covers `common.py` only, and no
+test here exercised `Runner` at all. `test_webui.py` now fails if a local copy
+comes back.
+
+`ACTIONS` stays here — it is the only game-specific part, and it is also the
+only thing that can run.
+
+**The allowlist is the security model.** The client sends an action id and
+values for that action's declared args; the command line is assembled
+server-side and never accepted from the client. This server binds to the LAN,
+so a generic "run a command" endpoint would be remote code execution. Adding a
+runnable script means adding an entry to `ACTIONS` — never a passthrough. Jobs
+run one at a time because several write the same files.
+
+The mount is built with **no token of its own**: the outer middleware already
+gates every request on this app, and the shared monitor's cookie has a
+different name, so a second token would mean two logins for one server. A test
+asserts the mount is gated — if it ever escaped that middleware, LAN mode would
+expose a script runner with no auth at all.
 
 **`webui.py` is LAN-only and must never be deployed.** That runner plus a store
 that writes the gold set directly are fine behind a LAN token and are remote

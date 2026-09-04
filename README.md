@@ -224,7 +224,7 @@ Format, the four rubric-writing rules, and contribution guidance: [data/gold/SCH
 | `adjudicate.py` | human ground truth on judge calls; scores any run against it |
 | `audit_sft.py` | contamination check; exits non-zero. Run **before** training |
 | `stamp_adapter.py` / `rescore_stored.py` | prompt-fingerprint an adapter; re-derive a run with no model |
-| `webui.py` / `label_store.py` | local console: label, author records and positions, adjudicate, run scripts |
+| `webui.py` / `label_store.py` | local console: label, author records and positions, adjudicate. The script runner is the SHARED console (`harness/core/webui/monitor.py`), mounted at `/console` |
 | `common.py` | shared prompts, CR pinning, rule-id patterns, canonical paths |
 | `gameplay/actions.py` | the action grammar and its parser |
 | `gameplay/positions.py` | board-position schema, validation, rendering |

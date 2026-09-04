@@ -20,6 +20,7 @@ JavaScript`, present on every macOS) and asserts the structural invariants a
 single-file app depends on. No browser, no network, no model.
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -112,6 +113,69 @@ def check_page(label: str, html: str) -> None:
     # Balanced template literals — an odd count silently swallows the rest of
     # the file into a string and produces a parse error a long way from home.
     check(f"{label}: backticks balanced", js.count("`") % 2, 0)
+
+
+def check_shared_runner_adoption() -> None:
+    """The script runner is the shared console, not a copy of it.
+
+    This file used to carry ~130 lines of `Runner` and `lan_ip` duplicated from
+    harness/core/webui/runner.py -- a PRE-extraction copy wired to module
+    globals instead of constructor arguments. The extraction had happened; the
+    adoption had not, and nothing guarded the drift: test_imports.py's
+    SUBTREE_DUPLICATES check covers common.py only, and no test in this repo
+    exercised Runner at all.
+
+    Reintroducing a local copy now fails here.
+    """
+    import webui
+    from harness.core.webui.runner import Runner as SharedRunner
+
+    check("runner: Runner is imported, not redefined",
+          webui.Runner.__module__, "harness.core.webui.runner")
+    check("runner: lan_ip is imported, not redefined",
+          webui.lan_ip.__module__, "harness.core.webui.runner")
+    src = Path(__file__).with_name("webui.py").read_text()
+    check("runner: no local class Runner", "\nclass Runner:" in src, False)
+    check("runner: no local def lan_ip", "\ndef lan_ip(" in src, False)
+
+    from fastapi.testclient import TestClient
+    from label_store import CANDIDATES_PATH, Store
+    from common import GOLD_PATH, RULES_PATH
+
+    store = Store(GOLD_PATH, CANDIDATES_PATH, RULES_PATH, None, True)
+    runner = SharedRunner({a["id"]: a for a in webui.ACTIONS}, webui.REPO_ROOT)
+
+    # --- mounted, and reachable ---
+    c = TestClient(webui.build_app(store, runner, author="t", token=None))
+    check("console: page is served", c.get("/console").status_code, 200)
+    check("console: actions listed", c.get("/console/api/actions").status_code, 200)
+    groups = c.get("/console/api/actions").json()["groups"]
+    check("console: this repo's own action groups reach it",
+          "Gold set" in groups and "Gameplay" in groups, True)
+    check("console: the script path is never sent to the client",
+          "cmd" in json.dumps(groups), False)
+
+    # --- the endpoints it replaced are gone ---
+    check("console: the old /api/jobs is gone", c.get("/api/jobs").status_code, 404)
+    check("console: the old /api/run is gone",
+          c.post("/api/run", json={}).status_code, 404)
+
+    # --- the allowlist still holds through the mount ---
+    r = c.post("/console/api/run/rm-rf", json={"values": {}})
+    check("console: an unknown action is refused", r.status_code, 400)
+
+    # --- and the mount inherits THIS server's auth ---
+    # It is built with no token of its own on purpose: the outer middleware
+    # already gates every request, and the shared monitor's cookie has a
+    # different name, so a second token would mean two logins for one server.
+    # If the mount escaped that middleware, the LAN mode would expose a remote
+    # script runner with no auth at all.
+    gated = TestClient(webui.build_app(store, runner, author="t", token="sekrit"))
+    check("console: no token is refused", gated.get("/console").status_code, 401)
+    check("console: running without a token is refused",
+          gated.post("/console/api/run/validate_gold", json={"values": {}}).status_code, 401)
+    check("console: a valid token is accepted",
+          gated.get("/console", headers={"x-token": "sekrit"}).status_code, 200)
 
 
 def main() -> None:
@@ -225,6 +289,8 @@ def main() -> None:
         called = set(re.findall(r"\b([A-Za-z_$][\w$]*)\s*\(", script))
         missing = sorted((called & ours) - defined)
         check(f"{name}: every helper it calls is defined on the page", missing, [])
+
+    check_shared_runner_adoption()
 
     print(f"\n{'FAILED' if FAILED else 'all checks passed'} ({CHECKS_RUN} assertions)")
     if FAILED:

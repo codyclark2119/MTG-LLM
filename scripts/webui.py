@@ -50,6 +50,10 @@ sys.path.insert(0, str(Path(__file__).parent / "gameplay"))
 from common import (ACTION_GRAMMAR, GOLD_PATH, POSITIONS_PATH, RULES_PATH,
                     read_jsonl, render_position)
 from label_store import CANDIDATES_PATH, CATEGORIES, DIFFICULTIES, Store
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from harness.core.webui.monitor import build_app as build_monitor_app
+from harness.core.webui.runner import Runner, lan_ip
 from positions import (
     POSITION_CATEGORIES,
     append_position,
@@ -191,135 +195,11 @@ ACTIONS = [
 ACTIONS_BY_ID = {a["id"]: a for a in ACTIONS}
 
 
-class Runner:
-    """Runs one allowlisted action at a time, buffering its output."""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.jobs: dict[str, dict] = {}
-        self.order: list[str] = []
-        self.active: str | None = None
-
-    def build_cmd(self, action: dict, values: dict) -> list[str]:
-        cmd = [sys.executable, action["cmd"]]
-        for spec in action["args"]:
-            name, kind = spec.get("name"), spec["type"]
-            if kind == "fixed":
-                if spec.get("glob"):
-                    # Expand here rather than handing a pattern to a shell.
-                    import glob as _g
-                    hits = sorted(_g.glob(str(REPO_ROOT / spec["value"][0])))
-                    if name:
-                        cmd.append(name)
-                    cmd += hits or spec["value"]
-                else:
-                    if name:
-                        cmd.append(name)
-                    cmd += list(spec["value"])
-                continue
-
-            raw = values.get(spec.get("key") or name or spec.get("label"))
-            if kind == "flag":
-                if raw if raw is not None else spec.get("default"):
-                    cmd.append(name)
-            elif kind == "int":
-                v = int(raw) if str(raw or "").strip() else spec.get("default")
-                cmd += ([name] if name else []) + [str(int(v))]
-            elif kind in ("text", "choice"):
-                v = raw if raw not in (None, "") else spec.get("default", "")
-                if v == "":
-                    continue
-                if kind == "choice" and v not in spec.get("choices", []):
-                    raise ValueError(f"{v!r} is not an allowed value")
-                cmd += ([name] if name else []) + [str(v)]
-        return cmd
-
-    def start(self, action_id: str, values: dict) -> dict:
-        action = ACTIONS_BY_ID.get(action_id)
-        if action is None:
-            return {"ok": False, "error": f"unknown action {action_id!r}"}
-        with self.lock:
-            if self.active and self.jobs[self.active]["status"] == "running":
-                return {"ok": False, "error": "Another job is still running. "
-                                              "These scripts share output files, so they run one at a time."}
-            try:
-                cmd = self.build_cmd(action, values)
-            except (ValueError, TypeError) as e:
-                return {"ok": False, "error": str(e)}
-
-            jid = f"{action_id}-{int(time.time() * 1000)}"
-            job = {
-                "id": jid, "action": action_id, "label": action["label"],
-                "cmd": " ".join(Path(c).name if i == 1 else c for i, c in enumerate(cmd)),
-                "status": "running", "returncode": None, "lines": [],
-                "started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "ended": None,
-            }
-            self.jobs[jid] = job
-            self.order.append(jid)
-            self.active = jid
-
-        proc = subprocess.Popen(
-            cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, env={**__import__("os").environ, "PYTHONUNBUFFERED": "1"},
-        )
-        job["_proc"] = proc
-        threading.Thread(target=self._pump, args=(job, proc), daemon=True).start()
-        return {"ok": True, "job": jid}
-
-    def _pump(self, job: dict, proc: subprocess.Popen) -> None:
-        try:
-            for line in proc.stdout:
-                # Progress bars emit \r; keep only the last segment so the log
-                # doesn't fill with partial redraws.
-                job["lines"].append(line.rstrip("\n").split("\r")[-1])
-                if len(job["lines"]) > 4000:
-                    del job["lines"][:1000]
-        finally:
-            proc.wait()
-            job["returncode"] = proc.returncode
-            job["status"] = "done" if proc.returncode == 0 else (
-                "cancelled" if job.get("_cancelled") else "failed")
-            job["ended"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            job.pop("_proc", None)
-            with self.lock:
-                if self.active == job["id"]:
-                    self.active = None
-
-    def cancel(self, jid: str) -> dict:
-        job = self.jobs.get(jid)
-        if not job or job["status"] != "running":
-            return {"ok": False, "error": "not running"}
-        job["_cancelled"] = True
-        proc = job.get("_proc")
-        if proc:
-            proc.terminate()
-        return {"ok": True}
-
-    def view(self, jid: str, since: int = 0) -> dict | None:
-        job = self.jobs.get(jid)
-        if job is None:
-            return None
-        return {k: v for k, v in job.items() if not k.startswith("_")} | {
-            "lines": job["lines"][since:], "total_lines": len(job["lines"]),
-        }
-
-    def history(self, n: int = 12) -> list[dict]:
-        return [{"id": j, "label": self.jobs[j]["label"], "status": self.jobs[j]["status"],
-                 "started": self.jobs[j]["started"], "returncode": self.jobs[j]["returncode"]}
-                for j in reversed(self.order[-n:])]
-
-
-def lan_ip() -> str:
-    """Best-guess LAN address. The UDP socket is never actually sent on."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    except Exception:
-        return "127.0.0.1"
-    finally:
-        s.close()
-
+# `Runner` and `lan_ip` used to live here, ~130 lines duplicated from
+# harness/core/webui/runner.py. The extraction had already happened; the
+# adoption had not, so this file kept a PRE-extraction copy wired to module
+# globals instead of constructor arguments -- and nothing guarded the drift,
+# because test_imports.py's SUBTREE_DUPLICATES check covers common.py only.
 
 def build_app(store: Store, runner: Runner, author: str, token: str | None):
     from fastapi import FastAPI, Request
@@ -475,22 +355,17 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
         return {"ok": True}
 
     # -- scripts ----------------------------------------------------------
-    @app.post("/api/run")
-    async def run(payload: dict):
-        return runner.start(payload.get("action", ""), payload.get("values") or {})
-
-    @app.get("/api/job/{jid}")
-    def job(jid: str, since: int = 0):
-        v = runner.view(jid, since)
-        return v if v else JSONResponse({"error": "not found"}, status_code=404)
-
-    @app.post("/api/job/{jid}/cancel")
-    def cancel(jid: str):
-        return runner.cancel(jid)
-
-    @app.get("/api/jobs")
-    def jobs():
-        return {"jobs": runner.history(), "active": runner.active}
+    # The script runner is `harness/core/webui/monitor.py`, mounted below at
+    # /console rather than reimplemented here. Its four endpoints, its ~130-line
+    # Runner and this file's scripts view are all gone; ACTIONS -- the only
+    # game-specific part -- stays and is passed in.
+    #
+    # Mounted with NO token of its own: the outer middleware above already
+    # gates every request on this app, and the shared monitor's own cookie has
+    # a different name, so giving it a second token would demand two logins for
+    # one server.
+    app.mount("/console", build_monitor_app(
+        ACTIONS, REPO_ROOT, title="magic-llm", runner=runner))
 
     return app
 
@@ -559,15 +434,8 @@ button:focus-visible,summary:focus-visible,a:focus-visible,input:focus-visible,t
 .msg{font-size:.8rem;margin-left:auto}.msg.err{color:var(--bad)}.msg.ok{color:var(--ok)}
 .kbd{font-family:var(--mono);font-size:.66rem;color:var(--faint);border:1px solid var(--rule);padding:0 .22rem;border-radius:2px}
 .card{border:1px solid var(--rule);background:var(--panel);padding:.75rem .85rem;margin-bottom:.5rem}
-.card .top{display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap}
 .card p{margin:.3rem 0 0;font-size:.85rem;color:var(--soft)}
-.grp{font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);margin:1.3rem 0 .5rem;font-weight:620}
-.log{background:var(--panel);border:1px solid var(--rule);font-family:var(--mono);font-size:.76rem;
- line-height:1.5;padding:.7rem .8rem;overflow:auto;max-height:26rem;white-space:pre-wrap;word-break:break-word}
-.status{font-family:var(--mono);font-size:.72rem;padding:.06rem .35rem;border-radius:2px;border:1px solid var(--rule)}
-.status.running{color:var(--accent);border-color:var(--accent)}
-.status.done{color:var(--ok);border-color:var(--ok)}
-.status.failed,.statusul.problems{margin:.4rem 0 0;padding-left:1.1rem;color:var(--bad);font-size:.85rem}
+ul.problems{margin:.4rem 0 0;padding-left:1.1rem;color:var(--bad);font-size:.85rem}
 .empty{padding:3rem 1rem;text-align:center;color:var(--soft)}
 .adjboard{font-family:var(--mono);font-size:.78rem;line-height:1.45;white-space:pre-wrap;background:var(--panel);border:1px solid var(--rule);padding:.7rem;margin:0 0 1rem}
 .adjans{font-family:var(--mono);font-size:.82rem;white-space:pre-wrap;border-left:2px solid var(--accent);padding:.2rem 0 .2rem .9rem;margin:0 0 1.1rem}
@@ -909,67 +777,16 @@ function renderAdj(){
 }
 
 /* ---------------- scripts ---------------- */
+/* The runner UI is the shared console at /console (harness/core/webui/monitor.py).
+   This view is the doorway to it: keeping the nav entry means the muscle memory
+   still works, and viewScripts() stays defined, which test_webui.py checks for
+   every route the router dispatches to. */
 function viewScripts(){
-  const groups={};META.actions.forEach(a=>(groups[a.group]=groups[a.group]||[]).push(a));
-  let html='<div class="page"><h2>Pipeline scripts</h2>'+
-    '<p class="hint" style="margin-bottom:.6rem">One job at a time — several of these write the same files.</p>'+
-    '<div id="jobbox"></div>';
-  for(const g of Object.keys(groups)){
-    html+='<div class="grp">'+esc(g)+'</div>';
-    for(const a of groups[g]){
-      html+='<div class="card"><div class="top"><h3>'+esc(a.label)+'</h3>'+
-        '<span class="pill">'+esc(a.eta)+'</span>'+(a.writes?'<span class="pill">writes data</span>':'<span class="pill">read-only</span>')+'</div>'+
-        '<p>'+esc(a.desc)+'</p><div class="row" style="margin-top:.5rem">';
-      a.args.filter(x=>x.type!=='fixed').forEach((x,i)=>{
-        const id='arg-'+a.id+'-'+i;
-        if(x.type==='flag')html+='<div style="flex:0 0 auto"><label style="margin-top:.3rem">'+esc(x.label)+'</label><input type="checkbox" id="'+id+'" '+(x.default?'checked':'')+'></div>';
-        else if(x.type==='choice')html+='<div><label>'+esc(x.label)+'</label><select id="'+id+'">'+x.choices.map(c=>'<option'+(c===x.default?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>';
-        else html+='<div><label>'+esc(x.label)+'</label><input type="text" id="'+id+'" value="'+esc(String(x.default??''))+'"></div>';
-      });
-      html+='</div><div style="margin-top:.55rem"><button data-run="'+esc(a.id)+'">Run</button></div></div>';
-    }
-  }
-  $('#view').innerHTML=html+'</div>';
-  $$('[data-run]').forEach(b=>b.onclick=()=>runAction(b.dataset.run));
-  refreshJobs();
-}
-async function runAction(id){
-  const a=META.actions.find(x=>x.id===id),values={};
-  a.args.filter(x=>x.type!=='fixed').forEach((x,i)=>{
-    const el=document.getElementById('arg-'+id+'-'+i);if(!el)return;
-    values[x.name||x.label]=x.type==='flag'?el.checked:el.value});
-  const r=await api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:id,values})});
-  if(!r.ok){$('#jobbox').innerHTML='<div class="card"><span style="color:var(--bad)">'+esc(r.error)+'</span></div>';return}
-  JOB=r.job;watch();
-}
-function watch(){
-  if(POLL)clearInterval(POLL);
-  let seen=0;
-  const tick=async()=>{
-    const j=await api('/api/job/'+JOB+'?since='+seen);
-    if(j.error)return;
-    seen=j.total_lines;
-    const box=$('#jobbox');
-    if(box)box.innerHTML='<div class="card"><div class="top"><h3>'+esc(j.label)+'</h3>'+
-      '<span class="status '+esc(j.status)+'">'+esc(j.status)+(j.returncode!==null?' ('+j.returncode+')':'')+'</span>'+
-      (j.status==='running'?'<button id="cn" style="margin-left:auto">Cancel</button>':'')+'</div>'+
-      '<p style="font-family:var(--mono);font-size:.72rem">'+esc(j.cmd)+'</p>'+
-      '<div class="log" id="lg"></div></div>';
-    const lg=$('#lg');if(lg){lg.textContent=(window._buf=(window._buf||'')+j.lines.map(l=>l+'\n').join(''));lg.scrollTop=lg.scrollHeight}
-    const cn=$('#cn');if(cn)cn.onclick=()=>api('/api/job/'+JOB+'/cancel',{method:'POST'});
-    if(j.status!=='running'){clearInterval(POLL);POLL=null;
-      const q=await api('/api/queue');STATS=q.stats;chips()}
-  };
-  window._buf='';tick();POLL=setInterval(tick,700);
-}
-async function refreshJobs(){
-  const r=await api('/api/jobs');
-  if(r.active){JOB=r.active;watch();return}
-  if(!r.jobs.length)return;
-  $('#jobbox').innerHTML='<div class="card"><div class="top"><h3>Recent</h3></div>'+
-    r.jobs.map(j=>'<p><span class="status '+esc(j.status)+'">'+esc(j.status)+'</span> '+esc(j.label)+
-    ' <span class="hint">'+esc(j.started)+'</span></p>').join('')+'</div>';
+  $('#view').innerHTML='<div class="page"><h2>Pipeline scripts</h2>'+
+    '<div class="card"><p>The script runner is the shared console, so every repo '+
+    'gets the same one. One job at a time \u2014 several of these write the same files.</p>'+
+    '<p style="margin-top:.6rem"><a href="/console"><button>Open the console</button></a></p>'+
+    '</div></div>';
 }
 
 document.addEventListener('keydown',e=>{
