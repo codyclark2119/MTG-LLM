@@ -152,6 +152,47 @@ def carry_diagnostics(dest: dict, entry: dict) -> dict:
 _FOUR_LABEL_PHRASE = "labeled A, B, C, D"
 
 
+def apply_judge_template(judge_tokenizer, messages: list[dict]) -> str:
+    """Render a JUDGE prompt, folding `system` into the first user turn when the
+    model's chat template refuses a system role.
+
+    Some chat templates raise on a system message rather than ignoring it --
+    `gemma-2-27b-it` fails with `TemplateError: System role not supported` and
+    dies before grading anything. Every judge prompt built here opens with a
+    system message, so without this an entire model family is unusable as a
+    judge over a formatting convention.
+
+    Only the fold is attempted, and only when the error actually mentions the
+    system role: anything else re-raises, so a real template bug still surfaces
+    as itself rather than being retried into a confusing second failure.
+
+    **Judge paths only, deliberately.** The prompt for a model UNDER TEST is
+    built by the caller's own game module, and an adapter is only valid for the
+    prompt format it was trained on -- silently reshaping that would invalidate
+    the adapter and present as a capability result. Judges are stateless
+    graders with no adapter, so the same reshaping is free here. It does change
+    the prompt for such a model, which is a reason to compare its numbers only
+    against other runs of itself.
+    """
+    try:
+        return judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    except Exception as exc:                      # jinja2.TemplateError, and kin
+        if "system" not in str(exc).lower():
+            raise
+        folded, carried = [], ""
+        for m in messages:
+            if m["role"] == "system":
+                carried += m["content"].rstrip() + "\n\n"
+            elif m["role"] == "user" and carried:
+                folded.append({"role": "user", "content": carried + m["content"]})
+                carried = ""
+            else:
+                folded.append(m)
+        if carried:                               # system with no user turn after it
+            folded.append({"role": "user", "content": carried.rstrip()})
+        return judge_tokenizer.apply_chat_template(folded, add_generation_prompt=True)
+
+
 def judge_prompt_for(base: str, labels: list[str]) -> str:
     """A judge system prompt, with its label list matching the real one.
 
@@ -204,7 +245,7 @@ def judge_batch_rubric(
         {"role": "system", "content": judge_prompt_for(judge_system_prompt, list(label_to_arm))},
         {"role": "user", "content": user},
     ]
-    prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    prompt = apply_judge_template(judge_tokenizer, messages)
     raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
 
     start, end = raw.find("{"), raw.rfind("}")
@@ -288,7 +329,7 @@ def judge_batch_anonymized(
         {"role": "system", "content": judge_prompt_for(judge_system_prompt, list(label_to_arm))},
         {"role": "user", "content": user},
     ]
-    prompt = judge_tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+    prompt = apply_judge_template(judge_tokenizer, messages)
     raw = lm_generate(judge_model, judge_tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
 
     start, end = raw.find("{"), raw.rfind("}")
