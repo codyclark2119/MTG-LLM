@@ -61,7 +61,7 @@ a GPU:
 
 ```bash
 python scripts/test_imports.py                    # every script resolves every name it uses
-python scripts/test_eval.py                       # the scoring arithmetic (535)
+python scripts/test_eval.py                       # the scoring arithmetic (558)
 python scripts/test_docs.py                       # README's artifact counts match the artifacts
 python scripts/test_webui.py                      # every served page's JavaScript parses (183)
 python scripts/test_deploy.py                     # what may leave the machine (136)
@@ -790,6 +790,29 @@ expose a script runner with no auth at all.
 **`webui.py` is LAN-only and must never be deployed.** That runner plus a store
 that writes the gold set directly are fine behind a LAN token and are remote
 code execution on a public URL.
+
+### The position store is shared
+
+`load_positions`, `next_position_id`, `append_position` and the
+presence-and-membership half of `validate_position` live in
+`harness/core/gameplay/store.py`. Both game repos had written all four
+independently with the same semantics; what stays here is everything that made
+this file big — mana, timing, phases, targeting, CR citations — plus the field
+LIST, because a position here also needs `turn`, `phase`, `answer` and `source`
+and does not require `common_errors`.
+
+**`append_position` now validates and refuses, and rejects a duplicate id.** It
+previously appended whatever it was handed. That was safe only because its
+single caller (webui's `/api/position`) happened to check both first; any second
+caller would have written straight into `data/gold/positions.jsonl`, which backs
+published numbers. The guard belongs on the write path, not in the one endpoint
+that remembered.
+
+Adoption was verified against the real gold set rather than by reading the
+diff: all 32 positions, their ids, and `next_position_id` produce byte-identical
+results. The only behavioural change is wording — a missing side now reads
+`players.you is missing` rather than `players.you is required` — and nothing
+matches on that string.
 
 ## The rubric form (`scripts/rubric_server.py`)
 

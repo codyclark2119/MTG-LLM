@@ -3177,6 +3177,101 @@ def main() -> None:
         print(f"{name} ...")
         failed += fn()
 
+    # --- the shared position store ------------------------------------------
+    #
+    # load_positions / next_position_id / append_position and the presence half
+    # of validate_position are harness/core/gameplay/store.py now. Both game
+    # repos had written all four independently with the same semantics.
+    import tempfile
+    from pathlib import Path as _P
+
+    from harness.core.gameplay import store as _store
+    from positions import (append_position as _ap, load_positions as _lp,
+                           next_position_id as _npi, POSITIONS_PATH as _PP)
+
+    # Anchored on __file__, not the working directory: test-all.sh runs this
+    # from the WORKSPACE root, not the repo root, so a relative path here
+    # passes when run by hand and fails in the gate.
+    _pos_src = (_P(__file__).resolve().parent / "gameplay" / "positions.py").read_text()
+    failed += not check("store: load_positions delegates to the shared store",
+                        "store.load_positions" in _pos_src, True)
+    failed += not check("store: next_position_id delegates too",
+                        "store.next_position_id" in _pos_src, True)
+    failed += not check("store: append_position delegates too",
+                        "store.append_position" in _pos_src, True)
+    failed += not check("store: the presence half is the shared skeleton",
+                        "store.common_problems" in _pos_src, True)
+
+    # append_position previously appended whatever it was handed: no validation,
+    # no duplicate-id check. Safe only because the single caller happened to do
+    # both first; any second caller would have written straight into
+    # data/gold/positions.jsonl, which backs published numbers.
+    _valid = {"id": "pos-store-probe-0001", "turn": 1,
+              "phase": "precombat main", "category": "payment",
+              "difficulty": "basic", "source": "t", "answer": "a",
+              "players": {"you": {"life": 20}, "opp": {"life": 20}},
+              "battlefield": [], "key_points": ["a", "b"], "common_errors": ["e"],
+              "legal_actions": ["PASS"]}
+    with tempfile.TemporaryDirectory() as _d:
+        _path = _P(_d) / "gold.jsonl"
+        try:
+            _ap({"id": "junk"}, _path)
+            _refused = False
+        except ValueError:
+            _refused = True
+        failed += not check("store: an invalid position is refused", _refused, True)
+        failed += not check("store: a refused append writes nothing",
+                            _path.exists(), False)
+
+        _ap(_valid, _path)
+        failed += not check("store: a valid position is appended", len(_lp(_path)), 1)
+        try:
+            _ap(_valid, _path)
+            _dupe = False
+        except ValueError:
+            _dupe = True
+        failed += not check("store: a duplicate id is refused", _dupe, True)
+        failed += not check("store: the file still holds one row", len(_lp(_path)), 1)
+
+    failed += not check("store: the real gold set was not touched", len(_lp(_PP)), 32)
+
+    # The id shape is quoted in the authoring docs and used by webui when a
+    # form leaves the id blank.
+    failed += not check("store: id shape is unchanged",
+                        _npi([], "payment"), "pos-payment-0001")
+    # A TAKEN id must be skipped. The gap case below cannot show this on its
+    # own -- with the skip disabled it still answers 0001, which is correct
+    # there by accident.
+    failed += not check("store: a taken id is skipped",
+                        _npi([{"id": "pos-payment-0001"}], "payment"),
+                        "pos-payment-0002")
+    failed += not check("store: consecutive taken ids are skipped",
+                        _npi([{"id": "pos-payment-0001"},
+                              {"id": "pos-payment-0002"}], "payment"),
+                        "pos-payment-0003")
+    failed += not check("store: a gap is filled, not skipped past",
+                        _npi([{"id": "pos-payment-0002"}], "payment"),
+                        "pos-payment-0001")
+    failed += not check("store: categories are numbered independently",
+                        _npi([{"id": "pos-payment-0001"}], "targeting"),
+                        "pos-targeting-0001")
+
+    # The presence check must not be reported twice. Adopting the skeleton
+    # while keeping this repo's own `players` loop reported every missing side
+    # in two wordings at once.
+    from positions import validate_position as _vp2
+    _missing = _vp2({"id": "x"})
+    failed += not check("store: a missing side is reported once",
+                        len([x for x in _missing if "players.you" in x]), 1)
+    # ...and every required field this game declares is actually reported. The
+    # list is game-specific -- a position here also needs turn, phase, answer
+    # and source -- so it is passed to the shared skeleton rather than assumed.
+    for _f in ("turn", "phase", "answer", "source", "category", "difficulty",
+               "key_points"):
+        failed += not check(f"store: missing {_f!r} is reported",
+                            any(f"missing required field: {_f}" in x
+                                for x in _missing), True)
+
     if failed:
         print(f"\n{failed} check(s) FAILED")
         raise SystemExit(1)

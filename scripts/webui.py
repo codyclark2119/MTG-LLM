@@ -292,7 +292,9 @@ def build_app(store: Store, runner: Runner, author: str, token: str | None):
         problems = validate_position(pos, store.card_index)
         if problems:
             return {"ok": False, "problems": problems}
-        append_position(pos, POSITIONS_PATH)
+        # card_index passed through so the write path's own validation is as
+        # strong as the check just above, rather than a weaker second opinion.
+        append_position(pos, POSITIONS_PATH, store.card_index)
         return {"ok": True, "id": pos["id"], "total": len(existing) + 1,
                 "warnings": lint_common_errors(pos)}
 

@@ -28,10 +28,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
+# The repo root, for harness/. Kept out of common.py on purpose: common.py is
+# the deploy boundary and test_deploy.py asserts it is pure stdlib. This module
+# is local-only -- rubric_server never imports it -- and the shared store pulls
+# in nothing beyond the standard library either.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from actions import (Action, DECLARATIONS, PHASE_NAMES,  # noqa: E402
                      parse_line)
 from card_lookup import names_a_card  # noqa: E402
+from harness.core.gameplay import store  # noqa: E402
 from common import (  # noqa: E402
     canonical_phase,
     parse_permanent_line,
@@ -60,7 +66,7 @@ PLAYERS = ("you", "opp")
 
 
 def load_positions(path: Path = POSITIONS_PATH) -> list[dict]:
-    return read_jsonl(path)
+    return store.load_positions(path)
 
 
 def position_card_names(pos: dict) -> list[str]:
@@ -107,22 +113,30 @@ def position_card_names(pos: dict) -> list[str]:
 
 def next_position_id(existing: list[dict], category: str) -> str:
     """pos-<category-slug>-NNNN, stable and collision-free."""
-    slug = re.sub(r"[^a-z0-9]+", "-", (category or "position").lower()).strip("-")
-    taken = {p.get("id") for p in existing}
-    n = 1
-    while f"pos-{slug}-{n:04d}" in taken:
-        n += 1
-    return f"pos-{slug}-{n:04d}"
+    return store.next_position_id(existing, category)
 
 
-def append_position(pos: dict, path: Path = POSITIONS_PATH) -> None:
-    """Append one position, rewriting the file atomically.
+def append_position(pos: dict, path: Path = POSITIONS_PATH,
+                    card_index=None, rule_ids: set[str] | None = None) -> None:
+    """Append one position, rewriting the file atomically. Refuses on problems.
 
-    Same reasoning as label_store.write_jsonl_atomic: a half-written file
-    costs hand-authored work, and positions are the most expensive records
+    Atomic for the same reason as label_store.write_jsonl_atomic: a half-written
+    file costs hand-authored work, and positions are the most expensive records
     in the project to author.
+
+    It now VALIDATES and refuses, and rejects a duplicate id. It previously did
+    neither -- it appended whatever it was handed. That was safe only because
+    the single caller (webui's /api/position) happened to check both first; any
+    second caller would have written straight into data/gold/positions.jsonl,
+    which backs published numbers. The guard belongs on the write path, not in
+    the one endpoint that remembered.
+
+    `card_index`/`rule_ids` are optional exactly as in `validate_position`:
+    without them the card-name and citation checks are skipped, which is the
+    documented "faster, less thorough" mode, not a way to skip validation.
     """
-    write_jsonl_atomic(path, load_positions(path) + [pos])
+    store.append_position(
+        pos, path, validate=lambda p: validate_position(p, card_index, rule_ids))
 
 
 def validate_position(pos: dict, card_index=None,
@@ -131,10 +145,13 @@ def validate_position(pos: dict, card_index=None,
     problems: list[str] = []
     rid = pos.get("id") or "<no id>"
 
-    for field in ("id", "turn", "phase", "players", "answer", "key_points",
-                  "category", "difficulty", "source"):
-        if not pos.get(field) and pos.get(field) != 0:
-            problems.append(f"missing required field: {field}")
+    # The presence-and-membership half is game-neutral and shared. The field
+    # LIST is this game's -- a position here also needs `turn`, `phase`,
+    # `answer` and `source`, and does not require `common_errors`.
+    problems += store.common_problems(
+        pos, categories=None, difficulties=None, players=PLAYERS,
+        required=("id", "turn", "phase", "players", "answer", "key_points",
+                  "category", "difficulty", "source"))
 
     # A review flag is METADATA: it never makes a position invalid, because a
     # flagged board is still evaluated and still counted (21.94). What is
@@ -157,11 +174,12 @@ def validate_position(pos: dict, card_index=None,
     if pos.get("cr_version") and pos["cr_version"] != CR_VERSION:
         problems.append(f"cr_version {pos['cr_version']} != pinned {CR_VERSION}")
 
+    # A missing side is reported by the shared skeleton above; only the
+    # `life` requirement is this game's, so only that is checked here.
+    # Duplicating the presence check reported it twice, in two wordings.
     players = pos.get("players") or {}
     for side in PLAYERS:
-        if side not in players:
-            problems.append(f"players.{side} is required")
-        elif "life" not in players[side]:
+        if side in players and "life" not in (players[side] or {}):
             problems.append(f"players.{side}.life is required")
 
     for p in pos.get("battlefield") or []:
