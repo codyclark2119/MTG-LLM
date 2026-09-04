@@ -383,17 +383,41 @@ Three rules:
 
 ### Extraction status, re-derived
 
-Two scripts import the shared module today: `rescore_stored.py` and
-`calibrate_judge.py`. Everything else still uses this repo's local copies.
+Three scripts import the shared module today: `rescore_stored.py`,
+`calibrate_judge.py` and `eval.py`.
 
-**12 functions are pure duplication** — same body, only the docstring differs
-(the template rewrote MTG-specific prose into game-neutral prose). Swapping the
-local definition for an import is mechanical:
+**`eval.py` is done.** `stratified_sample`, `verify_quoted_claims`,
+`rubric_correctness` and `carry_diagnostics` now come from `harness/core`,
+along with `SCORING` and `RUBRIC_DIAGNOSTICS` — the latter because its own
+comment demanded a single definition ("so the next field added to
+`rubric_correctness` is carried by both without a second edit"), which a local
+copy would have quietly undone. Extracting those four also stranded
+`_as_claim_list`, `_claim_index` and `_normalize_for_quote` with no callers;
+they went too. Net −147 lines, with byte-identical output on 42 stored runs,
+`validate_gold.py`, and the whole suite.
 
-| where | functions |
-| --- | --- |
-| `common.py` | `read_jsonl`, `iter_jsonl`, `write_jsonl_atomic`, `file_sha256`, `guard_shrink`, `pearson_r`, `templatize`, `untemplatize` |
-| `eval.py` | `stratified_sample`, `verify_quoted_claims`, `rubric_correctness`, `carry_diagnostics` |
+**`common.py`'s eight cannot be extracted, and this is not a scheduling
+problem.** `read_jsonl`, `iter_jsonl`, `write_jsonl_atomic`, `file_sha256`,
+`guard_shrink`, `pearson_r`, `templatize`, `untemplatize` all have identical
+bodies upstream, and importing them anyway breaks the deployment:
+`common.py` is `rubric_server.py`'s ONLY project import, it ships to a 256 MB
+public VM, and `test_deploy.py` asserts both that `common.py` is pure stdlib
+and that the Docker build context matches the COPY list file-by-file. An
+`import harness.core` there fails that test, and would fail the deployed
+build at runtime unless `harness/core/` were added to the COPY list too.
+The shared modules *are* pure stdlib, so shipping them is possible — but it
+widens the public deployment surface, which is a deliberate decision and not
+a side effect of a de-duplication pass. Leave them until someone takes that
+decision on purpose.
+
+**`untemplatize` is not extractable at all as written**, deployment aside. Its
+body is identical, but it closes over a module-level `SLOT_RE`, and the two
+differ: `[[card\d+]]` here against `[[entity\d+]]` upstream. Importing the
+shared one silently stops substituting every `[[cardN]]` slot in this repo's
+gold data — confirmed by calling both on a real slot, where the shared one
+returns the text unchanged. Sharing it needs a parameterized pattern upstream,
+or a migration of this repo's slot vocabulary, and the latter rewrites gold
+data.
 
 **3 functions differ for a reason, and are the larger job**:
 `generate_all_answers`, `compare_judges`, `judge_batch_rubric`. The template's
@@ -408,9 +432,19 @@ changing the callers here, not the template.
 `prompt_fingerprint` has no counterpart upstream at all and is a candidate to
 push rather than pull.
 
-Re-derive this before acting on it (compare function bodies with docstrings
-stripped — comparing them *with* docstrings reports all 15 as divergent and is
-how this table was first got wrong).
+Re-derive this before acting on it, and note that "identical body" is the
+weakest of the three checks it needs:
+
+1. Compare bodies with **docstrings stripped** — comparing them *with*
+   docstrings reports all 15 as divergent, since the template rewrote the
+   prose.
+2. Compare the **values of every module-level name the body closes over**, not
+   just their names. Both modules define a `SLOT_RE`; the bodies referencing it
+   are character-identical and the two functions behave differently. A
+   name-level check calls that safe.
+3. Check what **importing** the function costs the caller. `common.py`'s copies
+   are identical and still unextractable, because the import itself is what
+   breaks the deploy boundary.
 
 ### On `MODULARIZATION_PLAN.md`
 

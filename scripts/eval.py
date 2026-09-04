@@ -42,6 +42,12 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+# The repo root as well, for `harness.core` -- the shared subtree. Added here
+# rather than in common.py on purpose: common.py is rubric_server.py's only
+# project import and must stay pure stdlib, because it ships to a 256 MB
+# public VM whose Dockerfile COPY list is asserted file-by-file. eval.py is
+# not deployed, so it can depend on the shared engine and common.py cannot.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import BASE_MODEL_ID as _BASE_MODEL_ID
 from common import (  # noqa: F401  (SYSTEM_PROMPT re-exported for callers)
     CARDS_RAG_SYSTEM_PROMPT,
@@ -65,6 +71,37 @@ from stamp_adapter import check as prompt_stamp_check
 from stamp_adapter import unseen_arms
 from rag import MODEL_ID as EMBED_MODEL_ID
 from rag import retrieve
+
+# The scoring arithmetic and the sampler live in `harness/core/`, the subtree
+# shared with base-training-repo and one_piece_llm -- see CLAUDE.md's
+# "harness/core is a shared subtree" section. `common` puts REPO_ROOT on
+# sys.path, so this import must stay below it.
+#
+# Re-exported (noqa: F401) because scripts/test_eval.py, rescore_stored.py and
+# other callers import these names from `eval`, and this module stays their
+# address.
+#
+# SCORING names the correctness rule a row was produced under -- "points_only"
+# (1 + 4 * points_hit/n_points) versus the "halved_v3" convention used through
+# Section 21.27, which halved on a non-empty errors_made. The two produce
+# different numbers from the SAME judge output, so a run file that does not say
+# which it used cannot be compared to anything.
+#
+# RUBRIC_DIAGNOSTICS is everything a grading carries besides the score. Both
+# writers -- main() on a fresh run, rescore() on a stored one -- used to
+# assemble their per-arm dict field by field, so a value reached a stored run
+# only if someone had listed it in both places. Nobody had: `scoring` reached
+# neither while CLAUDE.md claimed every row carried it, and `all_errors_fired`
+# / `error_contradiction` reached neither, leaving rescore()'s Section 21.26
+# report gated on a key that could not exist. Both now come from the one
+# upstream definition, so a field added to rubric_correctness is carried
+# without a second edit -- which is what that fix asked for and what a local
+# copy here would quietly undo.
+from harness.core.eval.harness import stratified_sample  # noqa: E402,F401
+from harness.core.eval.judge import (  # noqa: E402,F401
+    RUBRIC_DIAGNOSTICS, SCORING, carry_diagnostics, rubric_correctness,
+    verify_quoted_claims,
+)
 
 # DEFAULTS, not constants. Both of these are overridable per run (--base-model,
 # --adapter-path) and both are recorded in the results file, because a stale
@@ -282,159 +319,6 @@ JUDGE_SYSTEM_PROMPT_V4 = (
 )
 
 
-def _normalize_for_quote(s: str) -> str:
-    """Collapse whitespace and case so a quote survives reformatting."""
-    return " ".join((s or "").split()).lower()
-
-
-def _as_claim_list(v) -> list:
-    """A judge's `points_hit`/`errors_made` field, coerced to a list.
-
-    Valid JSON of the wrong SHAPE — `"points_hit": 3` where `[3]` was asked
-    for — parses cleanly and then raises TypeError inside the set
-    comprehension below, killing a multi-hour run at whatever question the
-    judge happened to fumble. Neither `json.loads` guard catches it: the JSON
-    was fine, and only the shape was not.
-
-    A bare scalar is wrapped rather than discarded. Discarding would score that
-    answer 1.0 and write the number to the results file as though it were
-    measured, which is worse than the crash it replaces — the crash at least
-    announces itself.
-    """
-    if v is None:
-        return []
-    if isinstance(v, (list, tuple, set)):
-        return list(v)
-    return [v]
-
-
-def _claim_index(i, n_max: int) -> bool:
-    """A usable 1-based rubric index.
-
-    `bool` is a subclass of `int`, so a judge answering `"points_hit": true`
-    would otherwise be read as claiming point 1 — a fabricated claim, awarded
-    silently, from a response that named no point at all.
-    """
-    return isinstance(i, int) and not isinstance(i, bool) and 1 <= i <= n_max
-
-
-def verify_quoted_claims(claims, answer: str, n_max: int) -> tuple[list[int], int]:
-    """Keep only claims whose quote really appears in the answer.
-
-    Returns (kept_numbers, n_dropped). Accepts the V3 shape (bare integers) too,
-    so a mixed or partially-malformed response degrades to V3 behaviour rather
-    than to nothing -- an unquoted claim is kept, because V3 never asked for a
-    quote and dropping it would silently penalize a judge that answered the
-    older question.
-    """
-    kept: list[int] = []
-    dropped = 0
-    hay = _normalize_for_quote(answer)
-    for c in _as_claim_list(claims):
-        if isinstance(c, int) and not isinstance(c, bool):
-            if 1 <= c <= n_max:
-                kept.append(c)
-            continue
-        if not isinstance(c, dict):
-            continue
-        n = c.get("n")
-        if not _claim_index(n, n_max):
-            continue
-        quote = c.get("quote")
-        if not isinstance(quote, str) or not quote.strip():
-            kept.append(n)
-            continue
-        # Short quotes match too easily to be evidence of anything.
-        needle = _normalize_for_quote(quote)
-        if len(needle) >= 12 and needle not in hay:
-            dropped += 1
-            continue
-        kept.append(n)
-    return kept, dropped
-
-
-# Correctness scoring version, recorded in every row it produces.
-#
-# "points_only" (current): correctness = 1 + 4 * (points_hit / n_points).
-# "halved_v3"  (through Section 21.27): the same, halved whenever `errors_made`
-#              was non-empty.
-#
-# Named rather than implied, because the two produce different numbers from the
-# SAME judge output, and a run file that does not say which one it used cannot
-# be compared to anything.
-SCORING = "points_only"
-
-
-def rubric_correctness(points_hit, errors_made, n_points: int, n_errors: int,
-                       halve_on_error: bool = False) -> dict:
-    """Turn rubric extraction into a 1-5 correctness score, in Python.
-
-    Mapped onto 1-5 so results stay comparable with the V2-judged runs in
-    Sections 9.5-9.9 rather than starting a fresh, incomparable scale.
-
-    THE HALVING IS OFF (Section 21.28)
-    ---------------------------------
-    Through Section 21.27 an asserted misconception halved credit, on the
-    reasoning that an answer can state the right ruling and tack on a wrong
-    reason — better than getting the ruling wrong, worse than a clean answer.
-    That reasoning is sound and the mechanism it depended on is not.
-
-    The positive controls measured the judge inventing a `common_error` against
-    the REFERENCE ANSWER — which definitionally cannot commit one — on 40% of
-    questions. The halving turned that into a real cost:
-
-        oracle mean when the judge invents no error : 4.86  (n=59)
-        oracle mean when it invents one             : 2.39  (n=39)
-
-    2.47 points off the correct answer, on 40% of the set, for errors it did not
-    make. Removing the term widens the oracle/wrong separation from 2.77 to
-    3.22, so the error half was subtracting resolution from a scale that works
-    without it.
-
-    `errors_made` is still extracted, still returned, and still what blunder
-    rate is defined on. What changed is that a field with a measured 40%
-    false-positive rate no longer moves the headline score.
-
-    `halve_on_error=True` reproduces every number published through Section
-    21.27 from the same stored judge output, which is what makes the change
-    auditable rather than a break in the record.
-    """
-    hit = {i for i in _as_claim_list(points_hit) if _claim_index(i, n_points)}
-    err = {i for i in _as_claim_list(errors_made) if _claim_index(i, n_errors)}
-    fraction = len(hit) / n_points if n_points else 0.0
-    if err and halve_on_error:
-        fraction *= 0.5
-    return {
-        "correctness": round(1 + 4 * fraction, 2),
-        "points_hit": sorted(hit),
-        "points_total": n_points,
-        "errors_made": sorted(err),
-        "scoring": "halved_v3" if halve_on_error else SCORING,
-    }
-
-
-# Everything a rubric grading carries BESIDES the score itself. Both writers —
-# main() on a fresh run and rescore() on a stored one — assembled their per-arm
-# dict field by field, so a value computed in judge_batch_rubric reached the
-# stored run only if someone had remembered to list it in both places. Nobody
-# had: `scoring` reached neither (while CLAUDE.md said every row carried it),
-# and `all_errors_fired` / `error_contradiction` reached neither, which left
-# rescore()'s Section 21.26 report block gated on a key that could not exist.
-# `quote_drops` was listed in rescore() only, having been caught once already —
-# the same bug, fixed in one copy. One definition now, so the next field added
-# to rubric_correctness is carried by both without a second edit.
-RUBRIC_DIAGNOSTICS = ("scoring", "quote_drops", "all_errors_fired",
-                      "error_contradiction")
-
-
-def carry_diagnostics(dest: dict, entry: dict) -> dict:
-    """Copy the non-score fields of a rubric grading onto a stored arm record."""
-    for k in RUBRIC_DIAGNOSTICS:
-        if entry.get(k) is not None:
-            dest[k] = entry[k]
-    return dest
-
-
 # The two judge system prompts above say "labeled A, B, C, D" in prose, while
 # the labels themselves are generated as chr(ord("A") + i) for however many
 # arms there are. At four arms those agree. At five they do not: the judge
@@ -643,37 +527,6 @@ def load_questions(synthetic_path: Path, reddit_path: Path, synthetic_limit: int
         )
 
     return questions
-
-
-def stratified_sample(rows: list[dict], limit: int, key: str = "category") -> list[dict]:
-    """Take `limit` rows spread as evenly as possible across `key`.
-
-    The RulesGuru candidates are wildly unbalanced — 265 priority-reasoning
-    against 62 turn-structure — so a flat stride under-samples exactly the
-    category the corpus was pulled to fix. Round-robin across categories
-    instead, striding within each so the pick stays a cross-section rather
-    than the first few of each group. Small categories exhaust and drop out;
-    their budget spills to the rest.
-    """
-    groups: dict[str, list[dict]] = {}
-    for r in rows:
-        groups.setdefault(r.get(key) or "uncategorized", []).append(r)
-
-    # Stride within each group, deterministically, largest budget first.
-    ordered = {
-        name: [members[int(i * len(members) / min(len(members), limit))]
-               for i in range(min(len(members), limit))]
-        for name, members in sorted(groups.items())
-    }
-
-    picked: list[dict] = []
-    round_idx = 0
-    while len(picked) < limit and any(round_idx < len(v) for v in ordered.values()):
-        for name in sorted(ordered):
-            if round_idx < len(ordered[name]) and len(picked) < limit:
-                picked.append(ordered[name][round_idx])
-        round_idx += 1
-    return picked
 
 
 def load_gold_questions(path: Path, limit: int | None = None, stratify: bool = True) -> list[dict]:
