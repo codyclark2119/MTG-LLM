@@ -414,7 +414,8 @@ how this table was first got wrong).
 
 ### On `MODULARIZATION_PLAN.md`
 
-The branch `agents/one-piece-tcg-ai-modular-harness` holds the analysis that
+The tag `provenance/modularization-plan` (commit `866dc60`, formerly the branch
+`agents/one-piece-tcg-ai-modular-harness`) holds the analysis that
 produced `base-training-repo` — committed thirteen minutes before that repo's
 first commit, and the `harness/core` layout matches its proposal almost
 exactly. It is **kept for provenance, not as a plan**: it analyses this repo as
@@ -422,6 +423,13 @@ of `842228f` (Aug 20, ~150 commits back — `common.py` was 1238 lines then and
 is over 2000 now), and its central proposal, a single repo with `games/mtg/`,
 `games/one_piece/` and a `GAME` selector, was deliberately rejected in favour
 of separate repos sharing one subtree. The live part of it is the table above.
+
+A tag rather than a branch because a branch invites merging, and this must not
+be merged. A tag rather than nothing because deleting the branch left the
+commit unreferenced and GC-eligible — the analysis survived only in the reflog
+for a window, while this section still pointed at the deleted branch. If you
+ever remove the tag, remove this subsection in the same commit; a pointer to
+something unreachable is worse than no pointer.
 
 ## Evaluation — read this before trusting any number
 
