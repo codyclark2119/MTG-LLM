@@ -405,10 +405,18 @@ public VM, and `test_deploy.py` asserts both that `common.py` is pure stdlib
 and that the Docker build context matches the COPY list file-by-file. An
 `import harness.core` there fails that test, and would fail the deployed
 build at runtime unless `harness/core/` were added to the COPY list too.
-The shared modules *are* pure stdlib, so shipping them is possible — but it
-widens the public deployment surface, which is a deliberate decision and not
-a side effect of a de-duplication pass. Leave them until someone takes that
-decision on purpose.
+The shared modules *are* pure stdlib, so shipping them would be possible — but
+it widens the public deployment surface for eight small helpers, and **that
+trade was considered and declined**. These eight stay duplicated on purpose.
+
+An accepted duplicate still rots, so it is guarded rather than trusted:
+`test_imports.py`'s `SUBTREE_DUPLICATES` asserts each of the eight stays
+body-identical to its upstream definition (docstrings stripped, since the
+template rewrote those), and fails if either side changes or if one is
+replaced by an import. That last case is the deploy-breaking move, and the
+failure says so. Drift originating *upstream* is the direction nothing else
+here would notice — a `harness/core` pull that changes one of these eight now
+fails this repo's suite immediately instead of quietly leaving two versions.
 
 **`untemplatize` is not extractable at all as written**, deployment aside. Its
 body is identical, but it closes over a module-level `SLOT_RE`, and the two

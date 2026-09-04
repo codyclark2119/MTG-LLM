@@ -157,10 +157,82 @@ def duplicated_helpers(files: list[Path], threshold: float = 0.85) -> dict:
     return out
 
 
+# Functions `common.py` deliberately keeps its own copy of, mapped to the
+# upstream file that also defines them. This duplication is ACCEPTED, not
+# pending work: `common.py` is `rubric_server.py`'s only project import and
+# ships to a 256 MB public VM whose Docker COPY list `test_deploy.py` asserts
+# file-by-file, so it cannot `import harness.core` at all. See CLAUDE.md.
+#
+# Accepting a duplicate without a guard is how the copies rot -- this repo's
+# own record is five jsonl readers, three of which crashed on a trailing blank
+# line because the guard reached some copies and not others, and the workspace
+# has since had a real bug fixed in one clone and left broken in the template
+# for want of exactly this check.
+SUBTREE_DUPLICATES = {
+    "read_jsonl": "harness/core/io.py",
+    "iter_jsonl": "harness/core/io.py",
+    "write_jsonl_atomic": "harness/core/io.py",
+    "file_sha256": "harness/core/io.py",
+    "guard_shrink": "harness/core/io.py",
+    "pearson_r": "harness/core/stats.py",
+    "templatize": "harness/core/templating.py",
+    "untemplatize": "harness/core/templating.py",
+}
+
+
+def _body(node: ast.AST) -> str:
+    """A function's source with its docstring removed.
+
+    The template rewrote every MTG-specific docstring into game-neutral prose,
+    so comparing WITH docstrings reports all of these as divergent and the
+    check would be noise from the first run.
+    """
+    fn = ast.parse(ast.unparse(node)).body[0]
+    if (fn.body and isinstance(fn.body[0], ast.Expr)
+            and isinstance(fn.body[0].value, ast.Constant)
+            and isinstance(fn.body[0].value.value, str)):
+        fn.body = fn.body[1:]
+    return ast.unparse(fn)
+
+
+def subtree_copies_drifted() -> list[str]:
+    """`common.py`'s accepted duplicates must stay identical to upstream."""
+    problems = []
+    common = SCRIPTS / "common.py"
+    local = {n.name: n for n in ast.parse(common.read_text(encoding="utf-8")).body
+             if isinstance(n, ast.FunctionDef)}
+    upstream_cache: dict[str, dict] = {}
+    for name, rel in sorted(SUBTREE_DUPLICATES.items()):
+        if name not in local:
+            problems.append(
+                f"{name}() is no longer defined in common.py — if it was replaced "
+                f"by an import of {rel}, that breaks the deploy boundary "
+                f"(test_deploy.py asserts common.py is pure stdlib)")
+            continue
+        path = SCRIPTS.parent / rel
+        if not path.exists():
+            problems.append(f"{rel} is missing — the harness/core subtree is not checked out")
+            continue
+        if rel not in upstream_cache:
+            upstream_cache[rel] = {n.name: n for n in ast.parse(path.read_text(encoding="utf-8")).body
+                                   if isinstance(n, ast.FunctionDef)}
+        up = upstream_cache[rel].get(name)
+        if up is None:
+            problems.append(f"{name}() no longer exists in {rel} — upstream removed or renamed it")
+        elif _body(local[name]) != _body(up):
+            problems.append(
+                f"{name}() has drifted from {rel} — the copies must stay identical; "
+                f"port the change both ways or record why they may differ")
+    return problems
+
+
 def main() -> None:
     files = sorted(p for p in [*SCRIPTS.glob("*.py"), *SCRIPTS.glob("gameplay/*.py")]
                    if p.name not in SKIP)
     failed = 0
+    for problem in subtree_copies_drifted():
+        failed += 1
+        print(f"  FAIL {problem}")
     dupes = duplicated_vocabularies(files)
     for name, where in sorted(dupes.items()):
         failed += 1
@@ -181,7 +253,8 @@ def main() -> None:
               "or a vocabulary with more than one home.")
         raise SystemExit(1)
     print(f"all {len(files)} scripts resolve every name they use, "
-          f"and no vocabulary is defined twice")
+          f"no vocabulary is defined twice, and common.py's "
+          f"{len(SUBTREE_DUPLICATES)} accepted harness/core copies match upstream")
 
 
 if __name__ == "__main__":
