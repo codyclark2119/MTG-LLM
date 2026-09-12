@@ -125,6 +125,21 @@ def test_current_state_claims() -> list[str]:
             "deliberate, DEVELOPMENT_PLAN 21.16's superseded note and CLAUDE.md's "
             "conventions section both need revisiting")
 
+    # The two files that previously carried the opposite claim must not
+    # regress to saying the rulings corpus is unused.
+    stale_rulings_claims = (
+        "ruling_chunks.jsonl` is read by no script",
+        "ruling_chunks.jsonl` is pinned but currently READ BY NOTHING",
+        "never wired into retrieval",
+    )
+    for name in ("scripts/common.py", "STRUCTURAL_AUDIT.md"):
+        body = (REPO_ROOT / name).read_text(encoding="utf-8")
+        for claim in stale_rulings_claims:
+            if claim in body:
+                problems.append(
+                    f"{name} still contains the superseded rulings-corpus claim "
+                    f"{claim!r}; retrieve_hybrid.RulingIndex is on the active path")
+
     # 2. No current-state file may claim the chat surface serves the 7B.
     #    The serving model is whatever the profile says; these files must not
     #    hold a second copy of that answer.
