@@ -43,6 +43,7 @@ Usage:
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -71,6 +72,72 @@ _SCENARIO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{2,63}$")
 MAX_RUBRIC_ITEMS = 20
 MAX_RUBRIC_ITEM_LENGTH = 1000
 MAX_NOTE_LENGTH = 2000
+
+# --- The public boundary ----------------------------------------------------
+#
+# This is the only server in this repo that is meant to be reachable from the
+# internet, so its auth is the one that has to be right rather than merely
+# present.
+
+COOKIE_NAME = "mlrt"          # unchanged: existing contributors hold this one
+COOKIE_MAX_AGE = 86400 * 30   # a contributor follows the link once a month
+
+# Everything a public form accepts is attacker-controlled and arrives before
+# any validator runs, so the size cap belongs at the door. 256 KB is far above
+# the largest real submission (a 12-step scenario with full boards) and far
+# below anything that costs a 256MB fly machine its memory.
+MAX_BODY_BYTES = 256 * 1024
+
+# A position's own bounds, expressed in the constants the rubric form already
+# uses rather than a second vocabulary: a key point here is the same kind of
+# object as a key point there, and two independently-maintained limits for one
+# concept is how they end up disagreeing.
+MAX_SCENARIO_STEPS = 12
+
+
+def _secret_matches(supplied, expected: str | None) -> bool:
+    """Constant-time comparison for a shared secret.
+
+    `!=` leaks the length of the matching prefix through timing, which is the
+    whole reason `chat_auth` compares its password and its session signature
+    with `compare_digest`. This server had the same shared-secret check written
+    with `!=`, which is the same bug with a public URL in front of it.
+
+    A supplied value that cannot even be encoded (a lone surrogate from a
+    hand-built query string) is a mismatch, not a 500.
+    """
+    if not expected or not isinstance(supplied, str):
+        return False
+    try:
+        return hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+    except (UnicodeEncodeError, TypeError):
+        return False
+
+
+def cookie_flags(request=None, force_secure: bool = False) -> dict:
+    """Flags for the contributor cookie. Public deployments get Secure.
+
+    `httponly` keeps the token out of `document.cookie`, so an injected script
+    cannot read the shared secret back out of the browser. `samesite="lax"`
+    rather than `"strict"` deliberately: a contributor arrives by following a
+    link from a mail or a chat window, and Strict would withhold the cookie on
+    exactly that top-level navigation and lock them out of the form they were
+    just sent. `path="/"` is explicit because the form spans `/rubric`,
+    `/position`, `/adjudicate` and `/api/*`, and a default path derived from
+    whichever URL happened to set the cookie would scope it to one of them.
+
+    `secure` is decided from the request rather than from a flag someone has to
+    remember: fly terminates TLS and forwards `x-forwarded-proto: https`, so
+    the public deployment sets Secure and a LAN/loopback HTTP session does not
+    — where Secure would mean the cookie is set and never sent back.
+    """
+    proto = ""
+    if request is not None:
+        proto = (request.headers.get("x-forwarded-proto")
+                 or getattr(request.url, "scheme", "") or "").lower()
+    return {"httponly": True, "samesite": "lax",
+            "secure": bool(force_secure or proto == "https"),
+            "max_age": COOKIE_MAX_AGE, "path": "/"}
 
 
 def _text_list(value, field: str) -> tuple[list[str], list[str]]:
@@ -494,8 +561,71 @@ $('#author').addEventListener('change',()=>{try{localStorage.setItem('posWho',$(
 """
 
 
+def validate_position_input(body: dict) -> list[str]:
+  """Bounds for a publicly submitted position draft.
+
+  Reuses MAX_AUTHOR_LENGTH, MAX_RUBRIC_ITEMS and MAX_RUBRIC_ITEM_LENGTH rather
+  than introducing a second set of limits: a key point submitted here is the
+  same kind of object as a key point submitted to the rubric form, and two
+  independently maintained limits for one concept is how they end up
+  disagreeing (this repo's "one name, two meanings" trap, in the numbers).
+
+  `/api/position` previously checked only that an author was present and that
+  there were two key points. Everything else — the author's length, how many
+  key points, how long each one is, how large the board fields are — was
+  unbounded on a public endpoint that appends every accepted body to a file.
+
+  Returns problems; empty means acceptable. This is a SIZE gate, not a
+  semantic one: what a position must MEAN is `validate_position`'s job at
+  ingest, and it stays there because promotion is local and reviewed.
+  """
+  problems = []
+  author = body.get("author")
+  if not isinstance(author, str) or not author.strip():
+    problems.append("name required for attribution")
+  elif len(author.strip()) > MAX_AUTHOR_LENGTH:
+    problems.append(f"author exceeds {MAX_AUTHOR_LENGTH} characters")
+
+  for field in ("key_points", "common_errors", "legal_actions",
+                "reference_actions"):
+    value = body.get(field)
+    if value is None or value == "":
+      continue
+    # The form posts these as newline-joined text; `position_from_form`
+    # splits them. Bound both shapes, because the endpoint accepts JSON and a
+    # client is not obliged to use the form.
+    items = value.splitlines() if isinstance(value, str) else value
+    if not isinstance(items, list):
+      problems.append(f"{field} must be text or a list")
+      continue
+    if len(items) > MAX_RUBRIC_ITEMS:
+      problems.append(f"{field} must contain at most {MAX_RUBRIC_ITEMS} items")
+      continue
+    for i, item in enumerate(items, 1):
+      if not isinstance(item, str):
+        problems.append(f"{field}[{i}] must be text")
+      elif len(item) > MAX_RUBRIC_ITEM_LENGTH:
+        problems.append(
+          f"{field}[{i}] exceeds {MAX_RUBRIC_ITEM_LENGTH} characters")
+
+  # The free-text board fields. Same per-item ceiling; a board is prose, so
+  # it is bounded as one item rather than as a list.
+  for field in ("question", "board", "you_battlefield", "opp_battlefield",
+                "you_hand", "known_information", "notes", "answer"):
+    value = body.get(field)
+    if value is None:
+      continue
+    if not isinstance(value, str):
+      problems.append(f"{field} must be text")
+    elif len(value) > MAX_RUBRIC_ITEM_LENGTH * MAX_RUBRIC_ITEMS:
+      problems.append(
+        f"{field} exceeds {MAX_RUBRIC_ITEM_LENGTH * MAX_RUBRIC_ITEMS} characters")
+  return problems
+
+
 def build_app(task_sets, submissions_path: Path, token: str | None,
-              kind: str | None = None):
+              kind: str | None = None, export_token: str | None = None,
+              secure_cookies: bool = False):
     """One app, one or both forms.
 
     `task_sets` maps kind -> tasks. Both forms already used disjoint endpoints
@@ -508,7 +638,8 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
     tests keep working — `kind` then says which form it is.
     """
     from fastapi import FastAPI, Request
-    from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+    from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
+                                   RedirectResponse)
 
     if isinstance(task_sets, list):
         task_sets = {kind or "rubric": task_sets}
@@ -595,18 +726,48 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         # no token and no cookie, so gating it would leave every machine
         # marked unhealthy and the app permanently down. It exposes only a
         # task count, which is not sensitive.
-        if not token or request.url.path == "/healthz":
+        if request.url.path == "/healthz":
             return await call_next(request)
-        supplied = (request.query_params.get("t")
-                    or request.cookies.get("mlrt")
+
+        # Size cap first, and on every request including an unauthenticated
+        # one: refusing a 50 MB body after parsing it is not a refusal.
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+            return PlainTextResponse(
+                f"request body exceeds {MAX_BODY_BYTES} bytes", 413)
+
+        if not token:
+            return await call_next(request)
+
+        query_token = request.query_params.get("t")
+        supplied = (query_token
+                    or request.cookies.get(COOKIE_NAME)
                     or request.headers.get("x-token"))
-        if supplied != token:
+        if not _secret_matches(supplied, token):
+            # compare_digest, not `!=`. See _secret_matches.
             return PlainTextResponse("This link needs its access token. Use the full "
                                      "URL you were sent.", 401)
-        response = await call_next(request)
-        if request.query_params.get("t") == token:
-            response.set_cookie("mlrt", token, max_age=86400 * 30, samesite="lax")
-        return response
+
+        # BOOTSTRAP, THEN GET THE TOKEN OUT OF THE URL. It used to be left
+        # there: the contributor's address bar, their history, every Referer
+        # header the page emitted and any screenshot of the form all carried
+        # the shared secret for the whole session. Exchange it for the cookie
+        # and redirect to the same URL without `t`.
+        if query_token is not None:
+            if request.method in ("GET", "HEAD"):
+                clean = request.url.remove_query_params("t")
+                # 303, not 307: this is "the thing you asked for is over
+                # there", and it must land as a GET.
+                resp = RedirectResponse(str(clean), status_code=303)
+                resp.set_cookie(COOKIE_NAME, token, **cookie_flags(request, secure_cookies))
+                return resp
+            # A non-GET carrying ?t= cannot be redirected without dropping the
+            # body, so it is served and the cookie is set for next time.
+            response = await call_next(request)
+            response.set_cookie(COOKIE_NAME, token, **cookie_flags(request, secure_cookies))
+            return response
+
+        return await call_next(request)
 
     @app.get("/", response_class=HTMLResponse)
     def index():
@@ -656,9 +817,14 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         """
         from common import position_from_form, render_position
         body = await request.json()
+        if not isinstance(body, dict):
+            return JSONResponse({"ok": False, "problems": ["expected an object"]}, 400)
+        # Bounded BEFORE anything is parsed or written. See
+        # validate_position_input: this endpoint appends whatever it accepts.
+        problems = validate_position_input(body)
+        if problems:
+            return JSONResponse({"ok": False, "problems": problems}, 400)
         author = (body.get("author") or "").strip()
-        if not author:
-            return JSONResponse({"ok": False, "problems": ["name required for attribution"]}, 400)
         pos = position_from_form(body)
         if not pos.get("legal_actions") or len(pos.get("key_points") or []) < 2:
             return JSONResponse({"ok": False, "problems":
@@ -1002,10 +1168,20 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
             # The same rule `validate_scenario` enforces, said here so the
             # author hears it before typing a second board rather than after.
             problems.append("a scenario needs at least 2 steps — one step is a position")
-        elif len(steps) > 12:
-            problems.append("at most 12 steps")
+        elif len(steps) > MAX_SCENARIO_STEPS:
+            problems.append(f"at most {MAX_SCENARIO_STEPS} steps")
         elif not all(isinstance(x, dict) for x in steps):
             problems.append("each step must be an object")
+        else:
+            # Each step is a whole board, so each step gets a board's bounds.
+            # The step COUNT was capped and the step CONTENTS were not, which
+            # bounds the list and not the payload.
+            for n, step in enumerate(steps, 1):
+                for problem in validate_position_input(
+                        {**step, "author": author if isinstance(author, str) else ""}):
+                    if problem == "name required for attribution":
+                        continue  # the author is on the envelope, not the step
+                    problems.append(f"step {n}: {problem}")
         if problems:
             return JSONResponse({"error": "; ".join(problems)}, 400)
         append_submission(submissions_path, {
@@ -1021,8 +1197,39 @@ def build_app(task_sets, submissions_path: Path, token: str | None,
         return {"ok": True, "scenario_id": sid, "steps": len(steps)}
 
     @app.get("/api/export")
-    def api_export():
-        """The raw submissions log, for pulling down and ingesting locally."""
+    def api_export(request: Request):
+        """The raw submissions log, for pulling down and ingesting locally.
+
+        A SEPARATE CREDENTIAL from the one that gates the form. The contributor
+        token is shared by everyone who was sent the link, and it used to be
+        enough to download the complete submission log — every other
+        contributor's rubrics, verdicts, notes and names.
+
+        That is not only a disclosure question; it is a measurement one. This
+        project's per-author agreement breakdown (`eval.py --compare`) is worth
+        something precisely because reviewers are independent evidence, and
+        21.74 is the section about a reviewer who sees the answer key first
+        ceasing to be that. A contributor who can read everyone else's
+        submissions before writing their own is the same failure with a wider
+        blast radius. `deploy/README.md` establishes contributors as trusted to
+        USE the form ("a handful of trusted people"); it nowhere establishes
+        that each is meant to hold the whole log.
+
+        Fails closed: with a contributor token in force and no
+        RUBRIC_EXPORT_TOKEN set, export is refused rather than falling back to
+        the weaker secret. An auth layer whose default is "off" is the shape of
+        every accidental exposure, and this repo already has one 5.0 GB
+        near-miss on that theme. With no token at all the server is
+        loopback-only by construction (a public bind without one is refused in
+        `main`), so local export is unaffected.
+        """
+        if token and not _secret_matches(request.headers.get("x-export-token"),
+                                         export_token):
+            return PlainTextResponse(
+                "the submission log needs the export credential; set "
+                "RUBRIC_EXPORT_TOKEN on the server and send it as "
+                "x-export-token. The contributor token does not authorize this.",
+                403)
         if not submissions_path.exists():
             return PlainTextResponse("", media_type="application/x-ndjson")
         return PlainTextResponse(submissions_path.read_text(encoding="utf-8"),
@@ -2030,6 +2237,19 @@ def main() -> None:
                              "and the host is not loopback.")
     parser.add_argument("--no-token", action="store_true",
                         help="serve without auth. Only sane on loopback.")
+    parser.add_argument("--export-token", default=os.environ.get("RUBRIC_EXPORT_TOKEN"),
+                        help="separate credential for GET /api/export, sent as the "
+                             "x-export-token header. The contributor token does NOT "
+                             "authorize the export: it is shared by everyone who has "
+                             "the link, and the log holds every other contributor's "
+                             "work. Unset with a contributor token in force means "
+                             "export is refused (fail closed); unset on a loopback "
+                             "server with no token at all is fine.")
+    parser.add_argument("--secure-cookies", action="store_true",
+                        help="force the Secure flag on the contributor cookie. Not "
+                             "normally needed: it is set automatically whenever the "
+                             "request arrived over HTTPS (fly forwards "
+                             "x-forwarded-proto). Use it behind a proxy that does not.")
     args = parser.parse_args()
 
     # One file per form. Both may be given; the kind of each comes from the
@@ -2057,10 +2277,16 @@ def main() -> None:
     print(f"\n  {base}{'?t=' + token if token else ''}\n")
     if token and not args.token:
         print(f"generated token: {token}  (set RUBRIC_TOKEN to keep it stable across restarts)\n")
+    if token and not args.export_token:
+        print("  note: RUBRIC_EXPORT_TOKEN is unset, so GET /api/export is refused.\n"
+              "        Set one to collect submissions:\n"
+              "          fly secrets set RUBRIC_EXPORT_TOKEN=\"$(openssl rand -hex 32)\"\n")
 
     import uvicorn
-    uvicorn.run(build_app(task_sets, args.submissions, token), host=args.host, port=args.port,
-                log_level="warning")
+    uvicorn.run(build_app(task_sets, args.submissions, token,
+                          export_token=args.export_token,
+                          secure_cookies=args.secure_cookies),
+                host=args.host, port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":
