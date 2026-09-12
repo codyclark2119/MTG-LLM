@@ -120,6 +120,18 @@ if ! "$PY" -m compileall -q scripts > /tmp/compileall.$$ 2>&1; then
 fi
 rm -f /tmp/compileall.$$
 
+# The new paired analyzer must reproduce the committed 53-question evidence
+# before it is trusted on the 99-question replication. This is model-free: it
+# reads two archived JSONL runs and asserts the already-published 15/6/32 split
+# plus the grounding counts that motivated the follow-up experiment.
+if out=$("$PY" scripts/analyze_k_rules_pair.py --check-historical 2>&1); then
+  printf 'OK    %-40s %s\n' "k-rules historical analysis" "$(echo "$out" | tail -1)"
+else
+  echo "FAIL  k-rules historical analysis"
+  echo "$out" | sed 's/^/      /'
+  FAILED=1
+fi
+
 for t in "${TESTS[@]}"; do
   if [ ! -f "$t" ]; then
     echo "FAIL  $t -- listed here but not in the repo."
