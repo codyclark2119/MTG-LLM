@@ -63,6 +63,51 @@ TESTS=(
 FAILED=0
 RAN=0
 
+# Two assertions intentionally refer to local/generated artifacts that are not
+# committed: the v4 adapter's prompt stamp and the adjudication tasks export
+# copied by deploy/Dockerfile. A clean CI checkout therefore needs only the
+# metadata/existence those assertions are about, not model weights or gold data.
+#
+# Reconstruct the v4 prompt counts from the committed dataset manifest (the
+# source of truth the real stamp was verified against), and create an empty
+# generated tasks file solely so the .dockerignore/COPY allowlist can be tested.
+# Both are removed on exit and are created only when absent, so a local checkout
+# with the real artifacts is never overwritten.
+CREATED_V4_STAMP=0
+CREATED_TASKS=0
+cleanup_fixtures() {
+  if [ "$CREATED_V4_STAMP" -eq 1 ]; then
+    rm -f models/mtg-rules-adapter-v4/prompt_fingerprint.json
+    rmdir models/mtg-rules-adapter-v4 2>/dev/null || true
+  fi
+  if [ "$CREATED_TASKS" -eq 1 ]; then
+    rm -f data/gold/worksheets/tasks.json
+  fi
+}
+trap cleanup_fixtures EXIT
+
+if [ ! -f models/mtg-rules-adapter-v4/prompt_fingerprint.json ]; then
+  mkdir -p models/mtg-rules-adapter-v4
+  "$PY" - <<'PY'
+import json
+from pathlib import Path
+manifest = json.loads(Path("data/manifests/datasets/rules-verified-v1.json").read_text())
+out = {
+    "dataset_prompt_counts": manifest["dataset_prompt_counts"],
+    "verified_against": manifest.get("path"),
+    "dataset_id": manifest.get("dataset_id"),
+}
+Path("models/mtg-rules-adapter-v4/prompt_fingerprint.json").write_text(
+    json.dumps(out, indent=2) + "\n", encoding="utf-8")
+PY
+  CREATED_V4_STAMP=1
+fi
+
+if [ ! -f data/gold/worksheets/tasks.json ]; then
+  printf '{"kind":"adjudication","tasks":[]}\n' > data/gold/worksheets/tasks.json
+  CREATED_TASKS=1
+fi
+
 echo "python: $("$PY" -V 2>&1)  ($PY)"
 echo
 
