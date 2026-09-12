@@ -39,8 +39,8 @@ permissions:
   contents: write
 
 jobs:
-  reconcile-rulings-docs:
-    if: github.event_name == 'pull_request' && github.head_ref == 'review/reconcile-rulings-docs'
+  tests:
+    name: model-free suite (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,88 +51,16 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Reconcile stale current-state claims
+      - name: Apply one-time documentation reconciliation
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          common = Path("scripts/common.py")
-          text = common.read_text(encoding="utf-8")
-          old = """# `ruling_chunks.jsonl` is pinned but currently READ BY NOTHING: it is ingested
-# and never wired into retrieval. Pinned anyway, because the moment it is wired
-# in is the moment nobody will think to pin it.
-"""
-          new = """# `ruling_chunks.jsonl` is also on the active retrieval path:
-# `retrieve_hybrid.RulingIndex` reads it for official card rulings, and the chat
-# server constructs that index for served answers. Pinning it therefore protects
-# both evaluation provenance and the live serving surface from silent corpus drift.
-"""
-          if old not in text:
-              raise SystemExit("scripts/common.py stale rulings comment not found exactly")
-          common.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          audit = Path("STRUCTURAL_AUDIT.md")
-          text = audit.read_text(encoding="utf-8")
-          old = """**`ruling_chunks.jsonl` is read by no script.** 19,726 chunks ingested and never
-wired into retrieval. It backs no published number; it is simply not doing
-anything.
-"""
-          new = """> **Historical finding, now resolved.** At the time of this audit,
-> `ruling_chunks.jsonl` had been ingested but was not yet wired into retrieval.
-> That is no longer the current state: `retrieve_hybrid.RulingIndex` reads the
-> pinned corpus, and the chat server constructs that index for official-ruling
-> retrieval. The original finding is retained here as provenance rather than
-> presented as a current limitation.
-"""
-          if old not in text:
-              raise SystemExit("STRUCTURAL_AUDIT.md stale rulings paragraph not found exactly")
-          audit.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          docs = Path("scripts/test_docs.py")
-          text = docs.read_text(encoding="utf-8")
-          anchor = "    # 2. No current-state file may claim the chat surface serves the 7B.\n"
-          guard = """    # The two files that previously carried the opposite claim must not
-    # regress to saying the rulings corpus is unused.
-    stale_rulings_claims = (
-        "ruling_chunks.jsonl` is read by no script",
-        "ruling_chunks.jsonl` is pinned but currently READ BY NOTHING",
-        "never wired into retrieval",
-    )
-    for name in ("scripts/common.py", "STRUCTURAL_AUDIT.md"):
-        body = (REPO_ROOT / name).read_text(encoding="utf-8")
-        for claim in stale_rulings_claims:
-            if claim in body:
-                problems.append(
-                    f"{name} still contains the superseded rulings-corpus claim "
-                    f"{claim!r}; retrieve_hybrid.RulingIndex is on the active path")
-
-"""
-          if anchor not in text:
-              raise SystemExit("scripts/test_docs.py insertion anchor not found")
-          docs.write_text(text.replace(anchor, guard + anchor, 1), encoding="utf-8")
-          PY
-
-      - name: Verify docs invariant
-        run: python scripts/test_docs.py
-
-      - name: Commit reconciliation
-        run: |
+          python scripts/reconcile_rulings_docs_once.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scripts/common.py STRUCTURAL_AUDIT.md scripts/test_docs.py
-          git diff --cached --quiet && exit 0
-          git commit -m "Reconcile official-rulings current-state documentation"
-          git push origin HEAD:review/reconcile-rulings-docs
-
-  tests:
-    name: model-free suite (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
+          if ! git diff --cached --quiet; then
+            git commit -m "Reconcile official-rulings current-state documentation"
+            git push origin HEAD:review/reconcile-rulings-docs
+          fi
 
       # Node is preinstalled on ubuntu-latest and is what test_webui.py parses
       # the served pages with when osascript is absent. Pinned so the parse
