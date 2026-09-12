@@ -1,0 +1,88 @@
+# Tier 1 of two. See scripts/run_tests.sh for what the other one is.
+#
+# WHAT THIS DOES AND DOES NOT PROVE
+# ---------------------------------
+# This repo trains and evaluates a local LLM on Apple Silicon via MLX. None of
+# that can run here: `mlx-metal` is a Metal build and a GitHub Linux runner has
+# no Metal, no Apple GPU and no 21.6 GB of unified memory to hold the served
+# 32B in.
+#
+# What CI validates is everything AROUND the model -- the scoring arithmetic
+# that turns judge JSON into published numbers, the deploy boundary that
+# decides what may leave the machine, the two servers' auth, the index's
+# structural checks, and the documentation invariants. Every test file in this
+# repo is deterministic and model-free by design (CLAUDE.md: "none of them need
+# a GPU"), which is why the list here is the WHOLE list rather than a subset:
+# the suite was verified to pass on Linux with only numpy, fastapi and httpx
+# installed and no mlx present.
+#
+# A green run here does NOT mean retrieval still retrieves well, that the judge
+# still scores the way 21.x measured, or that the chat surface answers. Nothing
+# in this repository tests those automatically; they are exercised by hand on a
+# Mac, and scripts/run_tests.sh says how.
+#
+# `requirements.txt` is deliberately NOT used: it is a full `pip freeze` of the
+# Apple Silicon environment and pins mlx-metal, which cannot install here. It
+# stays the reproducibility artifact for the machine that produces the numbers.
+# `requirements/ci.txt` is the model-free tier, pinned to the same versions;
+# `requirements/README.md` explains the split.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: model-free suite (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # Node is preinstalled on ubuntu-latest and is what test_webui.py parses
+      # the served pages with when osascript is absent. Pinned so the parse
+      # check cannot quietly stop running.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Assert the JS engine the page checks need is present
+        # test_webui.py fails rather than skips when CI is set and no engine is
+        # available -- this makes the reason legible before the suite runs.
+        run: node -e 'new Function("var a=1"); console.log("node can parse")'
+
+      - name: Install the model-free dependencies
+        # requirements/ci.txt, NOT requirements.txt -- see the header. It pins
+        # to the same versions as the lock and `test_deploy.py` fails if they
+        # drift, so this is not a second dependency list.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements/ci.txt
+
+      - name: Confirm MLX really is absent
+        # If mlx ever became importable here, the suite would start proving
+        # something different from what this workflow claims it proves.
+        run: |
+          if python -c "import mlx" 2>/dev/null; then
+            echo "mlx is importable on this runner; this workflow's claims no longer hold"
+            exit 1
+          fi
+          echo "no mlx, as expected"
+
+      - name: Run the suite
+        env:
+          PYTHON: python
+          # Set by GitHub already; named here because test_webui.py reads it to
+          # turn a missing JS engine from a skip into a failure.
+          CI: "true"
+        run: scripts/run_tests.sh

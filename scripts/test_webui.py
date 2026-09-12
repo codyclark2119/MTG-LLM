@@ -22,6 +22,7 @@ single-file app depends on. No browser, no network, no model.
 
 import json
 import re
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -80,10 +81,37 @@ def jsc_parse(js: str) -> str:
     try:
         out = subprocess.run(["osascript", "-l", "JavaScript", "-e", script],
                              capture_output=True, text=True, timeout=60)
+        return out.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        print("  SKIP osascript unavailable — JS not parse-checked")
-        return ""
-    return out.stdout.strip()
+        pass
+
+    # No osascript: a Linux CI runner. Node compiles the same way -- `new
+    # Function(src)` parses without executing -- so the check is the same
+    # check, not a weaker one. Deliberately NOT `node --check`, which parses
+    # as a top-level script and would disagree with JavaScriptCore about
+    # function-body-only constructs.
+    node_script = (
+        'const fs=require("fs");'
+        'try{ new Function(fs.readFileSync(process.argv[1],"utf8")); }'
+        'catch(e){ console.log(e.message); }')
+    try:
+        out = subprocess.run(["node", "-e", node_script, str(src)],
+                             capture_output=True, text=True, timeout=60)
+        return out.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # NEITHER IS AVAILABLE. On a developer's machine that is a skip with a
+    # warning; under CI it is a failure. A check that reports success along a
+    # path where it checked nothing is not a check -- this workspace has
+    # already shipped four scripts with exactly that shape, and the whole
+    # reason this file exists is a JavaScript syntax error that blanked four
+    # views while every Python-level test stayed green.
+    if os.environ.get("CI"):
+        return ("no JavaScript engine available (tried osascript, node) and CI "
+                "is set — refusing to report a parse check that did not run")
+    print("  SKIP no JS engine (osascript/node) — JS not parse-checked")
+    return ""
 
 
 def check_page(label: str, html: str) -> None:
