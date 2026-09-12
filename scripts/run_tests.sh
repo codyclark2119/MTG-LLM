@@ -88,7 +88,10 @@ for t in "${TESTS[@]}"; do
     RAN=$((RAN + 1))
   else
     echo "FAIL  $t"
-    echo "$out" | tail -15 | sed 's/^/      /'
+    # Keep the complete diagnostic. The old tail -15 hid the actual failing
+    # assertion in long suites such as test_eval.py, leaving CI to report only
+    # the final progress labels and "1 check(s) FAILED".
+    echo "$out" | sed 's/^/      /'
     FAILED=1
   fi
 done
