@@ -91,9 +91,10 @@ CR_PIN = {
 # `CardIndex` — and it is the layer where a *chunker* change shows up too. Same
 # reasoning as pinning `rules.jsonl` rather than the raw CR text.
 #
-# `ruling_chunks.jsonl` is pinned but currently READ BY NOTHING: it is ingested
-# and never wired into retrieval. Pinned anyway, because the moment it is wired
-# in is the moment nobody will think to pin it.
+# `ruling_chunks.jsonl` is also on the active retrieval path:
+# `retrieve_hybrid.RulingIndex` reads it for official card rulings, and the chat
+# server constructs that index for served answers. Pinning it therefore protects
+# both evaluation provenance and the live serving surface from silent corpus drift.
 CARD_PIN = {
     "card_chunks_sha256": "407903e2d42442dbdb8c598d4269fe4f8c2349c07a2164c7d9b7cf438df240f7",
     "ruling_chunks_sha256": "1e3e0fd4b57d4e10796e6adaf7fd0fdbe3a3899c0fd10aec7b71745e2ee24c17",

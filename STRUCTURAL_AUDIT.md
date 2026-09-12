@@ -201,9 +201,12 @@ downstream reads, and it catches a chunker change as well as a re-fetch.
 Verified by simulating errata — one word changed at an unchanged record count is
 refused, and a non-canonical `--chunks` path is still allowed.
 
-**`ruling_chunks.jsonl` is read by no script.** 19,726 chunks ingested and never
-wired into retrieval. It backs no published number; it is simply not doing
-anything.
+> **Historical finding, now resolved.** At the time of this audit,
+> `ruling_chunks.jsonl` had been ingested but was not yet wired into retrieval.
+> That is no longer the current state: `retrieve_hybrid.RulingIndex` reads the
+> pinned corpus, and the chat server constructs that index for official-ruling
+> retrieval. The original finding is retained here as provenance rather than
+> presented as a current limitation.
 
 ### 2. Derived artifacts — **already done; this entry was wrong**
 
