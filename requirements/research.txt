@@ -1,0 +1,21 @@
+# Present in the lock, imported by nothing in this repository.
+#
+# DO NOT INSTALL THIS FILE. It is documentation, not a target.
+#
+# These five come from the wider MLX environment ../requirements.txt was
+# frozen from. They were recorded in that file's header as "safe to trim but
+# left as a deliberate choice"; this file is that choice written down
+# properly, so the next person to audit the lock does not have to re-derive
+# which pins are unreachable.
+#
+# They stay in the lock. A reproducibility artifact describes the environment
+# the numbers were measured in, not the import graph of the code — removing a
+# package because nothing imports it today produces a file that installs a
+# different environment from the one the results describe. See
+# requirements/README.md.
+
+mlx-audio==0.4.8
+mlx-vlm==0.6.12
+opencv-python==5.0.0.93
+miniaudio==1.71
+sounddevice==0.5.5

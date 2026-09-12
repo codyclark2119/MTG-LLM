@@ -2884,6 +2884,14 @@ either nag on every deliberate `--cards somewhere_else` or check nothing at all.
 
 #### `ruling_chunks.jsonl` is ingested and read by nothing
 
+> **Superseded — this was true when written and is not true now.** Ten scripts
+> read `ruling_chunks.jsonl` today, `retrieve_hybrid.RulingIndex` among them,
+> which puts it on the **chat surface's serving path** as well as the eval one.
+> The correction is recorded in 21.152; `test_docs.py` now asserts the
+> readership mechanically, because "a file described as unread is a file
+> someone eventually deletes" and prose is what went stale here. The paragraph
+> below is kept as the original observation, not as current state.
+
 Found while looking for its chokepoint: there isn't one. 19,726 ruling chunks,
 22.7MB, built by `ingest_rulings.py` and referenced by no other script — the
 corpus was ingested and never wired into retrieval. It backs no published

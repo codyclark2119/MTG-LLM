@@ -103,6 +103,72 @@ def context_files() -> set[str]:
     return found
 
 
+def check_requirement_tiers() -> None:
+    """The dependency tiers must agree with the lock, version for version.
+
+    Splitting one requirements file into four creates four chances for a
+    version to drift, which is the same shape as every other duplicated-value
+    bug this repo has paid for. So the lock stays the single source of truth
+    and this asserts the others quote it rather than restate it.
+
+    What is deliberately NOT asserted: that the lock contains only what is
+    imported. `requirements/research.txt` documents five pins nothing imports,
+    and they stay in the lock on purpose — a reproducibility artifact describes
+    the environment the numbers were measured in, not today's import graph.
+    """
+    import re
+
+    def pins(path: Path) -> dict[str, str]:
+        out = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = re.match(r"^([A-Za-z0-9._-]+)(?:\[[^\]]*\])?==(.+)$", line)
+            if m:
+                out[m.group(1).lower().replace("_", "-")] = m.group(2).strip()
+        return out
+
+    lock = pins(REPO / "requirements.txt")
+    check("the lock is a real freeze, not a short list", len(lock) > 50, True)
+
+    for tier in ("base", "ci", "research"):
+        path = REPO / "requirements" / f"{tier}.txt"
+        check(f"requirements/{tier}.txt exists", path.exists(), True)
+        if not path.exists():
+            continue
+        for name, version in pins(path).items():
+            check(f"{tier}.txt pins {name} to the lock's version",
+                  version, lock.get(name))
+
+    # base.txt is the import graph written down; the six packages CLAUDE.md
+    # names as directly imported must all be in it.
+    base = pins(REPO / "requirements" / "base.txt")
+    for direct in ("mlx-lm", "mlx-embeddings", "numpy", "datasets",
+                   "fastapi", "uvicorn"):
+        check(f"base.txt lists the directly-imported {direct}",
+              direct in base, True)
+
+    # ci.txt must be installable WITHOUT Apple Silicon, so no mlx in it.
+    ci = pins(REPO / "requirements" / "ci.txt")
+    check("ci.txt pulls in no mlx package",
+          [n for n in ci if n.startswith("mlx")], [])
+    check("ci.txt has httpx, which the async chat tests need",
+          "httpx" in ci, True)
+
+    # And the workflow must install that file rather than its own list.
+    workflow = REPO / ".github" / "workflows" / "ci.yml"
+    check("a CI workflow exists", workflow.exists(), True)
+    if workflow.exists():
+        body = workflow.read_text(encoding="utf-8")
+        check("CI installs requirements/ci.txt",
+              "requirements/ci.txt" in body, True)
+        check("CI does not install the Apple-Silicon lock",
+              re.search(r"-r\s+requirements\.txt", body) is not None, False)
+        check("CI runs the canonical runner",
+              "scripts/run_tests.sh" in body, True)
+
+
 def main() -> None:
     copied, context = copied_paths(), context_files()
 
@@ -130,6 +196,8 @@ def main() -> None:
     reqs = [l for l in (REPO / "deploy/requirements.txt").read_text().splitlines()
             if l.strip() and not l.startswith("#")]
     check("deploy/requirements.txt stays tiny", len(reqs) <= 4, True)
+
+    check_requirement_tiers()
 
     # `fly launch` without --copy-config regenerates these at the root and they
     # override deploy/. Their reappearance is the failure, not a nuisance.

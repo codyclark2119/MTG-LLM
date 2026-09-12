@@ -45,6 +45,12 @@ fly volumes create rubric_data --size 1
 #    contributors identify themselves by typing a name, not by logging in.
 fly secrets set RUBRIC_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(12))')"
 
+# 3b. Set the EXPORT credential. Separate from the one above on purpose: the
+#     contributor token is shared by everyone who has the link, and the
+#     submission log holds every other contributor's work. Without this,
+#     GET /api/export is refused outright rather than falling back.
+fly secrets set RUBRIC_EXPORT_TOKEN="$(openssl rand -hex 32)"
+
 # 4. Ship it.
 fly deploy --config deploy/fly.toml --dockerfile deploy/Dockerfile
 ```
@@ -55,7 +61,7 @@ stored as a cookie for 30 days, so they follow the link once.
 ## Collect the work
 
 ```bash
-curl -H "x-token: $RUBRIC_TOKEN" https://<your-app>.fly.dev/api/export > submissions.jsonl
+curl -H "x-export-token: $RUBRIC_EXPORT_TOKEN" https://<your-app>.fly.dev/api/export > submissions.jsonl
 
 python scripts/author_rubrics.py --ingest-submissions submissions.jsonl --dry-run
 python scripts/author_rubrics.py --ingest-submissions submissions.jsonl
@@ -97,7 +103,24 @@ A public `--host` without a token is refused rather than warned about.
   free allowance for a form a handful of people use.
 - **Token scope.** One shared token gates the form; it is not per-user auth.
   Right for a handful of trusted people, wrong for anything public — treat the
-  URL as the secret and don't post it anywhere.
+  URL as the secret and don't post it anywhere. The link carries the token as
+  `?t=`; the server exchanges it for a cookie and **redirects to the same URL
+  without it**, so the secret does not sit in the address bar, the browser
+  history or any `Referer` the page emits. The cookie is `HttpOnly`,
+  `SameSite=Lax`, path `/`, and `Secure` whenever the request arrived over
+  HTTPS (fly forwards `x-forwarded-proto`).
+- **Export is a SEPARATE credential** (`RUBRIC_EXPORT_TOKEN`, sent as
+  `x-export-token`). Contributors are trusted to use the form; that is not the
+  same as being handed the complete submission log, which holds everyone
+  else's rubrics, verdicts, notes and names. It matters for the measurement as
+  well as the disclosure: `eval.py --compare` reports per-author agreement, and
+  that is worth something only while reviewers are independent — 21.74 is the
+  section about a reviewer who sees the answer key first. With a contributor
+  token in force and no export token set, `/api/export` **fails closed**.
+- **Submitted bodies are bounded** at the door — 256 KB per request, and the
+  rubric form's own limits (`MAX_AUTHOR_LENGTH`, `MAX_RUBRIC_ITEMS`,
+  `MAX_RUBRIC_ITEM_LENGTH`) reused for position and scenario drafts rather than
+  a second set of numbers to keep in step.
 - **`/healthz` is deliberately unauthenticated** so platform health checks pass.
   It returns a task count and nothing else. Gating it leaves every machine
   marked unhealthy and the app down.

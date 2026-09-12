@@ -52,9 +52,22 @@ exercise the path.
 source mlx_env/bin/activate     # every command below assumes this
 ```
 
-`requirements.txt` is a full `pip freeze`, not a curated list. Six packages are
-imported directly: `mlx-lm`, `mlx-embeddings`, `numpy`, `datasets`, `fastapi`,
-`uvicorn`.
+Dependencies are in **four** files and they are not interchangeable:
+
+| File | What it is |
+| --- | --- |
+| `requirements.txt` | the **lock** — the full freeze the numbers were measured in |
+| `requirements/base.txt` | the six packages the code imports directly |
+| `requirements/ci.txt` | the model-free subset, what CI installs on Linux |
+| `requirements/research.txt` | pins in the lock that nothing imports, documented so nobody re-derives them |
+
+The lock is **not** trimmed to match the import graph. It describes an
+environment, not an import list, and a fresh clone installing a trimmed version
+would be installing something other than what produced the results. Do not
+loosen the MLX pins either — that stack is coupled to itself and to Metal, and
+model output is not stable across versions. `test_deploy.py` fails if the tiers
+and the lock disagree on a version. `deploy/requirements.txt` is a fifth,
+unrelated file: three lines for the public image, derived from none of these.
 
 No pytest. Tests are runnable scripts with plain asserts, and none of them need
 a GPU:
@@ -66,7 +79,8 @@ python scripts/test_docs.py                       # README's artifact counts mat
 python scripts/test_webui.py                      # every served page's JavaScript parses (183)
 python scripts/test_deploy.py                     # what may leave the machine (136)
 python scripts/test_chat_server.py                # the chat surface's auth and rating durability
-python scripts/test_server_validation.py          # the rubric server's input validation
+python scripts/test_server_validation.py          # the rubric server's input validation and auth
+python scripts/test_rag.py                        # the vector index's structural checks
 python scripts/test_manifests.py                  # corpus and dataset manifests match the corpora
 python scripts/test_format_snapshot.py            # the pinned format snapshot
 python scripts/test_metagame.py                   # the metagame index
@@ -76,7 +90,11 @@ python scripts/gameplay/test_actions.py           # the action grammar (130)
 python scripts/gameplay/test_eval_positions.py    # the gameplay gates (61)
 ```
 
-That is the **whole** suite — 14 files. This list was seven for a while, with
+`scripts/run_tests.sh` runs all of them in one command and is what CI runs;
+`test_docs.py` fails if this list, that script and the files on disk disagree,
+so the three cannot drift apart the way this list already did once.
+
+That is the **whole** suite — 15 files. This list was seven for a while, with
 four stale assertion counts, so "I ran the tests" meant half of them; the
 counts are re-checked whenever they are quoted.
 
@@ -814,6 +832,84 @@ results. The only behavioural change is wording — a missing side now reads
 `players.you is missing` rather than `players.you is required` — and nothing
 matches on that string.
 
+## The chat surface (`scripts/chat_server.py`)
+
+The third server, and the only one that reaches the model. LAN- or
+tunnel-facing, so it is the one with a real threat model rather than a
+convention.
+
+**The configuration is ONE object: `common.CHAT_SERVING_PROFILE`.** Model,
+`k_rules` policy, keyword injection, token budget, and a `profile_id` with a
+content `fingerprint()`. `chat_server` takes every argparse default from it and
+restates none of them. This exists because 21.163 changed the serving model
+from the 7B to the 32B and **every setting that had been chosen for the 7B
+stayed behind** — the flat `k_rules=3`, and prose in five files. A
+configuration spread across five places has nowhere that can be checked, so
+`test_chat_server.test_serving_profile_is_coherent` checks the one place: it
+fails if the served model has no measured k policy, if the k is the one
+measured on a different model, or if any default stops deriving from the
+profile. Adding a serving setting means adding a field here, not a literal
+there.
+
+**The profile and `k_rules_used` are stamped on every rating.** The policy is
+not the treatment — under `auto` one row's k is 0 and the next is 3 — and the
+profile id says which shipped configuration that k belonged to. Four sections
+of this plan (21.13, 21.62, 21.65, 21.78) are the same bug: an identifier that
+survived while its meaning changed. The fingerprint is what stops
+`profile_id` becoming the fifth.
+
+**`k_rules` defaults to `auto` on the 32B, and that is a judgement call.** The
+k=0 branch is +0.25 on the 32B (15/6/32, p = 0.078; 21.144, reproduced in
+21.158) and it costs fabricated citations 3/53 → 7/53. 21.158 called that trade
+bad for a rules bot and 21.165 marks every behavioural conclusion from the
+53-question benchmark provisional until replicated on the gold set, which this
+one has not been. It is set this way because 21.158's *rule* — the shipped
+default may not rest on a model the service does not run — now points at the
+32B's number rather than the 7B's. `--k-rules 3` restores the flat setting,
+and `k_rules_used` keeps the branches separable in the ratings either way.
+
+**One answer at a time, off the event loop.** `/api/ask` is `async` and
+`engine.answer` is ~30s of retrieval plus MLX generation, so it runs in a
+worker thread via `anyio.to_thread.run_sync` with a `CapacityLimiter(1)`.
+Both halves matter and for different reasons:
+
+- calling it directly from the coroutine froze the *whole server* for the
+  duration — login, health and rating POSTs all waited out one questioner, and
+  the page's elapsed counter made that look like a working page;
+- the limiter is not a `threading.Lock` because anyio takes it *before* it
+  takes a worker thread, so a queued questioner parks as an awaiting task
+  rather than occupying a pool slot. The sync routes run in that same pool, so
+  a lock would have starved exactly the endpoints this keeps responsive.
+
+`Engine.answer` also holds its own lock across **retrieval and generation
+together**. It used to wrap `lm_generate` alone, leaving `build_context`
+running concurrently on one shared `mlx_embeddings` model. Nothing had caught
+it because the route serialized itself by blocking everything.
+
+**A rating is idempotent.** One issued `answer_id` is one feedback
+observation: the first valid rating persists, an identical retry returns
+`recorded: false` and appends nothing, and a *different* rating for the same
+answer is a `409` rather than a second independent row. The dedupe check and
+the append happen under one lock, or two racing retries both decide they are
+first. `issued` is a `deque` plus dicts, and eviction drops the id from both.
+
+**Client identity is the peer address unless a proxy is declared.**
+`chat_auth.client_ip` believes `CF-Connecting-IP`/`X-Forwarded-For` only under
+`--trust-proxy` *and* only from a loopback peer, and reads `X-Forwarded-For`
+from the **right**, because each hop appends the peer it saw and the leftmost
+entry is the attacker-controlled one. Trusting the first value unconditionally
+— which is what it used to do — meant any client that could reach the port got
+a fresh throttling bucket per request by changing a header, so the lockout
+could never fire. `serve_chat.sh` passes `--trust-proxy` because there the
+bind is loopback and cloudflared is the only thing that can reach it; a LAN
+bind must not.
+
+The attempt table is bounded (`_MAX_TRACKED_IPS`) and expires globally rather
+than only when the same address returns — an address that fails twice and never
+comes back is exactly what an identity-rotating attacker leaves behind.
+Eviction prefers entries that are **not** locked out, or filling the table
+would become the way to clear someone's lockout.
+
 ## The rubric form (`scripts/rubric_server.py`)
 
 The *deployable* half, and a separate program on purpose. It reads one
@@ -821,6 +917,33 @@ self-contained `tasks.json` (from `author_rubrics.py --export-tasks`), appends
 to one `submissions.jsonl`, and reaches nothing else — no gold set, no
 candidates, no corpora, no model. Its only project import is
 `common.lint_common_errors`, which is why `common.py` must stay pure stdlib.
+
+**The auth boundary.** This is the only server here meant to be reachable from
+the internet, so its gate is the one that has to be right:
+
+- secrets are compared with `hmac.compare_digest`, never `!=`. Timing is not
+  observable from a test, so `test_server_validation` asserts it on the
+  *source* — the same tool `test_chat_server` uses for the module-level mlx
+  import;
+- a token arriving in the query string is **exchanged for a cookie and
+  redirected away**. It used to be left in the URL, which put the shared secret
+  in the address bar, the history and every `Referer` the page emitted;
+- the cookie is `HttpOnly`, `SameSite=Lax`, path `/`, and `Secure` whenever the
+  request arrived over HTTPS (fly forwards `x-forwarded-proto`). Lax rather
+  than Strict deliberately: a contributor arrives by following a link, and
+  Strict withholds the cookie on exactly that navigation;
+- **`/api/export` needs a different credential** (`RUBRIC_EXPORT_TOKEN`, sent as
+  `x-export-token`), and fails closed when one is not set. The contributor
+  token is shared by everyone with the link; the log is everyone's work. It is
+  a measurement concern as much as a disclosure one — `eval.py --compare`
+  reports per-author agreement, and 21.74 is the section about a reviewer who
+  stops being independent evidence once they have seen more than they should;
+- `/healthz` stays unauthenticated. Gating it marks every fly machine unhealthy
+  and takes the app down; it returns a task count and nothing else;
+- bodies are capped at `MAX_BODY_BYTES` before parsing, and position/scenario
+  drafts reuse the rubric form's own limits (`MAX_AUTHOR_LENGTH`,
+  `MAX_RUBRIC_ITEMS`, `MAX_RUBRIC_ITEM_LENGTH`) rather than a second set of
+  numbers to keep in step.
 
 Two invariants worth keeping:
 

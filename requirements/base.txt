@@ -1,0 +1,29 @@
+# What this repository's code actually imports, pinned to the lock.
+#
+#   pip install -r requirements/base.txt
+#
+# This is the dependency LIST. ../requirements.txt is the reproducibility
+# LOCK — the full freeze of the environment every published number was
+# measured in — and it is what to install when reproducing a result. Read
+# requirements/README.md before changing either.
+#
+# Versions match the lock exactly, MLX included, and are not loosened: the
+# MLX stack is coupled to itself and to the Metal runtime, and model output is
+# not stable across versions. `test_deploy.py` fails if these drift apart.
+
+# models and inference — Apple Silicon only; these are why CI cannot run the
+# model half of this repo at all.
+mlx-lm==0.31.3
+mlx-embeddings==0.1.0
+
+# the retrieval index (scripts/rag.py) and every array in the eval harness
+numpy==2.5.2
+
+# SFT and reddit eval construction
+datasets==5.0.1
+
+# the local web console (scripts/webui.py), the rubric server and the chat
+# surface. anyio arrives with starlette and is used directly by chat_server
+# for its one-answer-at-a-time capacity limiter.
+fastapi==0.141.1
+uvicorn==0.52.1

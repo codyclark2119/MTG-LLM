@@ -2,7 +2,9 @@
 
 Teaching a local LLM to reason about Magic: The Gathering rules, on Apple Silicon, with MLX.
 
-The system is a **retrieval-augmented rules assistant**: the Comprehensive Rules are parsed into a structured, cross-referenced corpus, retrieved per question, and answered by a 7B model — optionally with a LoRA adapter fine-tuned on synthesized rules Q&A. Card data and official rulings are retrieved separately and joined back to the rules that govern them.
+The system is a **retrieval-augmented rules assistant**: the Comprehensive Rules are parsed into a structured, cross-referenced corpus, retrieved per question, and answered by a local Qwen2.5 model — optionally with a LoRA adapter fine-tuned on synthesized rules Q&A. Card data and official rulings are retrieved separately and joined back to the rules that govern them.
+
+**Two models, two jobs.** Experiments are measured against the **7B** (`common.BASE_MODEL_ID`), which is what every stored eval number describes and what keeps runs comparable. The **chat surface serves the 32B** (`common.CHAT_SERVING_PROFILE`) since Section 21.163 chose quality over latency. They are separate constants on purpose: moving the measurement baseline would silently re-baseline every future run against a different model. The serving configuration — model, retrieval policy, token budget, and a version id stamped onto every rating — lives in that one profile rather than being restated per file.
 
 > **Status: research in progress, not a finished product.** The evaluation work below found that fine-tuning as currently trained does *not* beat plain retrieval, and that two reasonable LLM judges disagree enough to reverse conclusions. Those results are documented rather than smoothed over — see [Honest results](#honest-results).
 >
@@ -26,6 +28,25 @@ source mlx_env/bin/activate
 pip install -r requirements.txt
 python -c "import mlx_lm; print('mlx-lm ready')"
 ```
+
+`requirements.txt` is the **lock** — the full freeze of the environment every
+published number was measured in, and what to install when reproducing one.
+`requirements/base.txt` is the shorter list of what the code actually imports,
+and `requirements/ci.txt` is the model-free subset the test suite needs on a
+machine without Apple Silicon. [requirements/README.md](requirements/README.md)
+explains why the lock is not trimmed to match the imports.
+
+## Tests
+
+```bash
+scripts/run_tests.sh          # the whole suite, no GPU, no model
+```
+
+Every test file is deterministic and model-free, which is what
+[CI](.github/workflows/ci.yml) runs on Linux. A green run means the code around
+the model holds together — it does **not** exercise retrieval quality,
+generation or judge scoring, none of which have automated tests. Those are run
+by hand on the Mac; `scripts/run_tests.sh` says how.
 
 ## Quick start
 
@@ -330,7 +351,7 @@ A separate program with a deliberately small surface — it reads one exported t
 Promotion into the gold set stays a local, reviewed step, which is what keeps *gold* meaning **a person reviewed this**:
 
 ```bash
-curl -H "x-token: $RUBRIC_TOKEN" https://<app>/api/export > submissions.jsonl
+curl -H "x-export-token: $RUBRIC_EXPORT_TOKEN" https://<app>/api/export > submissions.jsonl
 python scripts/author_rubrics.py --ingest-submissions submissions.jsonl --dry-run
 ```
 

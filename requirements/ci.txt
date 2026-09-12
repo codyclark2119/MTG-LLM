@@ -1,0 +1,18 @@
+# The model-free tier: everything the test suite needs, and nothing that
+# requires Apple Silicon.
+#
+#   pip install -r requirements/ci.txt
+#
+# This is what .github/workflows/ci.yml installs. Verified rather than
+# assumed: the whole 15-file suite passes on Linux with exactly these three
+# and no mlx importable at all.
+#
+# httpx is here and not in base.txt because no shipped script imports it —
+# it is what fastapi's TestClient runs on, plus the async client
+# test_chat_server uses to prove /api/ask does not block the event loop.
+#
+# Versions match ../requirements.txt. `test_deploy.py` fails if they drift.
+
+numpy==2.5.2
+fastapi==0.141.1
+httpx==0.28.1
