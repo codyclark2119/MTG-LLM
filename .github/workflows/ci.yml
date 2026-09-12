@@ -36,7 +36,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   tests:
@@ -44,23 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: review/reconcile-rulings-docs
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-
-      - name: Apply one-time documentation reconciliation
-        run: |
-          python scripts/reconcile_rulings_docs_once.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/common.py STRUCTURAL_AUDIT.md scripts/test_docs.py
-          if ! git diff --cached --quiet; then
-            git commit -m "Reconcile official-rulings current-state documentation"
-            git push origin HEAD:review/reconcile-rulings-docs
-          fi
 
       # Node is preinstalled on ubuntu-latest and is what test_webui.py parses
       # the served pages with when osascript is absent. Pinned so the parse
