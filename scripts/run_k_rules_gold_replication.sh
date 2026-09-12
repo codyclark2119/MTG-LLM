@@ -12,6 +12,11 @@
 # The only intended experimental variable is --k-rules: 0 versus 3.
 # Outputs are archived under descriptive names and then analyzed with the
 # pre-committed paired analyzer.
+#
+# Restart behavior: eval.py checkpoints generated answers before judging. If a
+# checkpoint exists but the scored run does not, this script resumes from it in
+# a fresh process instead of regenerating the 32B answers. A completed run is
+# never overwritten automatically.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,13 +51,30 @@ common=(
 run_one() {
   local k="$1"
   local out="eval/runs/${STEM}_k${k}.jsonl"
+  local checkpoint="eval/runs/${STEM}_k${k}.answers.jsonl"
   local report="eval/reports/${STEM}_k${k}.md"
+
+  if [ -f "$out" ]; then
+    echo "Refusing to overwrite completed run: $out" >&2
+    echo "Move/archive it explicitly if you intend to repeat the experiment." >&2
+    return 2
+  fi
+
   echo
   echo "=== k=${k} ==="
-  "$PY" "${common[@]}" \
-    --k-rules "$k" \
-    --out "$out" \
-    --report-out "$report"
+  if [ -f "$checkpoint" ]; then
+    echo "Resuming judging from $checkpoint (generation already complete)."
+    "$PY" "${common[@]}" \
+      --k-rules "$k" \
+      --answers-from "$checkpoint" \
+      --out "$out" \
+      --report-out "$report"
+  else
+    "$PY" "${common[@]}" \
+      --k-rules "$k" \
+      --out "$out" \
+      --report-out "$report"
+  fi
 }
 
 run_one 0
