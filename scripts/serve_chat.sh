@@ -3,8 +3,13 @@
 #
 # Section 21.149 rejected every off-machine hosting plan for one reason: mlx is
 # Apple-Silicon-only, so anywhere else means serving a different model, and
-# every number in Sections 21.139-21.148 describes THIS 7B. The model stays
-# here; only the connection travels.
+# every number in Sections 21.139-21.148 describes a model measured HERE. The
+# model stays on this Mac; only the connection travels.
+#
+# What is served is `common.CHAT_SERVING_PROFILE` -- the 32B since 21.163, not
+# the 7B this comment used to name. Do not restate the model or its retrieval
+# settings here: they moved once already and this file was one of the places
+# left behind.
 #
 # cloudflared dials OUT to Cloudflare and Cloudflare proxies inbound requests
 # back down that connection. So: no ports opened on the router, no static IP,
@@ -48,7 +53,15 @@ source mlx_env/bin/activate
 # path to the same host. The flag describes how the USER reaches the
 # service, not how uvicorn is bound — that distinction is exactly what a
 # reverse proxy makes easy to get wrong.
-python -u scripts/chat_server.py --host 127.0.0.1 --port "$PORT" --secure-cookies &
+# --trust-proxy is what makes login throttling work THROUGH the tunnel. Every
+# request arrives from cloudflared on loopback, so without it every visitor in
+# the world shares one rate-limit bucket: eight wrong passwords from anyone
+# locks out everyone. With it, and only because the peer is loopback, the
+# client identity is read from the headers Cloudflare sets. It is safe here
+# precisely because this bind is loopback-only -- nothing but the tunnel can
+# reach it, so nothing else can present a forged header.
+python -u scripts/chat_server.py --host 127.0.0.1 --port "$PORT" \
+  --secure-cookies --trust-proxy &
 SERVER_PID=$!
 # Kill the tunnel too if the server dies, and vice versa: a tunnel pointing at
 # a dead port serves a Cloudflare error page under YOUR hostname, which reads

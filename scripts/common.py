@@ -28,6 +28,7 @@ their own directory is already on `sys.path`:
 """
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -306,13 +307,22 @@ CARDS_RAG_SYSTEM_PROMPT = SYSTEM_PROMPT + (
 # scores below no-retrieval") when it was a fact about the PAIRING: every
 # question in that benchmark named a card, so the condition was never varied.
 #
-# THE FIRST HALF IS MODEL-SPECIFIC AND DOES NOT HOLD ON THE 7B THIS PROJECT
-# SERVES (Section 21.158). Re-run identically on the 7B, k=0 scores -0.02
-# (12/11/30, p = 1.000) and takes fabricated citations from 0/53 to 5/53. So
-# `route_k_rules` is correct for the model it was measured on and wrong for the
-# one that ships: chat_server defaults to a flat k=3, and AUTO is a deliberate
-# 32B configuration. Do not restore it as a default without re-measuring on
-# whatever model is actually being served.
+# THE FIRST HALF IS MODEL-SPECIFIC (Section 21.158). Re-run identically on the
+# 7B, k=0 scores -0.02 (12/11/30, p = 1.000) and takes fabricated citations from
+# 0/53 to 5/53, so `route_k_rules` is a statement about the 32B and not about
+# retrieval in general.
+#
+# WHICH MODEL SHIPS DECIDES WHICH SETTING IS RIGHT, and it has changed. While
+# the service ran the 7B (21.145) chat_server defaulted to a flat k=3 and this
+# comment said the project "serves" the 7B. 21.163 moved the service to the 32B
+# and left that sentence, and the flat default, behind it. Both now come from
+# `CHAT_SERVING_PROFILE` below, which is the one place the model and its
+# dependent retrieval settings are stated together -- so they cannot drift apart
+# again without a test failing.
+#
+# The standing rule from 21.158 is unchanged and is what the profile follows:
+# the shipped default may not rest on a model the service does not run. Changing
+# the served model therefore means re-deciding k, not inheriting it.
 #
 # Here rather than in `retrieve_hybrid` because four CLIs parse this flag and
 # `retrieve_hybrid` pulls in `rag`, which imports mlx_embeddings at module
@@ -340,6 +350,107 @@ def k_rules_arg(value: str) -> int | str:
     if k < 0:
         raise argparse.ArgumentTypeError(f"k must be >= 0, got {k}")
     return k
+
+
+# --- The shipped chat configuration, as one object --------------------------
+#
+# WHY THIS EXISTS. The serving model and the retrieval settings that depend on
+# it were three unrelated literals in three files: `CHAT_MODEL_ID` here,
+# `--k-rules`'s default in `chat_server.py`, and prose in `serve_chat.sh`, the
+# README and half a dozen help strings. 21.163 moved ONE of them -- the model,
+# 7B -> 32B -- and everything downstream kept the value that had been chosen
+# FOR THE 7B. That is this repo's most expensive recurring shape, the "stale
+# default silently evaluating the wrong thing" from CLAUDE.md, and it is not
+# fixable by being more careful: a configuration spread across five files has
+# no single place that can be checked.
+#
+# So the profile is the source of truth and `chat_server` derives its defaults
+# from it. `test_chat_server.test_serving_profile_is_coherent` fails if the
+# model and its dependent retrieval settings drift apart again, and
+# `fingerprint()` fails if any behaviourally relevant field moves without the
+# version being bumped -- the same mechanism as `prompt_fingerprint`, for the
+# same reason.
+
+
+@dataclasses.dataclass(frozen=True)
+class ServingProfile:
+    """One named, versioned chat configuration.
+
+    Frozen because a served profile is a fact about a set of stored ratings,
+    not a mutable runtime setting. An operator overriding a flag on the command
+    line does NOT mutate this -- `Engine.config()` stamps the override and the
+    profile id side by side, so a row whose settings disagree with its profile
+    is visible as exactly that rather than silently mislabelled.
+    """
+
+    profile_id: str
+    model_id: str
+    k_rules: int | str
+    keyword_rules: bool
+    max_tokens: int
+    adapter_path: str | None = None
+
+    def fingerprint(self) -> str:
+        """Digest of every behaviourally relevant field.
+
+        Stamped on each rating next to `profile_id`. The id says which
+        configuration a row claims to be; the fingerprint says whether that
+        claim still means what it meant when the row was written. This project
+        has four separate sections about an identifier surviving while its
+        meaning changed (21.13, 21.62, 21.65, 21.78) -- an unversioned
+        `profile_id` would be the fifth.
+        """
+        h = hashlib.sha256()
+        for field in dataclasses.fields(self):
+            if field.name == "profile_id":
+                continue
+            h.update(f"{field.name}={getattr(self, field.name)!r}\n".encode())
+        return h.hexdigest()[:12]
+
+    def stamp(self) -> dict:
+        """The provenance pair that rides on every persisted row."""
+        return {"serving_profile": self.profile_id,
+                "serving_profile_fingerprint": self.fingerprint()}
+
+
+# The shipped default. `chat_server.py` takes every one of its defaults from
+# here; nothing below is restated anywhere else.
+#
+# `k_rules=AUTO_K_RULES` IS A CHANGE FROM THE FLAT k=3 21.158 SET, and it is
+# made on 21.158's own stated rule rather than against it. That section ends
+# "`auto` and `route_k_rules` stay -- they are tested, and k=0 is still the
+# measured-better setting on a 32B -- but the shipped default may not rest on a
+# model the service does not run." At the time the service ran the 7B, on which
+# the k=0 branch measures -0.02 and takes fabricated citations 0/53 -> 5/53, so
+# flat k=3 was correct. 21.163 then moved the service to the 32B and did not
+# revisit the k that had been chosen for the 7B. Applying 21.158's rule to the
+# model that now actually ships gives `auto`: on the 32B the k=0 branch is
+# +0.25 (15/6/32, p = 0.078), measured in 21.144 and reproduced exactly in
+# 21.158's own table.
+#
+# THE COST IS REAL AND IS NOT HIDDEN HERE. On the 32B that +0.25 came with
+# fabricated citations 3/53 -> 7/53 (9% -> 17%), and 21.158 judged that trade
+# bad for a rules bot "in any case". 21.165 further marks every behavioural
+# conclusion from the 53-question benchmark provisional until replicated on the
+# gold set, which the k=0 branch has not been. So this default is a deliberate
+# decision on suggestive evidence, in the same class as 21.161's keyword
+# injection -- not a settled result. Two things make it reversible rather than
+# load-bearing: the router only drops CR text when a card ALREADY resolved (so
+# the answer is never ungrounded, only differently grounded), and every answer
+# records `k_rules_used`, so the two branches stay separable in the ratings
+# whichever way this is later settled. Flip it back with `--k-rules 3`.
+CHAT_SERVING_PROFILE = ServingProfile(
+    profile_id="chat-32b-routed-v2",
+    model_id=CHAT_MODEL_ID,
+    k_rules=AUTO_K_RULES,
+    keyword_rules=True,
+    max_tokens=800,
+)
+
+# Pinned so a field cannot move without this line moving too. `test_docs.py`
+# compares them, and the failure message names the bump. v1 was the 7B at a
+# flat k=3 with keyword injection on (21.161), retired by 21.163.
+CHAT_SERVING_PROFILE_FINGERPRINT = "ab0c4319324a"
 
 
 # --- Canonical data paths ---------------------------------------------------
