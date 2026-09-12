@@ -11,6 +11,10 @@ This is the pre-committed analysis for the gold-set replication of Sections
 The script refuses mismatched question sets, arm sets, base models, judges, or
 judge prompts. The point is to make it difficult to accidentally call two runs
 "k=0 vs k=3" when another consequential variable changed too.
+
+`--check-historical` is a model-free regression check against the two committed
+53-question runs. It proves this analyzer reproduces the evidence that motivated
+the replication before it is used on the new 99-question result.
 """
 
 from __future__ import annotations
@@ -20,7 +24,10 @@ import json
 import math
 from pathlib import Path
 
+REPO = Path(__file__).resolve().parent.parent
 DEFAULT_ARM = "base_rag_cards_rulings"
+HISTORICAL_A = REPO / "eval/runs/deconf32b_k0_card_ruling53.jsonl"
+HISTORICAL_B = REPO / "eval/runs/deconf32b_k3_card_ruling53.jsonl"
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -145,6 +152,32 @@ def summarize(path_a: Path, path_b: Path, arm: str = DEFAULT_ARM) -> dict:
     }
 
 
+def historical_check() -> None:
+    got = summarize(HISTORICAL_A, HISTORICAL_B)
+    expected = {
+        "n_questions": 53,
+        "wins_a": 15,
+        "wins_b": 6,
+        "ties": 32,
+        "unjudged_pairs": 0,
+        "fabricated_a": 7,
+        "fabricated_b": 3,
+        "grounded_a": 34,
+        "grounded_b": 29,
+    }
+    bad = {k: (got[k], want) for k, want in expected.items() if got[k] != want}
+    if bad:
+        details = ", ".join(f"{k}: got {g!r}, want {w!r}" for k, (g, w) in bad.items())
+        raise SystemExit(f"historical k-rules analysis changed: {details}")
+    p = got["sign_test_p_two_sided"]
+    if not math.isclose(p, exact_sign_p(15, 6), rel_tol=0.0, abs_tol=1e-15):
+        raise SystemExit(f"historical sign-test changed: {p}")
+    print(
+        "historical k-rules pair reproduced: 15/6/32, "
+        "fabricated 7/53 vs 3/53, grounded 34/53 vs 29/53"
+    )
+
+
 def markdown(summary: dict, label_a: str, label_b: str) -> str:
     delta = summary["mean_correctness_delta_a_minus_b"]
     delta_s = "n/a" if delta is None else f"{delta:+.3f}"
@@ -179,13 +212,24 @@ def markdown(summary: dict, label_a: str, label_b: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("a", type=Path, help="first matched run (for this experiment: k=0)")
-    ap.add_argument("b", type=Path, help="second matched run (for this experiment: k=3)")
+    ap.add_argument("a", type=Path, nargs="?", help="first matched run (for this experiment: k=0)")
+    ap.add_argument("b", type=Path, nargs="?", help="second matched run (for this experiment: k=3)")
     ap.add_argument("--arm", default=DEFAULT_ARM)
     ap.add_argument("--label-a", default="k=0")
     ap.add_argument("--label-b", default="k=3")
     ap.add_argument("--out", type=Path, default=None, help="optional Markdown report path")
+    ap.add_argument("--check-historical", action="store_true",
+                    help="reproduce the committed 53-question k=0 vs k=3 evidence and exit")
     args = ap.parse_args()
+
+    if args.check_historical:
+        if args.a or args.b or args.out:
+            ap.error("--check-historical takes no run paths or --out")
+        historical_check()
+        return
+
+    if args.a is None or args.b is None:
+        ap.error("A and B run paths are required unless --check-historical is used")
 
     summary = summarize(args.a, args.b, args.arm)
     text = markdown(summary, args.label_a, args.label_b)
