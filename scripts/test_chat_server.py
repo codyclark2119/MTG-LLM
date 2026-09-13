@@ -476,9 +476,9 @@ def test_serving_profile_is_coherent() -> None:
     #    has no measured retrieval policy, which is the condition that must
     #    fail rather than default to whatever was there before.
     measured_k = {
-        # 21.144 +0.25 on the k=0 branch (15/6/32, p=0.078), reproduced in
-        # 21.158's own table; the k=3 branch is 21.155/21.157.
-        "mlx-community/Qwen2.5-32B-Instruct-4bit": AUTO_K_RULES,
+        # Gold99 replication: k=0 lost 14-20 with 65 ties (p=0.392) and
+        # fabricated 21/99 citations versus 4/99 at k=3.
+        "mlx-community/Qwen2.5-32B-Instruct-4bit": K_RULES_NO_CARDS,
         # 21.158: on the 7B the k=0 branch is -0.02 and takes fabricated
         # citations 0/53 -> 5/53, so the router's card branch is not used.
         "mlx-community/Qwen2.5-7B-Instruct-4bit": K_RULES_NO_CARDS,

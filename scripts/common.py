@@ -417,33 +417,19 @@ class ServingProfile:
 # The shipped default. `chat_server.py` takes every one of its defaults from
 # here; nothing below is restated anywhere else.
 #
-# `k_rules=AUTO_K_RULES` IS A CHANGE FROM THE FLAT k=3 21.158 SET, and it is
-# made on 21.158's own stated rule rather than against it. That section ends
-# "`auto` and `route_k_rules` stay -- they are tested, and k=0 is still the
-# measured-better setting on a 32B -- but the shipped default may not rest on a
-# model the service does not run." At the time the service ran the 7B, on which
-# the k=0 branch measures -0.02 and takes fabricated citations 0/53 -> 5/53, so
-# flat k=3 was correct. 21.163 then moved the service to the 32B and did not
-# revisit the k that had been chosen for the 7B. Applying 21.158's rule to the
-# model that now actually ships gives `auto`: on the 32B the k=0 branch is
-# +0.25 (15/6/32, p = 0.078), measured in 21.144 and reproduced exactly in
-# 21.158's own table.
-#
-# THE COST IS REAL AND IS NOT HIDDEN HERE. On the 32B that +0.25 came with
-# fabricated citations 3/53 -> 7/53 (9% -> 17%), and 21.158 judged that trade
-# bad for a rules bot "in any case". 21.165 further marks every behavioural
-# conclusion from the 53-question benchmark provisional until replicated on the
-# gold set, which the k=0 branch has not been. So this default is a deliberate
-# decision on suggestive evidence, in the same class as 21.161's keyword
-# injection -- not a settled result. Two things make it reversible rather than
-# load-bearing: the router only drops CR text when a card ALREADY resolved (so
-# the answer is never ungrounded, only differently grounded), and every answer
-# records `k_rules_used`, so the two branches stay separable in the ratings
-# whichever way this is later settled. Flip it back with `--k-rules 3`.
+# The 99-question gold replication settles the provisional routing choice.
+# On the matched 32B card+rulings arm, k=0 lost 14-20 with 65 ties (mean
+# delta -0.131, two-sided exact sign-test p=0.392) and fabricated citations
+# rose from 4/99 at k=3 to 21/99 at k=0. The precommitted decision rule
+# required a significant positive correctness effect AND no fabrication
+# increase; k=0 failed both. Flat k=3 therefore returns as the shipped
+# default. `AUTO_K_RULES` and `route_k_rules` remain available for explicit
+# research overrides; the experiment rejects the router as DEFAULT, not as
+# a capability. See eval/experiments/k_rules_gold99_result.md.
 CHAT_SERVING_PROFILE = ServingProfile(
-    profile_id="chat-32b-routed-v2",
+    profile_id="chat-32b-flat-k3-v3",
     model_id=CHAT_MODEL_ID,
-    k_rules=AUTO_K_RULES,
+    k_rules=K_RULES_NO_CARDS,
     keyword_rules=True,
     max_tokens=800,
 )
@@ -451,7 +437,7 @@ CHAT_SERVING_PROFILE = ServingProfile(
 # Pinned so a field cannot move without this line moving too. `test_docs.py`
 # compares them, and the failure message names the bump. v1 was the 7B at a
 # flat k=3 with keyword injection on (21.161), retired by 21.163.
-CHAT_SERVING_PROFILE_FINGERPRINT = "ab0c4319324a"
+CHAT_SERVING_PROFILE_FINGERPRINT = "6f17affbeded"
 
 
 # --- Canonical data paths ---------------------------------------------------

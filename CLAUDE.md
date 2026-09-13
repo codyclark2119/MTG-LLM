@@ -858,15 +858,15 @@ of this plan (21.13, 21.62, 21.65, 21.78) are the same bug: an identifier that
 survived while its meaning changed. The fingerprint is what stops
 `profile_id` becoming the fifth.
 
-**`k_rules` defaults to `auto` on the 32B, and that is a judgement call.** The
-k=0 branch is +0.25 on the 32B (15/6/32, p = 0.078; 21.144, reproduced in
-21.158) and it costs fabricated citations 3/53 → 7/53. 21.158 called that trade
-bad for a rules bot and 21.165 marks every behavioural conclusion from the
-53-question benchmark provisional until replicated on the gold set, which this
-one has not been. It is set this way because 21.158's *rule* — the shipped
-default may not rest on a model the service does not run — now points at the
-32B's number rather than the 7B's. `--k-rules 3` restores the flat setting,
-and `k_rules_used` keeps the branches separable in the ratings either way.
+**`k_rules` defaults to flat `3` on the 32B; the provisional `auto`
+policy failed its required gold-set replication.** The earlier 53-question
+card benchmark favored k=0 by +0.25 (15/6/32, p=0.078) but also raised
+fabricated citations 3/53 -> 7/53. The precommitted 99-question replication
+reversed the correctness direction (14 k=0 wins / 20 k=3 wins / 65 ties, mean
+delta -0.131, p=0.392) and widened the grounding cost to **21/99 fabricated
+citations at k=0 versus 4/99 at k=3**. The replication rule therefore restores
+flat k=3 as the shipped default. `--k-rules auto` remains an explicit research
+override, and `k_rules_used` keeps treatments separable in stored ratings.
 
 **One answer at a time, off the event loop.** `/api/ask` is `async` and
 `engine.answer` is ~30s of retrieval plus MLX generation, so it runs in a
