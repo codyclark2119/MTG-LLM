@@ -42,27 +42,13 @@ against a rules-only arm's 1/99, and injection takes it back to 1. Correctness
 is a null and nothing measured got worse — but n=4 at p=0.125, so this is a
 judgement call on a bounded downside, not a settled result.
 
-`--k-rules` defaults to **`auto`**, the per-question router (Section 21.156):
-k=0 when card text already resolved, k=3 when it did not.
-
-This is a CHANGE from the flat k=3 that 21.158 set, and it is made on 21.158's
-own rule rather than against it. That section kept `auto` and said the shipped
-default "may not rest on a model the service does not run" — which at the time
-meant the 7B, where the k=0 branch is −0.02 and takes fabricated citations from
-0/53 to 5/53. 21.163 then moved the service to the **32B** and did not revisit a
-k chosen for the 7B. On the 32B the k=0 branch is **+0.25** (15/6/32, p = 0.078,
-21.144, reproduced exactly in 21.158's own table). The k=3 branch is untouched
-and is the stronger of the two anyway: +0.65 card-free under two judges (21.155,
-21.157), fabricated citations 4/20 to 0/20.
-
-**The cost is real.** On the 32B that +0.25 came with fabricated citations
-3/53 → 7/53, and 21.158 called the trade bad for a rules bot in any case;
-21.165 marks every behavioural conclusion from that 53-question benchmark
-provisional until it is replicated on the gold set, which this one has not been.
-So this is a judgement call on suggestive evidence, like 21.161's keyword
-injection — not a settled result. `--k-rules 3` restores the flat setting, and
-every answer records `k_rules_used`, so the two branches stay separable in the
-ratings whichever way it is later settled.
+`--k-rules` defaults to **`3`**. The provisional `auto` default was tested
+on the full 99-question gold set after Section 21.165 required replication.
+It did not replicate: k=0 lost 14-20 with 65 ties (mean delta -0.131, p=0.392)
+and fabricated citations rose from 4/99 at k=3 to 21/99 at k=0. The
+precommitted rule therefore restores flat k=3 for the shipped 32B profile.
+`--k-rules auto` remains available as an explicit experimental override, and
+`k_rules_used` remains recorded per answer.
 
 The whole configuration lives in ONE object, `common.CHAT_SERVING_PROFILE`, and
 every default below is read from it. It used to be three literals in three files
@@ -78,7 +64,7 @@ Phase 1. Appended one JSON object per line, fsynced, mirroring
 Usage:
     python scripts/chat_server.py                      # loopback only
     python scripts/chat_server.py --lan                # LAN, prints a token
-    python scripts/chat_server.py --k-rules 3          # flat k=3, ignoring the router
+    python scripts/chat_server.py --k-rules auto       # experimental per-question router
 """
 
 import argparse
@@ -516,10 +502,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "not. The k=3 branch is +0.65 card-free under two judges (21.155, "
                          "21.157). The k=0 branch is +0.25 on the 32B this serves (15/6/32, "
                          "p=0.078; 21.144, reproduced in 21.158) and was NOT used while the "
-                         "service ran the 7B, where it measures -0.02 and takes fabricated "
-                         "citations 0/53 to 5/53. On the 32B it costs 3/53 to 7/53 "
-                         "fabrications, which 21.158 called a bad trade for a rules bot and "
-                         "21.165 marks provisional — pass `3` for the flat grounded setting. "
+                         "gold replication: k=0 lost 14-20 with 65 ties and raised fabricated "
+                         "citations from 4/99 to 21/99. Flat k=3 is the shipped setting; "
+                         "pass `auto` only to reproduce the experimental router. "
                          "Recorded on every answer, per question, as k_rules_used.")
     ap.add_argument("--keyword-rules", action=argparse.BooleanOptionalAction,
                     default=CHAT_SERVING_PROFILE.keyword_rules,
