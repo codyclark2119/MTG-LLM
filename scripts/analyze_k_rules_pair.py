@@ -162,8 +162,12 @@ def historical_check() -> None:
         "unjudged_pairs": 0,
         "fabricated_a": 7,
         "fabricated_b": 3,
-        "grounded_a": 34,
-        "grounded_b": 29,
+        # These fields mean "cited at least one rule", not the report's
+        # stricter historical "Grounded" column. The committed answers contain
+        # citations on 41 k=0 and 32 k=3 responses; 34/29 were copied from that
+        # different report metric and made the regression check self-contradict.
+        "grounded_a": 41,
+        "grounded_b": 32,
     }
     bad = {k: (got[k], want) for k, want in expected.items() if got[k] != want}
     if bad:
@@ -174,7 +178,7 @@ def historical_check() -> None:
         raise SystemExit(f"historical sign-test changed: {p}")
     print(
         "historical k-rules pair reproduced: 15/6/32, "
-        "fabricated 7/53 vs 3/53, grounded 34/53 vs 29/53"
+        "fabricated 7/53 vs 3/53, cited-a-rule 41/53 vs 32/53"
     )
 
 
