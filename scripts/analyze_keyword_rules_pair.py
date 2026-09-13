@@ -19,19 +19,9 @@ import json
 import math
 from pathlib import Path
 
+from analyze_k_rules_pair import read_jsonl, record_id
+
 ARM = "base_rag_cards_rulings"
-
-
-def read_jsonl(path: Path) -> list[dict]:
-    with path.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-def record_id(row: dict) -> str:
-    value = row.get("gold_id") or row.get("id")
-    if not value:
-        raise ValueError("run row has neither gold_id nor id")
-    return str(value)
 
 
 def exact_two_sided(wins: int, losses: int) -> float:
